@@ -1,0 +1,133 @@
+---
+description: Etapa 23 — Compositor, MediaMTX e integración RTMP completa
+type: stage
+stage: 23
+status: pendiente
+depends_on: 21
+---
+
+# Etapa 23 — Compositor e Ingestor
+
+## Referencia principal
+
+Ver `/ingestor/ingestor.mdc` para la arquitectura técnica completa del compositor.
+Este documento cubre la integración con el backend Laravel y el ciclo de vida del stream.
+
+---
+
+## Objetivo
+Conectar el stream de Laravel con MediaMTX y el compositor.
+Al pasar un stream a `live`, MediaMTX está listo para recibir el ingest de participantes
+y el compositor mezcla el layout y lo envía por RTMP.
+
+---
+
+## Flujo completo al iniciar un stream
+
+```
+Host llama PATCH /api/v1/rooms/{room}/streams/{stream}/start
+        │
+        ▼
+Laravel:
+  1. Stream.status = 'live'
+  2. Registra rtmp_key en MediaMTX via API interna
+  3. Notifica al compositor via Redis:
+     PUBLISH compositor.stream.start { streamId, rtmpKey, destinations, layout }
+        │
+        ▼
+Compositor (Node.js):
+  4. Recibe evento de Redis
+  5. Puppeteer abre página con Fabric.js canvas
+  6. Conecta <video> elements a los streams de MediaMTX
+  7. Inicia captureStream() → FFmpeg → RTMP destinos
+        │
+        ▼
+Participantes:
+  8. Clientes conectan su WebRTC a MediaMTX (usando rtmp_key del stream)
+  9. MediaMTX distribuye los streams al compositor
+```
+
+---
+
+## Comunicación Laravel → Compositor
+
+Via Redis pub/sub (mismo patrón que Socket.io):
+
+```php
+// Canal dedicado para el compositor
+Redis::publish('compositor.stream.start', json_encode([
+    'streamId'     => $stream->id,
+    'rtmpKey'      => $stream->rtmp_key,
+    'destinations' => $stream->destinations_json,
+    'layout'       => $initialLayout,
+    'fps'          => 30,
+    'resolution'   => '1920x1080',
+]));
+
+Redis::publish('compositor.layout.update', json_encode([
+    'streamId' => $stream->id,
+    'layout'   => $newLayout,
+    'transition' => ['duration' => 300, 'easing' => 'easeInOutQuad'],
+]));
+
+Redis::publish('compositor.stream.stop', json_encode([
+    'streamId' => $stream->id,
+]));
+```
+
+---
+
+## API interna de MediaMTX
+
+MediaMTX expone una API REST para gestionar streams:
+
+```bash
+# Registrar un path de ingest
+POST http://mediamtx:9997/v3/config/paths/add/{rtmpKey}
+
+# Verificar que hay ingest activo
+GET http://mediamtx:9997/v3/paths/list
+```
+
+---
+
+## Pods adicionales en esta etapa
+
+| Pod | Imagen | Función |
+|---|---|---|
+| `mediamtx` | bluenviron/mediamtx | SFU: ingest WebRTC/RTMP, distribuye streams |
+| `compositor` | Node.js custom | Mezcla video/audio, aplica layout, emite RTMP |
+
+### Compositor Dockerfile
+```dockerfile
+FROM node:20
+RUN apt-get install -y chromium ffmpeg
+# ... setup puppeteer, fabric.js, fluent-ffmpeg
+```
+
+---
+
+## Detalles técnicos del compositor
+
+Ver `/ingestor/ingestor.mdc` para:
+- Arquitectura Chromium headless + Fabric.js
+- Jitter buffer y sincronización de streams
+- Hold Last Frame strategy
+- Pipeline de frames: captureStream → FFmpeg → RTMP
+- Manejo de animaciones y transiciones de layout
+
+---
+
+## Checklist
+
+- [ ] Pod `mediamtx` configurado y accesible
+- [ ] Pod `compositor` con Node.js + Puppeteer + FFmpeg
+- [ ] Laravel registra `rtmp_key` en MediaMTX al iniciar stream
+- [ ] Canal Redis `compositor.*` implementado
+- [ ] Compositor escucha `compositor.stream.start` y abre canvas
+- [ ] Compositor escucha `compositor.layout.update` y actualiza Fabric.js
+- [ ] Compositor escucha `compositor.stream.stop` y limpia recursos
+- [ ] Pipeline completo: WebRTC → MediaMTX → Compositor → FFmpeg → RTMP
+- [ ] Host puede cambiar layout en tiempo real via Socket.io → Laravel → Redis → Compositor
+- [ ] Al terminar stream en Laravel, compositor limpia el proceso FFmpeg
+- [ ] Tests de integración: inicio, cambio de layout, fin de stream

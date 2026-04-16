@@ -1,0 +1,33 @@
+# ─── Entorno ──────────────────────────────────────────────────────────────────
+.env
+.env.*.local
+
+# ─── Laravel ──────────────────────────────────────────────────────────────────
+vendor/
+public/hot
+public/storage
+storage/app/public
+storage/logs/*.log
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/testing/
+storage/framework/views/
+bootstrap/cache/*.php
+.phpunit.cache/
+.phpunit.result.cache
+coverage/
+
+# ─── Node / socketio ──────────────────────────────────────────────────────────
+node_modules/
+services/socketio/node_modules/
+services/socketio/dist/
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

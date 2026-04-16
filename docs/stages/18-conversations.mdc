@@ -1,0 +1,165 @@
+---
+description: Etapa 18 — Conversaciones, mensajes, adjuntos y threading
+type: stage
+stage: 18
+status: pendiente
+depends_on: 16
+---
+
+# Etapa 18 — Conversaciones y mensajes
+
+## Objetivo
+Sistema de conversaciones dentro de rooms (públicas, privadas, sistema),
+mensajes con adjuntos, threading y preparación para broadcasting via Socket.io.
+
+---
+
+## Tipos de conversación
+
+| Tipo | Visible para | Quién puede crear |
+|---|---|---|
+| `public` | todos los participantes del room | cualquier participante |
+| `private` | solo los participantes asignados | host, moderator, o cualquiera |
+| `system` | todos | solo el sistema (Laravel) |
+
+Las conversaciones `private` tienen registros en `conversation_participants`.
+Las conversaciones `public` y `system` no necesitan esa tabla — son visibles para todos.
+
+---
+
+## Tipos de mensaje
+
+| `message_type` | `content` | `participant_id` | Cuándo |
+|---|---|---|---|
+| `text` | texto | requerido | mensaje normal |
+| `attachment` | null o texto opcional | requerido | solo adjuntos o texto + adjunto |
+| `system` | texto del evento | null | usuario entró, salió, room terminada |
+
+---
+
+## Mensajes de sistema (automáticos)
+
+Se crean por Observers o eventos de Laravel, no por el usuario:
+
+```php
+// Al unirse un participante
+Message::create([
+    'conversation_id' => $publicConversation->id,
+    'participant_id'  => null,
+    'message_type'    => MessageType::System,
+    'content'         => "{$participant->display_name} se unió al room",
+]);
+
+// Al terminar el room
+Message::create([
+    'conversation_id' => $publicConversation->id,
+    'participant_id'  => null,
+    'message_type'    => MessageType::System,
+    'content'         => "El room ha finalizado",
+]);
+```
+
+---
+
+## Threading (reply_to_message_id)
+
+Un mensaje puede ser respuesta a otro dentro de la misma conversación.
+No hay anidamiento profundo — un nivel de reply es suficiente para v1.
+
+---
+
+## Eventos para Socket.io
+
+Al crear/editar/eliminar un mensaje, Laravel publica en Redis:
+
+```php
+// app/Domain/Conversations/Observers/MessageObserver.php
+
+public function created(Message $message): void
+{
+    Redis::publish(
+        'room.' . $message->conversation->room_id,
+        json_encode([
+            'event' => 'message.created',
+            'data'  => MessageResource::make($message)->toArray(request()),
+        ])
+    );
+}
+```
+
+Eventos publicados:
+- `message.created`
+- `message.updated` (edición)
+- `message.deleted` (soft delete)
+- `conversation.created`
+- `participant.joined`
+- `participant.left`
+
+---
+
+## Endpoints
+
+```
+# Conversaciones  [auth.jwt]
+GET    /api/v1/rooms/{room}/conversations                                 ListConversationsController
+POST   /api/v1/rooms/{room}/conversations                                 CreateConversationController
+DELETE /api/v1/rooms/{room}/conversations/{conversation}                  DeleteConversationController
+
+# Mensajes  [auth.jwt]
+GET    /api/v1/conversations/{conversation}/messages                      ListMessagesController         cursor
+POST   /api/v1/conversations/{conversation}/messages                      SendMessageController
+PATCH  /api/v1/conversations/{conversation}/messages/{message}            EditMessageController
+DELETE /api/v1/conversations/{conversation}/messages/{message}            DeleteMessageController
+```
+
+---
+
+## Paginación de mensajes
+
+Los mensajes usan **cursor-based** pagination.
+El cliente carga los últimos 50 mensajes y hace scroll hacia arriba para cargar más.
+
+---
+
+## Visibilidad de conversaciones privadas
+
+```php
+// Policy: ConversationPolicy::view()
+public function view(User $user, Conversation $conversation): bool
+{
+    if ($conversation->type !== ConversationType::Private) {
+        return true; // públicas y sistema son visibles para todos
+    }
+
+    return $conversation->participants()
+        ->whereHas('roomParticipant', fn($q) => $q->where('user_id', $user->id))
+        ->exists();
+}
+```
+
+---
+
+## Reservado — fases posteriores
+
+- **Notificaciones de mensajes (gaps.mdc → D):** en v1 los mensajes se entregan
+  en tiempo real solo a clientes conectados via Socket.io. Si el usuario no está
+  conectado, no recibe aviso. Push/email de mensajes no leídos es fase posterior.
+- **Reacciones:** no en v1. `message_type` está preparado para añadir `reaction`
+  sin breaking change.
+- **Edición de mensajes:** el campo `edited_at` está reservado pero la mutation
+  `editMessage` puede omitirse en v1 si no hay tiempo.
+
+---
+
+## Checklist
+
+- [ ] CRUD de conversaciones con validación de tipo y visibilidad
+- [ ] Mensajes de texto con validación de pertenencia a conversación
+- [ ] Mensajes de sistema creados por Observer
+- [ ] Adjuntos vinculando message ↔ asset (validar que asset pertenece al workspace)
+- [ ] Threading con `reply_to_message_id`
+- [ ] Soft delete de mensajes (content queda como `[deleted]` o null)
+- [ ] Paginación cursor-based en mensajes
+- [ ] Policy de visibilidad para conversaciones privadas
+- [ ] Observer publicando eventos en Redis para Socket.io
+- [ ] Tests: tipos de conversación, visibilidad, mensajes, eventos Redis

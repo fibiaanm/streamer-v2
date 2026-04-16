@@ -1,0 +1,174 @@
+---
+description: Etapa 05 — Servicio Socket.io con Node.js, JWT auth y Redis pub/sub
+type: stage
+stage: 05
+status: pendiente
+depends_on: 04
+---
+
+# Etapa 05 — Socket.io service
+
+## Objetivo
+Socket.io es infraestructura de tiempo real, no una feature de dominio.
+Se levanta aquí, tras tener JWT, para que todos los dominios posteriores
+puedan publicar en Redis y los clientes reciban eventos desde el primer día.
+
+**En esta etapa:** foundation completa — JWT auth, Redis pub/sub, lifecycle de conexión,
+escalado horizontal y canales genéricos listos.
+
+**Handlers de room** (join_room, presencia por room) se completan en etapa 10
+cuando el dominio Rooms existe, pero el servicio ya corre y consume Redis.
+
+---
+
+## Estructura del proyecto
+
+```
+/socketio/
+├── package.json
+├── src/
+│   ├── index.js
+│   ├── middleware/
+│   │   └── auth.js           # JWT verification
+│   ├── handlers/
+│   │   ├── roomHandler.js    # join/leave — completo en etapa 10
+│   │   └── presenceHandler.js
+│   ├── redis/
+│   │   ├── subscriber.js     # consume eventos de Laravel via Redis
+│   │   └── channels.js       # mapeo canal Redis → room Socket.io
+│   └── config.js
+├── Dockerfile
+└── .env.example
+```
+
+---
+
+## Autenticación JWT
+
+El cliente envía el JWT en el handshake. Socket.io verifica la firma
+con el mismo `JWT_SECRET` que Laravel — sin consultar la DB.
+
+```js
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token?.replace('Bearer ', '');
+    if (!token) return next(new Error('authentication_required'));
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.user = decoded;   // { sub, name, email }
+        next();
+    } catch (err) {
+        next(new Error('invalid_token'));
+    }
+});
+```
+
+---
+
+## Redis pub/sub — consumidor genérico
+
+Se suscribe a todos los canales que Laravel publicará desde etapa 06 en adelante.
+No necesita saber qué dominio publica — solo reemite al room correspondiente.
+
+```js
+// redis/subscriber.js
+await redisSubscriber.pSubscribe('room.*', (payload, channel) => {
+    const { event, data } = JSON.parse(payload);
+    io.to(channel).emit(event, data);
+});
+
+// Canal del compositor (etapa 14)
+await redisSubscriber.pSubscribe('compositor.*', (payload, channel) => {
+    const { event, data } = JSON.parse(payload);
+    io.emit(event, data); // broadcast global o a room específica según evento
+});
+```
+
+**Canales que se irán usando en etapas posteriores:**
+
+| Canal | Publicado desde | Desde etapa |
+|---|---|---|
+| `room.{id}` | mensajes, participantes, streams | 10, 11, 13 |
+| `workspace.{id}` | assets, roles, miembros | 08, 09 |
+| `enterprise.{id}` | roles, permisos | 06 |
+| `compositor.*` | layout, stream events | 14 |
+
+---
+
+## Presencia (completo en etapa 10)
+
+El código de presencia se define aquí pero se activa cuando rooms existe.
+
+```js
+// Skeleton — se completa en etapa 10
+socket.on('join_room', async ({ roomId }) => {
+    // Valida acceso via Laravel HTTP interno (endpoint creado en etapa 10)
+    // socket.join('room.' + roomId)
+    // Gestiona presencia en Redis
+});
+
+socket.on('disconnect', async () => {
+    // Limpia presencia de Redis
+    // Notifica al room
+});
+```
+
+---
+
+## Escalado horizontal
+
+```js
+import { createAdapter } from '@socket.io/redis-adapter';
+
+const pubClient = createClient({ url: process.env.REDIS_URL });
+const subClient = pubClient.duplicate();
+await Promise.all([pubClient.connect(), subClient.connect()]);
+
+io.adapter(createAdapter(pubClient, subClient));
+```
+
+---
+
+## Eventos emitidos al cliente
+
+| Evento | Payload | Disponible desde |
+|---|---|---|
+| `enterprise.role_updated` | `{ userId, roleId }` | etapa 06 |
+| `workspace.member_added` | member object | etapa 08 |
+| `workspace.asset_created` | asset object | etapa 09 |
+| `room.participant_joined` | participant object | etapa 10 |
+| `presence.joined` | `{ userId, name }` | etapa 10 |
+| `presence.left` | `{ userId, name }` | etapa 10 |
+| `presence.list` | `[{ userId, name }]` | etapa 10 |
+| `message.created` | message object | etapa 11 |
+| `message.updated` | message object | etapa 11 |
+| `message.deleted` | `{ id }` | etapa 11 |
+| `stream.started` | stream object | etapa 13 |
+| `stream.ended` | `{ streamId }` | etapa 13 |
+
+---
+
+## Reservado — fases posteriores
+
+- **Rate limiting de conexiones (gaps.mdc → Rate limiting):** en v1 no hay límite
+  de conexiones por usuario ni por IP. En producción: throttling en el handshake
+  via Traefik o middleware propio.
+- **Notificaciones push (gaps.mdc → Notificaciones):** Socket.io solo entrega
+  eventos a clientes conectados. Web Push / FCM para usuarios desconectados
+  es fase posterior.
+
+---
+
+## Checklist
+
+- [ ] Proyecto Node.js con Socket.io 4.x
+- [ ] Dockerfile para el pod `socketio`
+- [ ] Middleware JWT verificando con `JWT_SECRET` compartido
+- [ ] Consumidor Redis `room.*` reemitiendo eventos a clientes
+- [ ] Consumidor Redis `workspace.*` reemitiendo eventos
+- [ ] Consumidor Redis `enterprise.*` reemitiendo eventos
+- [ ] Redis adapter para escalado horizontal configurado
+- [ ] Skeleton de `join_room` y `disconnect` listo (sin lógica de rooms aún)
+- [ ] Variables de entorno: `JWT_SECRET`, `REDIS_URL`, `LARAVEL_INTERNAL_URL`
+- [ ] Servicio levanta y conecta sin errores
+- [ ] Tests: autenticación JWT válido e inválido, conexión/desconexión

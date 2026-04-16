@@ -1,0 +1,508 @@
+---
+description: Modelo de datos completo y corregido — entidades, relaciones y decisiones de diseño
+type: model
+status: revisado
+---
+
+# Modelo de datos — streamer-v2
+
+---
+
+# USUARIOS Y AUTENTICACIÓN
+
+## `users`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | uuid / bigint | |
+| `name` | string | |
+| `email` | string | unique |
+| `password` | string | hashed |
+| `two_factor_secret` | string nullable | **reservado** — 2FA fase posterior |
+| `two_factor_confirmed_at` | timestamp nullable | **reservado** — 2FA fase posterior |
+| `deleted_at` | timestamp nullable | soft delete |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+> Avatar gestionado por Spatie Media Library (sin columna propia).
+
+---
+
+## `refresh_tokens`
+
+Refresh tokens de larga duración almacenados en DB.
+Access token: 15min. Refresh token: 30 días.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `user_id` | FK → users.id | |
+| `token` | string | hashed (sha256) |
+| `expires_at` | timestamp | |
+| `revoked_at` | timestamp nullable | null = activo |
+| `created_at` | timestamp | |
+
+---
+
+## `social_accounts`
+
+**Reservado para fase posterior** (login social). Tabla presente, sin lógica en v1.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `user_id` | FK → users.id | |
+| `provider` | string | `google`, `github`, etc. |
+| `provider_id` | string | |
+| `provider_token` | string nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+# EMPRESAS
+
+## `enterprises`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `name` | string | |
+| `deleted_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+## `enterprise_user` (pivot)
+
+Solo contiene membresías **activas**. Las invitaciones pendientes viven en `invitations`.
+Un usuario entra a esta tabla únicamente al aceptar una invitación.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `user_id` | FK → users.id | |
+| `enterprise_id` | FK → enterprises.id | |
+| `role_id` | FK → enterprise_roles.id | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+# INVITACIONES
+
+## `invitations`
+
+Cubre invitaciones a empresa Y a workspace mediante diseño polimórfico.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `invitable_type` | string | `enterprise` \| `workspace` |
+| `invitable_id` | bigint | FK polimórfica |
+| `invited_by_user_id` | FK → users.id | |
+| `email` | string | destinatario |
+| `enterprise_role_id` | FK → enterprise_roles.id nullable | solo si `invitable_type = enterprise` |
+| `workspace_role_id` | FK → workspace_roles.id nullable | solo si `invitable_type = workspace` |
+| `token` | string | unique, para el link del email |
+| `status` | enum | `pending`, `accepted`, `expired`, `revoked` |
+| `expires_at` | timestamp | |
+| `accepted_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+# SUSCRIPCIONES
+
+## `plans`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `name` | string | |
+| `type` | enum | `individual`, `enterprise` |
+| `limits_json` | json | payload — no base de consulta |
+| `is_free` | boolean | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+> Ejemplo de `limits_json`: `{ "max_members": 25, "max_concurrent_streams": 2, "max_workspace_depth": 3, "storage_gb": 50 }`
+> `max_members`: cuántos usuarios pueden estar cobijados bajo el plan. `-1` = ilimitado.
+
+---
+
+## `subscriptions`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `enterprise_id` | FK → enterprises.id | |
+| `plan_id` | FK → plans.id | |
+| `status` | string | `active`, `trialing`, `past_due`, `canceled`, `expired` |
+| `starts_at` | timestamp | |
+| `ends_at` | timestamp nullable | |
+| `trial_ends_at` | timestamp nullable | |
+| `provider` | string nullable | `stripe`, null en v1 (seeder) |
+| `provider_customer_id` | string nullable | **reservado** Stripe |
+| `provider_subscription_id` | string nullable | **reservado** Stripe |
+| `override_json` | json nullable | overrides de contrato personalizado |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+---
+
+## `subscription_usage`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `subscription_id` | FK → subscriptions.id | |
+| `metric_key` | string | `users_count`, `concurrent_streams`, `storage_bytes`, ... |
+| `used_value` | bigint | |
+| `period_start` | date | |
+| `period_end` | date | |
+| `meta_json` | json nullable | contexto adicional |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+# PERMISOS ENTERPRISE
+
+## `enterprise_permissions`
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `name` | string |
+
+---
+
+## `enterprise_roles`
+
+`enterprise_id` nullable = rol base global (no editable).
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `enterprise_id` | FK → enterprises.id nullable | null = rol base |
+| `name` | string | |
+| `is_default` | boolean | |
+| `created_at` | timestamp | |
+
+**Roles base (seeder):** `owner`, `admin`, `member`, `billing`
+
+> **Nota de diseño:** Los roles base enterprise usan `enterprise_id = null` (catálogo global,
+> seeded una sola vez, compartido entre todas las empresas). Los roles custom tienen `enterprise_id`
+> del enterprise que los creó. Este patrón difiere de `workspace_roles`, donde cada workspace
+> recibe sus propias copias al crearse (`is_base = true`), porque los workspace roles
+> necesitan ser independientes entre sí (un workspace puede renombrar o ampliar sus roles
+> sin afectar a otros), mientras que los enterprise roles base son un catálogo fijo.
+
+---
+
+## `enterprise_role_permissions` (pivot)
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `role_id` | FK → enterprise_roles.id |
+| `permission_id` | FK → enterprise_permissions.id |
+
+---
+
+# WORKSPACES
+
+## `workspaces`
+
+`path` (ltree) permite validar profundidad en O(1) y queries de subtree eficientes.
+`parent_workspace_id` se mantiene como referencia de integridad relacional.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `name` | string | |
+| `owner_user_id` | FK → users.id | |
+| `parent_workspace_id` | FK → workspaces.id nullable | null = raíz |
+| `path` | ltree | ej: `"1.5.23.47"` — índice GiST requerido |
+| `status` | enum | `active`, `archived`, `orphaned` |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+**Índice requerido:**
+```sql
+CREATE INDEX workspaces_path_gist ON workspaces USING GIST (path);
+```
+
+**Validación de profundidad antes de insertar:**
+```sql
+-- nlevel('1.5.23') = 3
+SELECT nlevel(path) + 1 <= plan.max_workspace_depth FROM workspaces WHERE id = :parent_id
+```
+
+---
+
+## `workspace_roles`
+
+Los roles base se **seedean por workspace al crearlo** (no son globales con nullable).
+Esto es consistente con el desacoplamiento decidido: cada workspace tiene sus propias copias.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `workspace_id` | FK → workspaces.id | siempre requerido |
+| `name` | string | |
+| `is_base` | boolean | true = seeded, no editable |
+| `created_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+**Roles base seeded al crear workspace:** `owner`, `admin`, `editor`, `viewer`, `guest`
+
+---
+
+## `workspace_permissions`
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `name` | string |
+
+---
+
+## `workspace_role_permissions` (pivot)
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `role_id` | FK → workspace_roles.id |
+| `permission_id` | FK → workspace_permissions.id |
+
+---
+
+## `workspace_user` (pivot)
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `user_id` | FK → users.id |
+| `workspace_id` | FK → workspaces.id |
+| `role_id` | FK → workspace_roles.id |
+| `created_at` | timestamp |
+| `updated_at` | timestamp |
+
+---
+
+# ASSETS
+
+## `assets`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `owner_workspace_id` | FK → workspaces.id | |
+| `created_by_user_id` | FK → users.id | |
+| `type` | enum | `image`, `video`, `audio`, `document`, `other` |
+| `title` | string | |
+| `description` | text nullable | |
+| `status` | enum | `active`, `archived`, `trashed` |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+> Archivo físico gestionado por Spatie Media Library (tabla `media` separada).
+
+---
+
+## `asset_references`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `asset_id` | FK → assets.id | |
+| `workspace_id` | FK → workspaces.id | workspace que referencia |
+| `created_by_user_id` | FK → users.id | |
+| `reference_type` | enum | `shortcut`, `embed`, `attachment` |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+---
+
+# ROOMS Y STREAMING
+
+## `rooms`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `workspace_id` | FK → workspaces.id | |
+| `created_by_user_id` | FK → users.id | |
+| `title` | string | |
+| `description` | text nullable | |
+| `status` | enum | `pending`, `active`, `ended`, `archived` |
+| `starts_at` | timestamp nullable | |
+| `ended_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+---
+
+## `streams`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `room_id` | FK → rooms.id | |
+| `status` | enum | `draft`, `scheduled`, `live`, `ended`, `archived` |
+| `rtmp_key` | string unique | clave de ingest en MediaMTX — **reservado** para fase streaming |
+| `destinations_json` | json nullable | array de URLs RTMP destino — **reservado** para fase streaming |
+| `started_at` | timestamp nullable | |
+| `ended_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+## `room_participants`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `room_id` | FK → rooms.id | |
+| `user_id` | FK → users.id nullable | null si es anónimo |
+| `invited_email` | string nullable | para externos no registrados |
+| `display_name` | string | nombre visible en la sala |
+| `participant_type` | enum | `internal`, `external`, `anonymous` |
+| `access_token` | string nullable | para externos y anónimos |
+| `role` | enum | `host`, `moderator`, `participant`, `viewer` |
+| `status` | enum | `invited`, `joined`, `left`, `kicked` |
+| `invited_by_user_id` | FK → users.id nullable | |
+| `joined_at` | timestamp nullable | |
+| `left_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+---
+
+# CONVERSACIONES Y MENSAJES
+
+## `conversations`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `room_id` | FK → rooms.id | |
+| `created_by_user_id` | FK → users.id nullable | null si es sistema |
+| `title` | string nullable | |
+| `type` | enum | `public`, `private`, `system` |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+---
+
+## `conversation_participants`
+
+Solo para conversaciones `private`.
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `conversation_id` | FK → conversations.id |
+| `room_participant_id` | FK → room_participants.id |
+| `created_at` | timestamp |
+
+---
+
+## `messages`
+
+`sender_user_id` eliminado — el sender se resuelve siempre via
+`participant_id → room_participants.user_id`. Tener los dos era redundante
+y podía generar inconsistencias.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `conversation_id` | FK → conversations.id | |
+| `participant_id` | FK → room_participants.id | quién envió |
+| `message_type` | enum | `text`, `system`, `attachment` |
+| `content` | text nullable | null si es solo attachment |
+| `reply_to_message_id` | FK → messages.id nullable | threading |
+| `edited_at` | timestamp nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+| `deleted_at` | timestamp nullable | |
+
+---
+
+## `message_attachments`
+
+| Campo | Tipo |
+|---|---|
+| `id` | bigint |
+| `message_id` | FK → messages.id |
+| `asset_id` | FK → assets.id |
+| `created_at` | timestamp |
+
+---
+
+# ACTIVITY LOG
+
+## `activity_logs`
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `actor_user_id` | FK → users.id nullable | null = sistema |
+| `action` | string | ej: `workspace.created`, `room.ended` |
+| `subject_type` | string | nombre del modelo |
+| `subject_id` | bigint | |
+| `workspace_id` | bigint nullable | contexto denormalizado |
+| `enterprise_id` | bigint nullable | contexto denormalizado |
+| `room_id` | bigint nullable | contexto denormalizado |
+| `metadata_json` | json nullable | `{ before, after, context, reason }` |
+| `ip_address` | string nullable | |
+| `user_agent` | string nullable | |
+| `created_at` | timestamp | |
+
+**Índices requeridos:**
+```sql
+CREATE INDEX activity_logs_subject   ON activity_logs (subject_type, subject_id);
+CREATE INDEX activity_logs_actor     ON activity_logs (actor_user_id);
+CREATE INDEX activity_logs_enterprise ON activity_logs (enterprise_id, created_at);
+CREATE INDEX activity_logs_workspace  ON activity_logs (workspace_id, created_at);
+CREATE INDEX activity_logs_room       ON activity_logs (room_id, created_at);
+```
+
+---
+
+# Relaciones clave
+
+```
+users ──────────────────────────────── refresh_tokens
+users ──────────────────────────────── social_accounts (fase posterior)
+users ↔ enterprises                 ── enterprise_user (membresías activas)
+enterprises ────────────────────────── invitations (pendientes)
+workspaces  ────────────────────────── invitations (pendientes)
+
+enterprises ── subscriptions ── plans
+subscriptions ── subscription_usage
+
+workspaces (ltree path) ──── jerarquía anidada
+workspaces ── workspace_roles (seeded al crear) ── workspace_role_permissions
+workspaces ── workspace_user ── workspace_roles
+workspaces ── assets ── media (Spatie)
+assets ── asset_references (otros workspaces)
+
+workspaces ── rooms ── room_participants
+rooms ── conversations ── messages ── message_attachments ── assets
+conversations (private) ── conversation_participants ── room_participants
+rooms ── streams
+
+todo ── activity_logs
+```

@@ -1,0 +1,302 @@
+---
+description: Etapa 13 — Explorador de workspaces, composables shared-by-ID y configuración de workspace
+type: stage
+stage: 13
+status: pendiente
+depends_on: 12
+---
+
+# Etapa 13 — Frontend Workspaces
+
+## Objetivo
+Vista de explorador de archivos con los workspaces raíz como punto de entrada,
+composables por workspace compartidos por ID (registro reactivo singleton),
+sistema de capabilities por workspace, y configuración de roles/permisos/miembros.
+
+---
+
+## `useWorkspace(id)` — shared by ID
+
+Retorna siempre la misma instancia reactiva para el mismo `workspaceId`.
+Carga sus datos una sola vez. Múltiples componentes comparten el mismo estado sin duplicar fetches.
+
+```js
+// composables/useWorkspace.js
+import { ref, computed } from 'vue'
+import { api } from '../lib/api'
+
+const registry = new Map()
+
+export function useWorkspace(workspaceId) {
+  if (!registry.has(workspaceId)) {
+    registry.set(workspaceId, createWorkspaceState(workspaceId))
+  }
+  return registry.get(workspaceId)
+}
+
+function createWorkspaceState(id) {
+  const status       = ref('idle')    // 'idle' | 'loading' | 'ready' | 'error'
+  const workspace    = ref(null)
+  const children     = ref([])        // sub-workspaces
+  const assets       = ref([])
+  const capabilities = ref([])        // lista de permission strings del usuario en este workspace
+
+  const can = (permission) => capabilities.value.includes(permission)
+
+  const isLoading = computed(() => status.value === 'loading')
+  const isReady   = computed(() => status.value === 'ready')
+
+  async function load() {
+    if (status.value === 'ready' || status.value === 'loading') return
+    status.value = 'loading'
+    try {
+      const [wsRes, capRes] = await Promise.all([
+        api.get(`/workspaces/${id}`),
+        api.get(`/workspaces/${id}/capabilities`),
+      ])
+      workspace.value    = wsRes.data.data
+      capabilities.value = capRes.data.data
+      status.value       = 'ready'
+    } catch {
+      status.value = 'error'
+    }
+  }
+
+  async function loadChildren() {
+    const res   = await api.get(`/workspaces/${id}/children`)
+    children.value = res.data.data
+  }
+
+  async function loadAssets() {
+    const res  = await api.get(`/workspaces/${id}/assets`)
+    assets.value = res.data.data
+  }
+
+  return { status, workspace, children, assets, capabilities, can, isLoading, isReady, load, loadChildren, loadAssets }
+}
+```
+
+**Uso con guard de status:**
+```vue
+<template>
+  <div v-if="ws.isLoading.value">Cargando...</div>
+  <div v-else-if="ws.isReady.value">
+    <h1>{{ ws.workspace.value.name }}</h1>
+    <button v-if="ws.can('workspace.invite')">Invitar miembro</button>
+  </div>
+</template>
+
+<script setup>
+const ws = useWorkspace(props.id)
+onMounted(() => ws.load())
+</script>
+```
+
+---
+
+## `useWorkspaceMembers(workspaceId)` y `useTeamMembers(enterpriseId)`
+
+Mismo patrón registry shared-by-ID:
+
+```js
+// composables/useWorkspaceMembers.js
+const membersRegistry = new Map()
+
+export function useWorkspaceMembers(workspaceId) {
+  if (!membersRegistry.has(workspaceId)) {
+    membersRegistry.set(workspaceId, createMembersState('workspace', workspaceId))
+  }
+  return membersRegistry.get(workspaceId)
+}
+
+// composables/useTeamMembers.js
+const teamRegistry = new Map()
+
+export function useTeamMembers(enterpriseId) {
+  if (!teamRegistry.has(enterpriseId)) {
+    teamRegistry.set(enterpriseId, createMembersState('enterprise', enterpriseId))
+  }
+  return teamRegistry.get(enterpriseId)
+}
+
+function createMembersState(type, id) {
+  const status  = ref('idle')
+  const members = ref([])
+
+  async function load() {
+    if (status.value !== 'idle') return
+    status.value = 'loading'
+    const endpoint = type === 'workspace'
+      ? `/workspaces/${id}/members`
+      : `/enterprises/current/members`
+    const res     = await api.get(endpoint)
+    members.value = res.data.data
+    status.value  = 'ready'
+  }
+
+  return { status, members, load }
+}
+```
+
+---
+
+## Socket → workspace via `useScopeEffect`
+
+Al montar `WorkspaceView`, el componente se une al scope de Socket.io y registra
+los handlers que el socket puede invocar para actualizar el estado local.
+
+```js
+// WorkspaceView.vue
+const ws      = useWorkspace(props.id)
+const wm      = useWorkspaceMembers(props.id)
+const { joinScope, leaveScope } = useSocket()
+
+onMounted(() => {
+  ws.load()
+  ws.loadChildren()
+  ws.loadAssets()
+  wm.load()
+  joinScope(`workspace:${props.id}`)
+})
+
+onUnmounted(() => leaveScope(`workspace:${props.id}`))
+
+useScopeEffect(`workspace:${props.id}`, ({ event, data }) => {
+  switch (event) {
+    case 'workspace.asset_created':
+      ws.assets.value.unshift(data)
+      break
+    case 'workspace.asset_deleted':
+      ws.assets.value = ws.assets.value.filter(a => a.id !== data.id)
+      break
+    case 'workspace.member_added':
+      wm.members.value.push(data)
+      break
+    case 'workspace.member_removed':
+      wm.members.value = wm.members.value.filter(m => m.user_id !== data.user_id)
+      break
+  }
+})
+```
+
+---
+
+## Vista: Explorador raíz (`WorkspacesView`)
+
+Muestra todos los workspaces raíz (`parent_workspace_id = null`) de la empresa activa
+que el usuario puede ver, agrupados por empresa.
+
+```
+/app
+└── [Acme Corp]
+    ├── 📁 Marketing         [42 assets]
+    ├── 📁 Producto          [18 assets]
+    └── 📁 Ingeniería        [67 assets]
+    [+ Nuevo workspace]   ← solo con enterprise.create_workspace
+```
+
+**Reglas de la vista:**
+- Solo se listan workspaces de la empresa activa (cabecera `X-Enterprise-ID`)
+- El botón "Nuevo workspace" solo aparece con permiso `enterprise.create_workspace`
+- Si el usuario alcanzó su límite de workspaces raíz, el botón se deshabilita y muestra cuota
+- Hacer clic en un workspace navega a `/app/workspaces/:id`
+
+### Límite de workspaces raíz por usuario
+
+```
+GET /api/v1/workspaces/root-quota   → { "data": { "used": 2, "limit": 5 } }
+```
+
+El botón "Nuevo workspace" consulta este endpoint al cargar la vista y muestra
+`2/5 workspaces raíz usados`. Si `used >= limit` y `limit !== -1`, el botón
+se deshabilita proactivamente (sin esperar el 422 del servidor).
+
+---
+
+## Vista: Workspace (`WorkspaceView`)
+
+```
+/app/workspaces/42
+├── Breadcrumb: Acme Corp > Marketing > Campañas
+│
+├── Sub-workspaces (carpetas)
+│   ├── 📁 Q1 2026
+│   └── 📁 Q2 2026
+│   [+ Nueva carpeta]   ← si workspace.create_child
+│
+└── Assets (archivos)
+    ├── 🎬 video-intro.mp4   [1.2 GB]
+    └── 🖼 banner-hero.png   [340 KB]
+    [+ Subir archivo]      ← si workspace.upload_asset
+```
+
+**Acciones por capabilities:**
+
+| Capability | Acción disponible |
+|---|---|
+| `workspace.view` | ver contenido (requerido para entrar) |
+| `workspace.edit` | renombrar, editar descripción |
+| `workspace.delete` | eliminar workspace (soft delete) |
+| `workspace.create_child` | crear sub-workspace |
+| `workspace.upload_asset` | subir archivo |
+| `workspace.invite` | invitar usuarios |
+| `workspace.manage_roles` | configurar roles y permisos |
+
+---
+
+## Vista: Configuración de workspace (`WorkspaceSettingsView`)
+
+```
+/app/workspaces/:id/settings
+│
+├── General
+│   ├── Nombre, descripción
+│   └── Archivar / Eliminar workspace
+│
+├── Roles y permisos
+│   ├── Roles base (solo lectura — is_base = true)
+│   ├── Roles custom
+│   │   ├── [Rol X] → lista de permisos asignados (toggles)
+│   │   └── [+ Crear rol]
+│   └── Al eliminar rol custom: reasignar miembros afectados
+│
+└── Miembros
+    ├── Lista con nombre, email, rol asignado
+    ├── Cambiar rol de un miembro (dropdown)
+    ├── Eliminar miembro
+    └── Invitar: email + rol → POST /workspaces/:id/invitations
+```
+
+Solo accesible si `ws.can('workspace.manage_roles')`.
+
+---
+
+## Capabilities — endpoint adicional backend
+
+```
+GET /api/v1/workspaces/{workspace}/capabilities
+→ { "data": ["workspace.view", "workspace.edit", "workspace.upload_asset"] }
+```
+
+Retorna la lista de permission strings que el usuario autenticado tiene
+en ese workspace, resuelta desde su rol y los permisos del rol.
+`useWorkspace(id).can('workspace.edit')` comprueba esta lista.
+
+---
+
+## Checklist
+
+- [ ] `useWorkspace(id)` con registro singleton y estados `idle/loading/ready/error`
+- [ ] `useWorkspace.can(permission)` resolviendo contra capabilities del servidor
+- [ ] `useWorkspaceMembers(id)` con patrón shared-by-ID
+- [ ] `useTeamMembers(enterpriseId)` para miembros de la empresa
+- [ ] `WorkspacesView` listando workspaces raíz de la empresa activa
+- [ ] Botón "Nuevo workspace" con guard de permiso y cuota
+- [ ] Endpoint backend `GET /workspaces/root-quota` para cuota por usuario
+- [ ] `WorkspaceView` con sub-workspaces + assets + breadcrumb
+- [ ] Socket integration: `joinScope`/`leaveScope` + `useScopeEffect` en `WorkspaceView`
+- [ ] Handlers de scope: `asset_created`, `asset_deleted`, `member_added`, `member_removed`
+- [ ] `WorkspaceSettingsView` con tabs: general, roles, miembros
+- [ ] Gestión de roles custom: crear, asignar permisos, eliminar
+- [ ] Gestión de miembros: listar, cambiar rol, eliminar, invitar
+- [ ] Capabilities: `workspace.edit`, `workspace.delete`, `workspace.invite`, `workspace.manage_roles`

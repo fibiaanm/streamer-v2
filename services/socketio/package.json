@@ -1,0 +1,17 @@
+{
+  "name": "socketio-service",
+  "version": "0.1.0",
+  "description": "Socket.io real-time service — placeholder hasta etapa 05",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

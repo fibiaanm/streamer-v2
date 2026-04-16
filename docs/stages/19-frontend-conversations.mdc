@@ -1,0 +1,36 @@
+---
+description: Etapa 19 — Frontend conversaciones y chat (stub — detallar al llegar a la etapa)
+type: stage
+stage: 19
+status: pendiente
+depends_on: 18
+---
+
+# Etapa 19 — Frontend Conversations
+
+## Objetivo
+UI de chat con lista de mensajes paginados por cursor, envío de mensajes
+con adjuntos, threading y tiempo real via Socket.io. Se detalla cuando
+se comience la implementación (después de etapa 18 — conversations backend).
+
+---
+
+## Contenido a definir
+
+- Lista de conversaciones del room (public, private, system)
+- Vista de mensajes con paginación cursor (scroll hacia arriba para más)
+- Envío de mensaje con texto y adjuntos (assets del workspace)
+- Threading: responder a un mensaje
+- Mensajes de sistema automáticos (usuario entró, salió, room terminada)
+- Tiempo real: `message.created`, `message.updated`, `message.deleted`
+- Visibilidad de conversaciones privadas
+
+---
+
+## Stub de checklist
+
+- [ ] `ConversationList.vue` — lista lateral de conversaciones
+- [ ] `MessageList.vue` — scroll infinito hacia arriba (cursor pagination)
+- [ ] `MessageInput.vue` — texto + adjuntos + threading
+- [ ] Mensajes de sistema con estilo visual diferenciado
+- [ ] Integración Socket.io para mensajes en tiempo real

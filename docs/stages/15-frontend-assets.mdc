@@ -1,0 +1,233 @@
+---
+description: Etapa 15 — Frontend assets, explorador de archivos, upload UI y búsqueda Meilisearch
+type: stage
+stage: 15
+status: pendiente
+depends_on: 14
+---
+
+# Etapa 15 — Frontend Assets
+
+## Objetivo
+Integrar los assets en el explorador de workspaces (etapa 13), UI de upload
+con flujo presigned URL, e integración completa de Meilisearch en el TopBar.
+Los assets se indexan al confirmarse — desde aquí la búsqueda es funcional.
+
+---
+
+## Integración de assets en `WorkspaceView`
+
+En etapa 13, `WorkspaceView` ya listaba sub-workspaces (carpetas).
+Ahora se añade la sección de archivos con assets reales.
+
+```
+/app/workspaces/42
+│
+├── Sub-workspaces  (carpetas — ya implementado en etapa 13)
+│   ├── 📁 Q1 2026
+│   └── 📁 Q2 2026
+│   [+ Nueva carpeta]
+│
+└── Archivos
+    ├── 🎬 video-intro.mp4     1.2 GB    hace 2 días
+    └── 🖼  banner-hero.png    340 KB    hace 5 días
+    [+ Subir archivo]
+```
+
+`WorkspaceView` ya tiene `ws.assets` cargado desde `useWorkspace(id).loadAssets()`.
+En esta etapa se añade el componente visual de la lista.
+
+---
+
+## UI de upload
+
+### Flujo completo
+
+```
+1. Usuario hace clic en "Subir archivo" (o drag & drop)
+        │
+        ▼
+2. POST /api/v1/workspaces/{id}/assets/upload-url
+   Body: { filename, mime_type, size }
+   Response: { asset_id, upload_url, expires_at }
+        │
+        ▼
+3. PUT {upload_url}  ← directo a S3/MinIO, sin pasar por Laravel
+   (XMLHttpRequest para poder trackear progreso)
+        │
+        ▼
+4. POST /api/v1/workspaces/{id}/assets/{asset_id}/confirm
+        │
+        ▼
+5. Asset aparece en la lista (actualización local + evento Socket.io)
+```
+
+### `useAssetUpload(workspaceId)`
+
+```js
+// composables/useAssetUpload.js
+export function useAssetUpload(workspaceId) {
+  const uploads = ref([])  // [{ file, assetId, progress, status }]
+
+  async function upload(file) {
+    const entry = reactive({ file, assetId: null, progress: 0, status: 'pending' })
+    uploads.value.push(entry)
+
+    // 1. Obtener URL firmada
+    const { data } = await api.post(`/workspaces/${workspaceId}/assets/upload-url`, {
+      filename:  file.name,
+      mime_type: file.type,
+      size:      file.size,
+    })
+    entry.assetId = data.data.asset_id
+    entry.status  = 'uploading'
+
+    // 2. Upload directo a S3 con progreso
+    await uploadToS3(data.data.upload_url, file, (pct) => {
+      entry.progress = pct
+    })
+
+    // 3. Confirmar
+    entry.status = 'confirming'
+    await api.post(`/workspaces/${workspaceId}/assets/${entry.assetId}/confirm`)
+    entry.status = 'done'
+  }
+
+  async function uploadToS3(url, file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.upload.onprogress = (e) => onProgress(Math.round((e.loaded / e.total) * 100))
+      xhr.onload  = () => resolve()
+      xhr.onerror = () => reject()
+      xhr.open('PUT', url)
+      xhr.setRequestHeader('Content-Type', file.type)
+      xhr.send(file)
+    })
+  }
+
+  return { uploads, upload }
+}
+```
+
+### Zona de drag & drop
+
+```vue
+<template>
+  <div
+    class="border-2 border-dashed border-glass-border rounded-2xl p-8 text-center
+           transition-all duration-200 cursor-pointer"
+    :class="isDragging ? 'border-brand/60 bg-brand/10' : 'hover:border-white/20 hover:bg-glass'"
+    @dragover.prevent="isDragging = true"
+    @dragleave="isDragging = false"
+    @drop.prevent="onDrop"
+    @click="fileInput.click()"
+  >
+    <p class="text-white/40 text-sm">Arrastra archivos aquí o haz clic para seleccionar</p>
+    <input ref="fileInput" type="file" multiple class="hidden" @change="onFileSelect" />
+  </div>
+</template>
+```
+
+### Barra de progreso por archivo
+
+```vue
+<div v-for="upload in uploads" :key="upload.assetId" class="flex items-center gap-3">
+  <span class="text-white/70 text-sm flex-1 truncate">{{ upload.file.name }}</span>
+  <div class="w-32 h-1.5 bg-glass rounded-full overflow-hidden">
+    <div class="h-full bg-brand transition-all duration-300 rounded-full"
+         :style="{ width: upload.progress + '%' }" />
+  </div>
+  <span class="text-white/40 text-xs w-10 text-right">{{ upload.progress }}%</span>
+</div>
+```
+
+---
+
+## Búsqueda global — Meilisearch activa
+
+A partir de esta etapa los assets están siendo indexados. Se activa el input
+de búsqueda en `TopBar` que hasta ahora era placeholder.
+
+### `useSearch.js`
+
+```js
+// composables/useSearch.js
+import { useDebounceFn } from '@vueuse/core'
+
+export function useSearch() {
+  const query   = ref('')
+  const results = ref([])
+  const loading = ref(false)
+  const open    = ref(false)
+
+  const doSearch = useDebounceFn(async (q) => {
+    if (!q.trim()) { results.value = []; open.value = false; return }
+    loading.value = true
+    const res     = await api.get('/search', { params: { q } })
+    results.value = res.data.data
+    open.value    = true
+    loading.value = false
+  }, 300)
+
+  watch(query, doSearch)
+
+  function navigateTo(result) {
+    const path = result.type === 'workspace'
+      ? `/app/workspaces/${result.id}`
+      : `/app/workspaces/${result.workspace_id}`
+    router.push(path)
+    open.value  = false
+    query.value = ''
+  }
+
+  return { query, results, loading, open, navigateTo }
+}
+```
+
+### Activar en TopBar
+
+```vue
+<!-- Reemplaza el placeholder del stage 11 -->
+<div class="flex-1 max-w-xl mx-auto relative">
+  <BaseInput v-model="search.query" placeholder="Buscar archivos y carpetas..." />
+  <!-- Dropdown de resultados -->
+  <div v-if="search.open.value"
+       class="absolute top-full mt-2 w-full bg-surface-raised backdrop-blur-modal
+              border border-glass-border rounded-2xl p-2 shadow-xl z-20">
+    <div v-for="r in search.results.value" :key="r.id + r.type"
+         @click="search.navigateTo(r)"
+         class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-glass-hover
+                cursor-pointer transition-all duration-150">
+      <span class="text-lg">{{ r.type === 'workspace' ? '📁' : '📄' }}</span>
+      <div>
+        <p class="text-white text-sm">{{ r.title ?? r.name }}</p>
+        <p class="text-white/40 text-xs">{{ r.type }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### Endpoint backend
+
+```
+GET /api/v1/search?q=:query          [auth.jwt + enterprise]
+```
+
+Ver etapa 14 (assets backend) para la implementación de indexación y el `SearchController`.
+
+---
+
+## Checklist
+
+- [ ] `AssetList.vue` en `WorkspaceView` mostrando assets con icono, nombre, tamaño, fecha
+- [ ] `UploadZone.vue` con drag & drop + click para seleccionar
+- [ ] `useAssetUpload(workspaceId)` con flujo presigned URL + progreso por XMLHttpRequest
+- [ ] Barra de progreso por archivo durante el upload
+- [ ] Actualización optimista de la lista al completar upload (o via Socket.io `workspace.asset_created`)
+- [ ] Límite de almacenamiento: mostrar error si `asset.storage_limit_exceeded`
+- [ ] Acción "Eliminar" en asset (soft delete) con confirmación
+- [ ] `useSearch` con debounce 300ms y resultados asset + workspace
+- [ ] TopBar: input de búsqueda reemplaza el placeholder del stage 11
+- [ ] Dropdown de resultados de búsqueda con navegación
+- [ ] Tecla Escape cierra el dropdown de búsqueda

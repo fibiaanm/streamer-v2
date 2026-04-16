@@ -1,0 +1,90 @@
+---
+description: Plan de implementación por etapas — streamer-v2
+type: plan
+status: activo
+---
+
+# Plan de implementación — streamer-v2
+
+## Vista general
+
+| Etapa | Nombre | MDC | Depende de |
+|---|---|---|---|
+| 01 | Infraestructura | `stages/01-infra.mdc` | — |
+| 02 | Base del backend | `stages/02-backend-base.mdc` | 01 |
+| 03 | Migraciones y modelos | `stages/03-migrations.mdc` | 02 |
+| 04 | Autenticación (backend) | `stages/04-auth.mdc` | 03 |
+| 05 | Socket.io service | `stages/05-socketio.mdc` | 04 |
+| 06 | Frontend base | `stages/06-frontend-base.mdc` | 05 |
+| 07 | Design standards | `stages/07-design-standards.mdc` | 06 |
+| 08 | Auth views | `stages/08-auth-views.mdc` | 07 |
+| 09 | Enterprises (backend) | `stages/09-enterprises.mdc` | 05 |
+| 10 | Subscriptions (backend) | `stages/10-subscriptions.mdc` | 09 |
+| 11 | Frontend config | `stages/11-frontend-config.mdc` | 10 |
+| 12 | Workspaces (backend) | `stages/12-workspaces.mdc` | 10 |
+| 13 | Frontend workspaces | `stages/13-frontend-workspaces.mdc` | 12 |
+| 14 | Assets (backend) | `stages/14-assets.mdc` | 12 |
+| 15 | Frontend assets + search | `stages/15-frontend-assets.mdc` | 14 |
+| 16 | Rooms (backend) | `stages/16-rooms.mdc` | 12 |
+| 17 | Frontend rooms | `stages/17-frontend-rooms.mdc` | 16 |
+| 18 | Conversations (backend) | `stages/18-conversations.mdc` | 16 |
+| 19 | Frontend conversations | `stages/19-frontend-conversations.mdc` | 18 |
+| 20 | Activity logs (backend) | `stages/20-activity-logs.mdc` | 09 |
+| 21 | Streams (backend) | `stages/21-streams.mdc` | 16 |
+| 22 | Frontend streams | `stages/22-frontend-streams.mdc` | 21 |
+| 23 | Compositor e Ingestor | `stages/23-compositor.mdc` | 21 |
+
+---
+
+## Fases del producto
+
+### Fase 1 — Fundación (etapas 01–08)
+Infraestructura + auth backend + Socket.io + frontend base + design system + auth views.
+Resultado: app con login funcional, design system glass documentado y socket operativo.
+
+### Fase 2 — Identidad y workspaces (etapas 09–15)
+Enterprises + subscriptions + config UI + workspaces + assets + explorador + búsqueda.
+Resultado: explorador de archivos funcional con upload, búsqueda y gestión de empresa.
+
+### Fase 3 — Colaboración (etapas 16–20)
+Rooms + conversations + activity logs — backend y frontend interleaved.
+Resultado: salas de reunión con chat en tiempo real y auditoría.
+
+### Fase 4 — Streaming (etapas 21–23)
+Streams + frontend streams + Compositor + Ingestor + RTMP.
+Resultado: transmisiones en vivo con layout dinámico y proxy RTMP.
+
+---
+
+## Decisiones globales de arquitectura
+
+- **Backend:** Laravel (modular por dominios)
+- **DB:** PostgreSQL 16 con extensión ltree
+- **API:** REST versionada en `/api/v1/` — controladores `__invoke` + `ResponseFormatter`
+- **Auth:** JWT (access 15min + refresh 30 días en DB)
+- **Empresa activa:** header `X-Enterprise-ID`
+- **Tiempo real:** Socket.io (Node.js) + Redis pub/sub
+- **Storage:** S3 (MinIO en dev) + Spatie Media Library
+- **Colas:** Redis + Laravel Queue
+- **Reverse proxy:** Traefik
+- **Búsqueda:** Meilisearch (self-hosted) + Laravel Scout
+- **Frontend:** Vue 3 + Inertia + Vue Router + Pinia + VueUse
+
+## Convenciones de desarrollo
+
+- Soft delete universal — nada se elimina físicamente
+- Hijos quedan `orphaned` al eliminarse el padre
+- JSON solo como payload, nunca como base de consulta
+- Billing simulado por seeder en v1
+- Notificaciones, login social y 2FA: fase posterior
+
+## Estándares de testing
+
+Ver `docs/testing.mdc` para el estándar completo.
+
+- **TDD:** tests primero en todo endpoint — éxito, borde y excepción
+- **Framework:** Pest
+- **Niveles:** Unit / Feature / E2E — cada uno en su directorio
+- **DB:** SQLite por defecto, PostgreSQL para tests con ltree (`->group('pgsql')`)
+- **Errores:** `ErrorCode` enum → `AppException` → código i18n al frontend
+- **Factories:** estados expresivos y data realista en cada dominio

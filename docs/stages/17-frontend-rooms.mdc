@@ -1,0 +1,38 @@
+---
+description: Etapa 17 — Frontend rooms (stub — detallar al llegar a la etapa)
+type: stage
+stage: 17
+status: pendiente
+depends_on: 16
+---
+
+# Etapa 17 — Frontend Rooms
+
+## Objetivo
+Vista de sala de reunión con lista de participantes, controles de moderación
+y estados en tiempo real via Socket.io. Se detalla cuando se comience
+la implementación (después de completar etapa 16 — rooms backend).
+
+---
+
+## Contenido a definir
+
+- Vista de room con participantes activos
+- Controles según rol: host, moderator, participant, viewer
+- Estado de sala: pending, active, ended
+- Participantes externos/anónimos (acceso por token)
+- Eventos Socket.io:
+  - `participant.joined` / `participant.left` — participante entra o sale del room (publicado por backend via Redis, scope `room:{id}`)
+  - `presence.joined` / `presence.left` — usuario se conecta o desconecta del scope en Socket.io (emitido por el propio servicio Socket.io, no por Laravel)
+- Invitar participantes desde la UI
+- Acciones: terminar room (host), salir, expulsar (moderator+)
+
+---
+
+## Stub de checklist
+
+- [ ] `RoomView.vue` — diseñar estructura al llegar a esta etapa
+- [ ] `ParticipantList.vue`
+- [ ] Controles de sala según capabilities de rol
+- [ ] Integración Socket.io para presencia en tiempo real
+- [ ] Flujo de acceso para participantes externos (token en URL)

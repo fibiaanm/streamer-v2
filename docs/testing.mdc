@@ -1,0 +1,483 @@
+---
+description: Estándares de testing — TDD, estructura, base de datos, errores y factories
+type: standards
+status: activo
+---
+
+# Estándares de testing
+
+## Filosofía
+
+**Tests primero.** Ningún endpoint, servicio o acción se implementa sin su test.
+Todo feature se escribe en este orden: test falla → implementación → test pasa.
+
+Cada test cubre tres escenarios obligatorios:
+- **Caso de éxito** — happy path con data realista
+- **Casos de borde** — límites, valores extremos, estados especiales
+- **Excepciones** — errores esperados con código correcto
+
+---
+
+## Estructura de directorios
+
+```
+tests/
+├── Unit/                        # Clases aisladas, sin DB
+│   ├── Auth/
+│   ├── Enterprises/
+│   ├── Subscriptions/
+│   ├── Workspaces/
+│   ├── Assets/
+│   ├── Rooms/
+│   ├── Conversations/
+│   └── Streams/
+│
+├── Feature/                     # REST endpoints con DB (SQLite por defecto)
+│   ├── Auth/
+│   ├── Enterprises/
+│   ├── Subscriptions/
+│   ├── Workspaces/              # tests ltree → ->group('pgsql')
+│   ├── Assets/
+│   ├── Rooms/
+│   ├── Conversations/
+│   └── Streams/
+│
+└── E2E/                         # Flujos completos multi-dominio
+    ├── OnboardingFlowTest.php
+    ├── WorkspaceCollaborationFlowTest.php
+    ├── RoomSessionFlowTest.php
+    └── StreamingFlowTest.php
+```
+
+---
+
+## Niveles de test
+
+### Unit
+- Prueba una clase en aislamiento
+- Sin base de datos, sin HTTP, sin filesystem
+- Usa mocks/fakes para dependencias externas
+- Objetivo: lógica de negocio pura (Services, Actions, LimitService, TokenService)
+
+```php
+// tests/Unit/Subscriptions/LimitServiceTest.php
+test('returns plan limit when no override exists', function () {
+    $plan = Plan::factory()->make(['limits_json' => ['max_users' => 10]]);
+    $subscription = Subscription::factory()->make(['plan' => $plan, 'override_json' => null]);
+
+    $result = (new LimitService)->getLimit($subscription, 'max_users');
+
+    expect($result)->toBe(10);
+});
+
+test('override takes precedence over plan limit', function () {
+    $plan = Plan::factory()->make(['limits_json' => ['max_users' => 10]]);
+    $subscription = Subscription::factory()->make([
+        'plan'          => $plan,
+        'override_json' => ['max_users' => 50],
+    ]);
+
+    $result = (new LimitService)->getLimit($subscription, 'max_users');
+
+    expect($result)->toBe(50);
+});
+
+test('returns -1 for unlimited plan', function () {
+    $plan = Plan::factory()->make(['limits_json' => ['max_users' => -1]]);
+    $subscription = Subscription::factory()->make(['plan' => $plan, 'override_json' => null]);
+
+    expect((new LimitService)->getLimit($subscription, 'max_users'))->toBe(-1);
+});
+```
+
+---
+
+### Feature
+- Prueba un endpoint REST de extremo a extremo dentro del backend
+- Usa DB (SQLite por defecto, PostgreSQL para ltree)
+- Cubre autenticación, autorización y formato de respuesta
+
+```php
+// tests/Feature/Auth/LoginTest.php
+test('login with valid credentials returns tokens', function () {
+    $user = User::factory()->create(['password' => bcrypt('secret')]);
+
+    $this->postJson('/api/v1/auth/login', [
+        'email'    => $user->email,
+        'password' => 'secret',
+    ])->assertOk()
+      ->assertJsonStructure([
+          'data' => ['access_token', 'refresh_token', 'expires_in'],
+      ]);
+});
+
+test('login with wrong password returns error code', function () {
+    $user = User::factory()->create();
+
+    $this->postJson('/api/v1/auth/login', [
+        'email'    => $user->email,
+        'password' => 'wrong',
+    ])->assertStatus(401)
+      ->assertJson([
+          'error' => ['code' => 'auth.invalid_credentials'],
+      ]);
+});
+
+test('login with non-existent email returns same error code', function () {
+    $this->postJson('/api/v1/auth/login', [
+        'email'    => 'ghost@example.com',
+        'password' => 'secret',
+    ])->assertStatus(401)
+      ->assertJson([
+          'error' => ['code' => 'auth.invalid_credentials'],
+      ]);
+    // Mismo código intencionalmente — no revelar si el email existe
+});
+```
+
+---
+
+### E2E
+- Flujos completos que atraviesan múltiples dominios
+- Simula un usuario real ejecutando acciones en secuencia
+- Verifica que los dominios colaboran correctamente
+
+```php
+// tests/E2E/OnboardingFlowTest.php
+test('complete onboarding flow: register → enterprise → invite → accept', function () {
+    // 1. Admin se registra
+    $admin = registerUser('admin@co.com', 'secret');
+
+    // 2. Crea empresa
+    $enterprise = createEnterprise($admin, 'Acme Corp');
+
+    // 3. Invita a un miembro
+    $invitation = inviteMember($admin, $enterprise, 'member@co.com', 'member');
+    expect($invitation['status'])->toBe('pending');
+
+    // 4. Miembro se registra y acepta invitación
+    $member = registerUser('member@co.com', 'secret');
+    acceptInvitation($member, $invitation['token']);
+
+    // 5. Verifica membresía activa
+    $membership = EnterpriseUser::where('user_id', $member->id)
+        ->where('enterprise_id', $enterprise->id)
+        ->first();
+
+    expect($membership)->not->toBeNull();
+    expect($membership->role->name)->toBe('member');
+});
+```
+
+---
+
+## Base de datos por tipo de test
+
+| Tipo | Driver | Trait | Cuándo |
+|---|---|---|---|
+| Unit | ninguna | — | siempre |
+| Feature (default) | SQLite in-memory | `RefreshDatabase` | dominios sin ltree |
+| Feature (ltree) | PostgreSQL test DB | `RefreshDatabase` | workspaces |
+| E2E | SQLite in-memory | `RefreshDatabase` | flujos sin ltree |
+| E2E (ltree) | PostgreSQL test DB | `RefreshDatabase` | flujos con workspaces |
+
+### Marcar tests que requieren PostgreSQL
+
+```php
+test('workspace nested beyond plan limit throws error', function () {
+    // ...
+})->group('pgsql');
+```
+
+Ejecutar solo tests PostgreSQL:
+```bash
+pest --group=pgsql
+```
+
+Ejecutar todos excepto PostgreSQL (CI rápido):
+```bash
+pest --exclude-group=pgsql
+```
+
+### Configuración en `phpunit.xml` / `pest.php`
+
+```php
+// pest.php
+uses(RefreshDatabase::class)->in('Feature', 'E2E');
+
+// Para pgsql group, sobreescribir DB_CONNECTION en el test o en phpunit.xml
+```
+
+---
+
+## Manejo de errores
+
+### ErrorCode enum
+
+Fuente de verdad de todos los códigos de error del sistema.
+Todo error que llegue al cliente debe tener un valor aquí.
+
+```php
+// app/Exceptions/ErrorCode.php
+enum ErrorCode: string
+{
+    // Auth
+    case AuthInvalidCredentials     = 'auth.invalid_credentials';
+    case AuthTokenExpired           = 'auth.token_expired';
+    case AuthTokenInvalid           = 'auth.token_invalid';
+    case AuthRefreshTokenInvalid    = 'auth.refresh_token_invalid';
+    case AuthUnauthorized           = 'auth.unauthorized';
+
+    // Enterprise
+    case EnterpriseNotFound          = 'enterprise.not_found';
+    case EnterpriseForbidden         = 'enterprise.forbidden';
+    case EnterpriseHeaderRequired    = 'enterprise.header_required';   // X-Enterprise-ID ausente en rutas que lo requieren
+    case EnterpriseNotMember         = 'enterprise.not_member';        // usuario no pertenece al enterprise del header
+    case EnterpriseInvitationExpired = 'enterprise.invitation_expired';
+    case EnterpriseInvitationInvalid = 'enterprise.invitation_invalid';
+    case EnterpriseMemberExists      = 'enterprise.member_already_exists';
+    case EnterpriseRoleBaseImmutable = 'enterprise.role_base_immutable';
+
+    // Subscription / Plan limits
+    case PlanLimitExceeded          = 'subscription.limit_exceeded';
+    case SubscriptionInactive       = 'subscription.inactive';
+
+    // Workspace
+    case WorkspaceNotFound          = 'workspace.not_found';
+    case WorkspaceForbidden         = 'workspace.forbidden';
+    case WorkspaceDepthExceeded     = 'workspace.depth_exceeded';
+    case WorkspaceOrphaned          = 'workspace.orphaned';
+    case WorkspaceRoleBaseImmutable = 'workspace.role_base_immutable';
+
+    // Assets
+    case AssetNotFound              = 'asset.not_found';
+    case AssetForbidden             = 'asset.forbidden';
+    case AssetStorageLimitExceeded  = 'asset.storage_limit_exceeded';
+    case AssetUploadExpired         = 'asset.upload_expired';
+
+    // Rooms
+    case RoomNotFound               = 'room.not_found';
+    case RoomForbidden              = 'room.forbidden';
+    case RoomInvalidStatus          = 'room.invalid_status';
+    case RoomAccessTokenInvalid     = 'room.access_token_invalid';
+    case RoomParticipantNotFound    = 'room.participant_not_found';
+
+    // Conversations
+    case ConversationNotFound       = 'conversation.not_found';
+    case ConversationForbidden      = 'conversation.forbidden';
+
+    // Messages
+    case MessageNotFound            = 'message.not_found';
+    case MessageForbidden           = 'message.forbidden';
+
+    // Streams
+    case StreamNotFound             = 'stream.not_found';
+    case StreamForbidden            = 'stream.forbidden';
+    case StreamInvalidStatus        = 'stream.invalid_status';
+    case StreamAlreadyLive          = 'stream.already_live';
+
+    // General
+    case ValidationFailed           = 'validation.failed';
+    case NotFound                   = 'general.not_found';
+    case ServerError                = 'general.server_error';
+
+    public function category(): string
+    {
+        return match(true) {
+            str_starts_with($this->value, 'auth')         => 'authentication',
+            in_array($this, [self::EnterpriseForbidden, self::WorkspaceForbidden,
+                             self::AssetForbidden, self::RoomForbidden,
+                             self::ConversationForbidden, self::MessageForbidden,
+                             self::StreamForbidden])       => 'authorization',
+            $this === self::ValidationFailed               => 'validation',
+            default                                        => 'business',
+        };
+    }
+}
+```
+
+---
+
+### Base exception class
+
+```php
+// app/Exceptions/AppException.php
+
+/**
+ * Excepción base del sistema.
+ *
+ * Toda excepción de negocio debe extender esta clase.
+ * Los controladores la capturan y delegan a ResponseFormatter::error()
+ * para producir la respuesta JSON estándar con el código de error.
+ *
+ * El frontend usa error.code para resolver el mensaje i18n:
+ *   errors.{code} → e.g. errors['workspace.depth_exceeded']
+ *
+ * @see ErrorCode           Para el catálogo completo de códigos
+ * @see ResponseFormatter   Para el formato de respuesta de error
+ */
+abstract class AppException extends \RuntimeException
+{
+    public function __construct(
+        protected readonly ErrorCode $errorCode,
+        protected readonly int       $httpStatus = 422,
+        protected readonly array     $context    = [],
+        ?\Throwable                  $previous   = null,
+    ) {
+        parent::__construct($errorCode->value, $httpStatus, $previous);
+    }
+
+    public function getErrorCode(): ErrorCode { return $this->errorCode; }
+    public function getHttpStatus(): int      { return $this->httpStatus; }
+    public function getContext(): array       { return $this->context; }
+}
+```
+
+### Excepciones concretas (una por caso de negocio)
+
+```php
+// app/Domain/Workspaces/Exceptions/WorkspaceDepthExceededException.php
+class WorkspaceDepthExceededException extends AppException
+{
+    public function __construct(int $current, int $max)
+    {
+        parent::__construct(
+            errorCode:  ErrorCode::WorkspaceDepthExceeded,
+            httpStatus: 422,
+            context:    ['current_depth' => $current, 'max_depth' => $max],
+        );
+    }
+}
+
+// app/Domain/Subscriptions/Exceptions/PlanLimitExceededException.php
+class PlanLimitExceededException extends AppException
+{
+    public function __construct(string $metric)
+    {
+        parent::__construct(
+            errorCode:  ErrorCode::PlanLimitExceeded,
+            httpStatus: 422,
+            context:    ['metric' => $metric],
+        );
+    }
+}
+```
+
+**Respuesta REST resultante:**
+```json
+{
+  "error": {
+    "code": "workspace.depth_exceeded",
+    "context": { "current_depth": 5, "max_depth": 3 }
+  }
+}
+```
+
+Los controladores atrapan sus propias `AppException` y delegan el formato a `ResponseFormatter::error($e)`.
+Ver `docs/stages/02-backend-base.mdc` para la implementación de `ResponseFormatter`.
+
+---
+
+## Factories realistas
+
+Cada dominio tiene su factory con estados expresivos:
+
+```php
+// database/factories/WorkspaceFactory.php
+class WorkspaceFactory extends Factory
+{
+    public function orphaned(): static
+    {
+        return $this->state(['status' => WorkspaceStatus::Orphaned]);
+    }
+
+    public function archived(): static
+    {
+        return $this->state(['status' => WorkspaceStatus::Archived]);
+    }
+
+    public function withChildren(int $count): static
+    {
+        return $this->afterCreating(function (Workspace $workspace) use ($count) {
+            Workspace::factory()->count($count)->create([
+                'parent_workspace_id' => $workspace->id,
+                'owner_user_id'       => $workspace->owner_user_id,
+            ]);
+        });
+    }
+}
+
+// database/factories/RoomFactory.php
+class RoomFactory extends Factory
+{
+    public function active(): static    { return $this->state(['status' => RoomStatus::Active]); }
+    public function ended(): static     { return $this->state(['status' => RoomStatus::Ended]); }
+
+    public function withParticipants(int $count): static
+    {
+        return $this->afterCreating(function (Room $room) use ($count) {
+            RoomParticipant::factory()->count($count)->create(['room_id' => $room->id]);
+        });
+    }
+}
+```
+
+---
+
+## Comando artisan: sincronización de errores al frontend
+
+```bash
+php artisan errors:export
+# Genera: resources/error-codes.json (o path configurable)
+# El frontend lo importa como base para sus traducciones
+```
+
+Salida generada:
+```json
+{
+  "auth.invalid_credentials": "",
+  "auth.token_expired": "",
+  "workspace.depth_exceeded": "",
+  "subscription.limit_exceeded": ""
+}
+```
+
+El frontend completa los valores en inglés (y futuros locales).
+Al añadir un nuevo `ErrorCode`, el comando detecta claves faltantes y las añade sin sobrescribir las existentes.
+
+---
+
+## Convenciones de naming
+
+```
+tests/Unit/Workspaces/LimitServiceTest.php
+tests/Feature/Workspaces/CreateWorkspaceTest.php
+tests/Feature/Workspaces/NestedWorkspaceTest.php   ← ->group('pgsql')
+tests/E2E/WorkspaceCollaborationFlowTest.php
+```
+
+Cada test describe una acción clara:
+```php
+test('creates workspace with correct ltree path')
+test('throws depth exceeded when plan limit reached')
+test('orphans children when parent is deleted')
+test('guest cannot create workspace')
+```
+
+---
+
+## Referencia cruzada por etapa
+
+Cada stage MDC especifica qué tests implementar.
+Esta guía es el estándar que todos los stages siguen.
+
+| Etapa | Unit tests | Feature tests | E2E tests |
+|---|---|---|---|
+| 04 Auth | TokenService | login, register, refresh, logout | OnboardingFlow |
+| 06 Enterprises | — | CRUD, invitations, roles | OnboardingFlow |
+| 07 Subscriptions | LimitService | limits, overrides, usage | — |
+| 08 Workspaces | — | CRUD, ltree, orphaned | WorkspaceCollaborationFlow |
+| 09 Assets | — | upload, references, retention | — |
+| 10 Rooms | — | CRUD, participants, tokens | RoomSessionFlow |
+| 11 Conversations | — | messages, visibility, threading | RoomSessionFlow |
+| 13 Streams | — | lifecycle, limits | StreamingFlow |

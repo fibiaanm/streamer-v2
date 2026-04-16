@@ -1,0 +1,233 @@
+---
+description: Etapa 03 — Migraciones completas y modelos Eloquent
+type: stage
+stage: 03
+status: pendiente
+depends_on: 02
+---
+
+# Etapa 03 — Migraciones y modelos
+
+## Objetivo
+Todas las tablas creadas en PostgreSQL en orden correcto,
+con extensiones, índices y modelos Eloquent base.
+
+---
+
+## Extensiones PostgreSQL (primera migración)
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "ltree";
+```
+
+---
+
+## Orden de migraciones (respeta FKs)
+
+```
+001_create_users_table
+002_create_social_accounts_table          -- reservado, sin lógica
+003_create_refresh_tokens_table
+004_create_enterprises_table
+005_create_enterprise_permissions_table
+006_create_enterprise_roles_table
+007_create_enterprise_role_permissions_table
+008_create_enterprise_user_table
+009_create_invitations_table
+010_create_plans_table
+011_create_subscriptions_table
+012_create_subscription_usage_table
+013_create_workspaces_table               -- incluye path ltree
+014_create_workspace_permissions_table
+015_create_workspace_roles_table
+016_create_workspace_role_permissions_table
+017_create_workspace_user_table
+018_create_assets_table
+019_create_asset_references_table
+020_create_rooms_table
+021_create_streams_table
+022_create_room_participants_table
+023_create_conversations_table
+024_create_conversation_participants_table
+025_create_messages_table
+026_create_message_attachments_table
+027_create_activity_logs_table
+```
+
+---
+
+## Campos y tipos clave
+
+### `workspaces` — ltree
+```php
+$table->unsignedBigInteger('id')->autoIncrement();
+$table->string('path')->virtualAs(null); // columna ltree nativa
+// Usar DB::statement para ltree:
+DB::statement('ALTER TABLE workspaces ADD COLUMN path ltree NOT NULL');
+DB::statement('CREATE INDEX workspaces_path_gist ON workspaces USING GIST (path)');
+```
+
+### `invitations` — polimórfica
+```php
+$table->string('invitable_type');    // 'enterprise' | 'workspace'
+$table->unsignedBigInteger('invitable_id');
+$table->index(['invitable_type', 'invitable_id']);
+```
+
+### `activity_logs` — índices compuestos
+```php
+$table->index(['subject_type', 'subject_id']);
+$table->index(['actor_user_id']);
+$table->index(['enterprise_id', 'created_at']);
+$table->index(['workspace_id', 'created_at']);
+$table->index(['room_id', 'created_at']);
+```
+
+---
+
+## Enums (definir como enum de PHP o constantes)
+
+```php
+// rooms.status
+enum RoomStatus: string {
+    case Pending  = 'pending';
+    case Active   = 'active';
+    case Ended    = 'ended';
+    case Archived = 'archived';
+}
+
+// streams.status
+enum StreamStatus: string {
+    case Draft     = 'draft';
+    case Scheduled = 'scheduled';
+    case Live      = 'live';
+    case Ended     = 'ended';
+    case Archived  = 'archived';
+}
+
+// room_participants.participant_type
+enum ParticipantType: string {
+    case Internal  = 'internal';
+    case External  = 'external';
+    case Anonymous = 'anonymous';
+}
+
+// room_participants.role
+enum ParticipantRole: string {
+    case Host        = 'host';
+    case Moderator   = 'moderator';
+    case Participant = 'participant';
+    case Viewer      = 'viewer';
+}
+
+// room_participants.status
+enum ParticipantStatus: string {
+    case Invited = 'invited';
+    case Joined  = 'joined';
+    case Left    = 'left';
+    case Kicked  = 'kicked';
+}
+
+// messages.message_type
+enum MessageType: string {
+    case Text       = 'text';
+    case System     = 'system';
+    case Attachment = 'attachment';
+}
+
+// assets.type
+enum AssetType: string {
+    case Image    = 'image';
+    case Video    = 'video';
+    case Audio    = 'audio';
+    case Document = 'document';
+    case Other    = 'other';
+}
+
+// asset_references.reference_type
+enum AssetReferenceType: string {
+    case Shortcut   = 'shortcut';
+    case Embed      = 'embed';
+    case Attachment = 'attachment';
+}
+
+// workspaces.status
+enum WorkspaceStatus: string {
+    case Active   = 'active';
+    case Archived = 'archived';
+    case Orphaned = 'orphaned';
+}
+
+// invitations.status
+enum InvitationStatus: string {
+    case Pending  = 'pending';
+    case Accepted = 'accepted';
+    case Expired  = 'expired';
+    case Revoked  = 'revoked';
+}
+```
+
+---
+
+## Modelos Eloquent — configuración base
+
+Cada modelo debe tener:
+- `$fillable` o `$guarded`
+- Casts para enums, timestamps y JSON
+- Trait `SoftDeletes` donde aplique
+- Relaciones definidas
+
+### Modelos con SoftDeletes
+`User`, `Enterprise`, `Subscription`, `Workspace`, `WorkspaceRole`,
+`Asset`, `AssetReference`, `Room`, `Conversation`, `Message`, `ActivityLog`
+
+### Casts JSON
+```php
+// Plan
+protected $casts = [
+    'limits_json' => 'array',
+];
+
+// Subscription
+protected $casts = [
+    'override_json' => 'array',
+    'starts_at'     => 'datetime',
+    'ends_at'       => 'datetime',
+    'trial_ends_at' => 'datetime',
+];
+
+// Stream
+protected $casts = [
+    'destinations_json' => 'array',
+];
+```
+
+---
+
+## Seeders base
+
+```
+DatabaseSeeder
+├── EnterprisePermissionSeeder    -- permisos enterprise base
+├── EnterpriseRoleSeeder          -- owner, admin, member, billing (enterprise_id null)
+├── WorkspacePermissionSeeder     -- permisos workspace base
+├── PlanSeeder                    -- free, pro, enterprise
+└── AdminUserSeeder               -- usuario admin para dev
+```
+
+---
+
+## Checklist
+
+- [ ] Extensiones `uuid-ossp` y `ltree` habilitadas
+- [ ] 27 migraciones ejecutadas sin errores (`php artisan migrate`)
+- [ ] Columna `path ltree` en `workspaces` con índice GiST
+- [ ] Índices compuestos en `activity_logs`
+- [ ] Índice polimórfico en `invitations`
+- [ ] Enums PHP definidos por dominio
+- [ ] Todos los modelos Eloquent con relaciones base
+- [ ] SoftDeletes en las tablas que corresponde
+- [ ] Casts de JSON y enums configurados
+- [ ] Seeders base ejecutados
+- [ ] `php artisan migrate:fresh --seed` sin errores

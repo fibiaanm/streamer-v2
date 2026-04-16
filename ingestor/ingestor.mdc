@@ -1,0 +1,202 @@
+---
+description: Arquitectura y decisiones técnicas del servicio Ingestor / Compositor del proyecto streamer-v2
+type: architecture
+status: diseño
+---
+
+# Ingestor / Compositor — Decisiones Técnicas
+
+## Contexto del proyecto
+
+Herramienta de producción en vivo estilo StreamYard/Riverside. Una sala tiene múltiples
+participantes (hasta N usuarios), pantallas compartidas, y un host/admin que define el
+layout de transmisión. El resultado final se envía por RTMP a plataformas externas
+(YouTube, Twitch, etc.).
+
+---
+
+## Decisión 1: Arquitectura de composición
+
+**Elegida: Composición server-side (Approach B)**
+
+Descartado: Approach A (host compone en su browser y envía al ingestor).
+
+**Razones para descartar Approach A:**
+- El host decodifica todos los streams en su máquina (CPU del cliente)
+- Si el host pierde conexión, el stream muere
+- El upload del host carga el stream ya compuesto
+- Latencia doble (todo pasa por el browser del host)
+
+**Flujo correcto:**
+```
+Participantes (WebRTC)  →  [SFU / Media Server]  →  [Compositor]  →  RTMP
+                                                          ↑
+                                               Host envía instrucciones
+                                               de layout (no media)
+```
+
+El host solo manda instrucciones de layout vía WebSocket. Nunca media compuesta.
+
+---
+
+## Decisión 2: Motor de renderizado del compositor
+
+**Elegido: Chromium Headless + Fabric.js**
+
+Descartado: node-canvas (Cairo/CPU) — sin GPU, no escala a 1080p 30fps.
+
+**Razones:**
+- Chromium tiene aceleración GPU (WebGL)
+- Fabric.js corre nativamente en el browser (sin node-canvas)
+- El WebRTC stack de Chromium maneja jitter buffer, NACK y FEC por stream
+- `requestAnimationFrame` actúa como reloj maestro del compositor
+- `<video>` elements reciben los streams de MediaMTX directamente
+- `canvas.captureStream()` extrae el output para FFmpeg
+
+**Stack del pod Compositor:**
+```
+Node.js
+  ├── Puppeteer          → controla Chromium headless
+  ├── WebSocket server   → recibe instrucciones de layout del host
+  ├── fluent-ffmpeg      → pipe de frames hacia RTMP
+  └── [Chromium headless]
+        ├── Fabric.js    → scene graph, coordenadas, animaciones
+        ├── <video> x N  → un elemento por stream de participante
+        └── <canvas>     → output final
+```
+
+---
+
+## Decisión 3: Fabric.js como scene graph
+
+El layout se representa como objetos Fabric con posición, tamaño y transformaciones.
+Cada cambio de layout que el host envía se aplica como instrucción a Fabric, que maneja
+el tween/animación automáticamente frame a frame.
+
+**Ejemplo de mensaje de layout:**
+```json
+{
+  "objects": [
+    { "id": "user-a", "type": "video", "left": 0,   "top": 0, "width": 960, "height": 1080 },
+    { "id": "user-b", "type": "video", "left": 960, "top": 0, "width": 960, "height": 1080 }
+  ],
+  "transition": { "duration": 300, "easing": "easeInOutQuad" }
+}
+```
+
+Animaciones se ejecutan frame a frame: el host ordena una transición, Fabric calcula
+cada posición intermedia, el compositor emite cada frame al RTMP.
+
+---
+
+## Decisión 4: Media Server (SFU)
+
+**Elegido: MediaMTX**
+
+- Go, un solo binario, sin dependencias
+- Soporta WebRTC ingest (browsers) y RTMP ingest (OBS/software)
+- Relay nativo a RTMP externo
+- Puede servir HLS/WebRTC a viewers directamente
+- Docker-friendly
+
+**Flujo de media:**
+```
+Browser (participante)
+    │ WebRTC
+    ▼
+[MediaMTX]  ←── ingest de todos los participantes
+    │  streams individuales (internos)
+    ▼
+<video src="..."> en Chromium (compositor)
+    │
+[Fabric.js canvas]
+    │ captureStream()
+[FFmpeg]
+    │
+RTMP Output
+```
+
+---
+
+## Decisión 5: Sincronización de streams (Jitter Buffer)
+
+**Estrategia: Jitter Buffer por stream + Hold Last Frame + Reloj Maestro**
+
+### Problema
+Los frames de distintos usuarios llegan a tiempos irregulares por jitter de red.
+El RTMP espera un bitstream a ritmo constante — el compositor no puede esperar.
+
+### Solución
+
+**Jitter Buffer** (por cada stream de entrada):
+- Tamaño: 3-5 frames = 100-166ms a 30fps
+- Ordena frames por PTS (Presentation Timestamp)
+- Sweet spot entre latencia y resistencia al jitter
+
+**Reloj Maestro** (compositor clock):
+- Tick cada 1/FPS (ej. cada 33ms para 30fps)
+- En cada tick: toma el frame con PTS <= ahora de cada buffer
+
+**Hold Last Frame:**
+- Si un stream no tiene frame disponible en el tick → reutiliza el último frame conocido
+- El RTMP nunca para. El viewer ve freeze momentáneo, no corte negro.
+
+```
+Tick  t=0ms   → A: f1 ✅  B: f1 ✅  → renderiza → emite
+Tick  t=33ms  → A: f2 ✅  B: f2 ✅  → renderiza → emite
+Tick  t=66ms  → A: f3 ✅  B: ❌     → renderiza → emite  ← B usa f2 (hold)
+Tick  t=99ms  → A: f4 ✅  B: f3 ✅  → renderiza → emite
+```
+
+**Clock drift:**
+- Los browsers/Chromium WebRTC manejan jitter buffer, NACK y FEC nativamente
+- El compositor debe monitorear `video.currentTime` de cada stream vs. reloj maestro
+- Si hay drift acumulado → corrección de velocidad de reproducción (`video.playbackRate`)
+
+---
+
+## Stack completo del proyecto (macro)
+
+| Pod | Imagen / Tech | Propósito |
+|-----|--------------|-----------|
+| **Laravel** | PHP-FPM + Nginx | API, lógica de negocio, broadcasting |
+| **PostgreSQL 16** | postgres:16 | Base de datos principal |
+| **MinIO** | minio/minio | Storage S3-compatible |
+| **Mailpit** | axllent/mailpit | SMTP dev + UI de emails |
+| **Redis 7** | redis:7-alpine | Caché + queues + pub/sub para WebSockets |
+| **pgAdmin** | dpage/pgadmin4 | Viewer de base de datos |
+| **RedisInsight** | redis/redisinsight | Viewer de Redis (debug caché/queues) |
+| **Socket.io** | Node.js | WebSockets alta frecuencia (coordenadas, multi-ventana) |
+| **MediaMTX** | mediamtx | SFU: ingest WebRTC/RTMP, relay a viewers |
+| **Compositor** | Node.js + Puppeteer + Chromium | Mezcla video/audio, aplica layout, emite RTMP |
+| **Queue Worker** | (mismo image Laravel) | Procesa jobs en background |
+| **Scheduler** | (mismo image Laravel) | Cron jobs de Laravel |
+| **Traefik** | traefik:v3 | Reverse proxy, SSL, routing |
+
+---
+
+## Decisión 6: WebSockets
+
+**Elegido: Socket.io (Node.js)**
+
+Descartado: Laravel Reverb — PHP, no óptimo para alta frecuencia.
+
+**Razones:**
+- Cambios de coordenadas en el layout editor pueden ser 20-60 eventos/seg por usuario
+- Conexiones multi-ventana requieren baja latencia sostenida
+- Socket.io en Node.js tiene event loop nativo, menor overhead por mensaje
+- Escala horizontalmente con `@socket.io/redis-adapter` (Redis ya está en el stack)
+
+**Laravel** sigue siendo el backend principal. Socket.io se comunica con Laravel vía Redis pub/sub.
+
+---
+
+## Pendiente de definir
+
+- [ ] API del Compositor: contrato exacto de mensajes de layout (host → compositor)
+- [ ] Manejo de entrada/salida de participantes mid-stream
+- [ ] Estrategia de reconexión de streams en el compositor
+- [ ] Configuración de FFmpeg: codecs, bitrate, resolución por defecto (720p/1080p)
+- [ ] Autenticación entre servicios (MediaMTX ↔ Compositor ↔ Laravel)
+- [ ] Manejo de audio: mixing de múltiples fuentes de audio en FFmpeg
+- [ ] docker-compose.yml completo del proyecto

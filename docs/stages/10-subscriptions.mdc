@@ -1,0 +1,192 @@
+---
+description: Etapa 10 — Suscripciones, planes y validación de límites de uso
+type: stage
+stage: 10
+status: pendiente
+depends_on: 09
+---
+
+# Etapa 10 — Suscripciones y planes
+
+## Objetivo
+Planes definidos por seeder, suscripciones asignables manualmente,
+sistema de validación de límites operativo.
+Billing real (Stripe) es fase posterior.
+
+---
+
+## Planes base (seeder)
+
+`max_members` — cuántos usuarios pueden estar cobijados bajo el plan.
+Para planes individuales es el número de personas que pueden usar la cuenta.
+Para planes enterprise es el tope de miembros que puede tener la empresa.
+`-1` significa ilimitado.
+
+```php
+// PlanSeeder
+[
+    // ── Planes individuales ──────────────────────────────────────────────────
+    [
+        'name'        => 'Personal Free',
+        'type'        => 'individual',
+        'is_free'     => true,
+        'limits_json' => [
+            'max_members'             => 1,    // solo el propietario
+            'max_concurrent_streams'  => 0,    // sin streaming
+            'max_workspace_depth'     => 1,    // solo workspaces raíz
+            'storage_gb'              => 1,
+        ],
+    ],
+    [
+        'name'        => 'Personal Pro',
+        'type'        => 'individual',
+        'is_free'     => false,
+        'limits_json' => [
+            'max_members'             => 3,    // propietario + 2 personas
+            'max_concurrent_streams'  => 1,
+            'max_workspace_depth'     => 3,
+            'storage_gb'              => 20,
+        ],
+    ],
+
+    // ── Planes enterprise ────────────────────────────────────────────────────
+    [
+        'name'        => 'Enterprise Free',
+        'type'        => 'enterprise',
+        'is_free'     => true,
+        'limits_json' => [
+            'max_members'             => 5,
+            'max_concurrent_streams'  => 1,
+            'max_workspace_depth'     => 2,
+            'storage_gb'              => 5,
+        ],
+    ],
+    [
+        'name'        => 'Enterprise Pro',
+        'type'        => 'enterprise',
+        'is_free'     => false,
+        'limits_json' => [
+            'max_members'             => 25,
+            'max_concurrent_streams'  => 3,
+            'max_workspace_depth'     => 5,
+            'storage_gb'              => 50,
+        ],
+    ],
+    [
+        'name'        => 'Enterprise',
+        'type'        => 'enterprise',
+        'is_free'     => false,
+        'limits_json' => [
+            'max_members'             => -1,   // ilimitado
+            'max_concurrent_streams'  => -1,
+            'max_workspace_depth'     => -1,
+            'storage_gb'              => -1,
+        ],
+    ],
+]
+```
+
+---
+
+## Servicio de límites
+
+```php
+// app/Domain/Subscriptions/Services/LimitService.php
+
+class LimitService
+{
+    public function getLimit(Enterprise $enterprise, string $key): int
+    // Resuelve el límite: override_json > plan.limits_json
+    // Retorna -1 si es ilimitado
+
+    public function check(Enterprise $enterprise, string $key): bool
+    // Compara el uso actual contra el límite
+    // Retorna true si está dentro del límite
+
+    public function increment(Enterprise $enterprise, string $key, int $by = 1): void
+    // Incrementa subscription_usage para el período actual
+
+    public function decrement(Enterprise $enterprise, string $key, int $by = 1): void
+    // Decrementa subscription_usage
+}
+```
+
+**Resolución de límites (override > plan):**
+```php
+$override = $subscription->override_json[$key] ?? null;
+$limit    = $override ?? $plan->limits_json[$key] ?? 0;
+```
+
+---
+
+## Métricas implementadas en v1
+
+| Métrica (`metric_key`) | Se incrementa cuando... | Se decrementa cuando... |
+|---|---|---|
+| `members_count` | usuario se une a la empresa | usuario se elimina/sale |
+| `concurrent_streams` | stream pasa a `live` | stream pasa a `ended` |
+| `storage_bytes` | asset sube archivo a S3 | asset se elimina definitivamente |
+
+Más métricas se añaden según el producto crece.
+
+---
+
+## Integración con dominios
+
+`LimitService::check()` se llama **antes** de crear entidades que consumen recursos:
+
+```php
+// Al añadir miembro a empresa
+if (!$limitService->check($enterprise, 'members_count')) {
+    throw new PlanLimitExceededException('members_count');
+}
+
+// Al crear workspace anidado
+if (!$limitService->check($enterprise, 'max_workspace_depth')) {
+    throw new PlanLimitExceededException('max_workspace_depth');
+}
+
+// Al iniciar stream
+if (!$limitService->check($enterprise, 'concurrent_streams')) {
+    throw new PlanLimitExceededException('concurrent_streams');
+}
+```
+
+---
+
+## Reservado — billing real (fase posterior)
+
+Los campos en `subscriptions` están preparados:
+- `provider` (null en v1, `stripe` cuando se implemente)
+- `provider_customer_id`
+- `provider_subscription_id`
+
+Cuando se implemente Stripe:
+1. Instalar `laravel/cashier`
+2. Webhook handler para `invoice.payment_failed`, `customer.subscription.deleted`, etc.
+3. Sincronización de estado entre Stripe y tabla `subscriptions`
+
+---
+
+## Endpoints
+
+```
+GET  /api/v1/plans                                    ListPlansController          [público]
+GET  /api/v1/enterprises/current/subscription         ShowSubscriptionController   [enterprise]
+GET  /api/v1/enterprises/current/subscription/usage   ShowUsageController          [enterprise]
+```
+
+---
+
+## Checklist
+
+- [ ] `PlanSeeder` con planes Personal Free, Personal Pro, Enterprise Free, Enterprise Pro, Enterprise
+- [ ] `AdminUserSeeder` con empresa y suscripción Enterprise Pro asignada
+- [ ] `LimitService` con `getLimit`, `check`, `increment`, `decrement`
+- [ ] Resolución de overrides sobre plan base
+- [ ] Métricas `members_count`, `concurrent_streams`, `storage_bytes`
+- [ ] `LimitService::check($enterprise, 'members_count')` al añadir miembro
+- [ ] `LimitService::check($enterprise, 'max_members')` compara `members_count` vs `limits_json.max_members`
+- [ ] Excepción `PlanLimitExceededException` con código `subscription.limit_exceeded`
+- [ ] `GET /api/v1/plans` y `GET /api/v1/enterprises/current/subscription` operativos
+- [ ] Tests: límites, overrides, incremento/decremento de métricas

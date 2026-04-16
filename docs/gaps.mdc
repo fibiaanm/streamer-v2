@@ -1,0 +1,104 @@
+---
+description: Funcionalidades pendientes de fases posteriores y decisiones aún abiertas
+type: backlog
+status: activo
+---
+
+# Pendiente — fases posteriores
+
+Estas features están conscientemente fuera de v1.
+El modelo de datos ya reserva los campos necesarios para no tener breaking changes al implementarlas.
+
+---
+
+## Login social
+
+Google y GitHub como mínimo.
+
+Qué se necesita cuando se implemente:
+- Lógica OAuth en Laravel (Socialite)
+- Asociar cuenta social a usuario existente o crear usuario nuevo
+- Tabla `social_accounts` ya existe en DB (sin lógica en v1)
+- Endpoint REST: `POST /api/v1/auth/social/{provider}`
+
+---
+
+## 2FA (Two-Factor Authentication)
+
+TOTP compatible con Google Authenticator y/o SMS.
+
+Qué se necesita cuando se implemente:
+- Campos `two_factor_secret` y `two_factor_confirmed_at` ya en tabla `users`
+- Recovery codes (tabla nueva o campo JSON)
+- Middleware de verificación post-login
+- Endpoints REST: `POST /auth/two-factor/enable`, `POST /auth/two-factor/confirm`, `DELETE /auth/two-factor`
+
+---
+
+## Billing real (Stripe)
+
+En v1 los planes y suscripciones se gestionan por seeder/admin.
+
+Qué se necesita cuando se implemente:
+- Proveedor: Stripe (recomendado) via `laravel/cashier`
+- Campos `provider`, `provider_customer_id`, `provider_subscription_id` ya en `subscriptions`
+- Webhook handler: `invoice.payment_failed`, `customer.subscription.deleted`, etc.
+- Sincronización de estado Stripe ↔ tabla `subscriptions`
+- UI de facturación y gestión de plan
+
+---
+
+## Notificaciones
+
+Sistema propio completo. No en scope por complejidad.
+
+Qué se necesita cuando se implemente:
+- Dominio `notifications` nuevo
+- Tabla `notifications` (id, user_id, type, data, read_at)
+- Proveedor de email transaccional (Resend, Postmark o SES)
+- Preferencias de notificación por usuario
+- Notificaciones in-app (badge, listado)
+- Integración con Socket.io para notificaciones en tiempo real
+
+---
+
+## Procesamiento de media
+
+Thumbnails, transcoding y optimización. No en scope en v1.
+
+Qué se necesita cuando se implemente:
+- Jobs en colas Redis (ya preparadas)
+- Generación de thumbnails para imagen y video (Spatie conversions)
+- Transcoding de video (FFmpeg como job)
+- Optimización de imágenes (WebP, compresión)
+- Nuevas colecciones en Spatie Media Library por tipo de asset
+
+---
+
+## Métricas adicionales de uso
+
+Solo `users_count`, `concurrent_streams` y `storage_bytes` en v1.
+
+Métricas pendientes de definir según el producto evolucione:
+- Minutos de room activa
+- Mensajes enviados
+- Assets creados
+- Streams iniciados
+
+La tabla `subscription_usage` ya tiene estructura genérica (`metric_key`, `used_value`, `period_start/end`) preparada para esto.
+
+---
+
+---
+
+# Decisiones aún abiertas
+
+## Rate limiting
+
+No bloqueante para v1 pero necesario antes de producción.
+
+Opciones a decidir:
+- Por usuario autenticado (límite de requests/min)
+- Por plan (más requests para planes superiores)
+- Por IP para usuarios anónimos (acceso por token a rooms)
+- Middleware de Laravel o solución a nivel de Traefik

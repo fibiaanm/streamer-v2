@@ -1,0 +1,35 @@
+---
+description: Etapa 22 — Frontend streams (stub — detallar al llegar a la etapa)
+type: stage
+stage: 22
+status: pendiente
+depends_on: 21
+---
+
+# Etapa 22 — Frontend Streams
+
+## Objetivo
+UI de control de streams dentro de una room: ciclo de vida, destinos RTMP
+y estado en tiempo real. Se detalla cuando se comience la implementación
+(después de etapa 21 — streams backend).
+
+---
+
+## Contenido a definir
+
+- Panel de control de stream dentro de RoomView
+- Botones según estado: Iniciar / Terminar / Archivar
+- Programar stream (`starts_at`)
+- Añadir destinos RTMP (YouTube, Twitch, custom)
+- Estado en tiempo real: `stream.started`, `stream.ended`
+- Indicador de stream live visible para todos los participantes
+- Visualización de límite del plan (`concurrent_streams`)
+
+---
+
+## Stub de checklist
+
+- [ ] `StreamControls.vue` — controles según estado y rol
+- [ ] `StreamDestinations.vue` — gestión de destinos RTMP
+- [ ] Indicador de live en la UI de room
+- [ ] Integración Socket.io: `stream.started`, `stream.ended`

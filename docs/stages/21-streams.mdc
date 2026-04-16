@@ -1,0 +1,126 @@
+---
+description: Etapa 21 — Dominio de streams fase 1, ciclo de vida y campos reservados
+type: stage
+stage: 21
+status: pendiente
+depends_on: 16
+---
+
+# Etapa 21 — Streams (fase 1)
+
+## Objetivo
+Entidad Stream con ciclo de vida completo en Laravel.
+Campos de integración con MediaMTX y compositor reservados pero sin lógica.
+La conexión real con el compositor es etapa 14.
+
+---
+
+## Ciclo de vida
+
+```
+draft ──► scheduled ──►┐
+  │                    ├──► live ──► ended ──► archived
+  └────────────────────┘               │
+  │    (inicio inmediato)              └──► ended (forzado por timeout o error)
+  │
+  └──► soft delete (cancelado antes de iniciar)
+```
+
+| Transición | Quién puede | Condición |
+|---|---|---|
+| `draft` → `scheduled` | host del room | `starts_at` debe estar en el futuro |
+| `scheduled` → `live` | host del room | manual o automático si llega `starts_at` |
+| `draft` → `live` | host del room | inicio inmediato sin scheduling |
+| `live` → `ended` | host del room | manual o timeout |
+| `ended` → `archived` | admin workspace | |
+| cualquier → soft delete | admin workspace | si no está `live` |
+
+---
+
+## Campos reservados para etapa 14
+
+```php
+// En la migración ya existen — sin lógica en v1:
+
+// streams.rtmp_key
+// Generado al crear el stream (uuid corto), enviado a MediaMTX como clave de ingest.
+// En v1 se genera pero no se usa.
+
+// streams.destinations_json
+// Array de URLs RTMP destino:
+// [{ "platform": "youtube", "url": "rtmp://a.rtmp.youtube.com/live2/xxxx" }]
+// En v1 se puede guardar pero no se procesa.
+```
+
+---
+
+## Endpoints
+
+```
+# Streams  [auth.jwt]
+GET    /api/v1/rooms/{room}/streams                                       ListStreamsController
+POST   /api/v1/rooms/{room}/streams                                       CreateStreamController
+GET    /api/v1/rooms/{room}/streams/{stream}                              ShowStreamController
+PATCH  /api/v1/rooms/{room}/streams/{stream}/schedule                     ScheduleStreamController
+PATCH  /api/v1/rooms/{room}/streams/{stream}/start                        StartStreamController
+PATCH  /api/v1/rooms/{room}/streams/{stream}/end                          EndStreamController
+PATCH  /api/v1/rooms/{room}/streams/{stream}/archive                      ArchiveStreamController
+POST   /api/v1/rooms/{room}/streams/{stream}/destinations                 AddStreamDestinationController
+```
+
+---
+
+## Validaciones de negocio
+
+- Solo puede haber un stream `live` por room al mismo tiempo
+- No se puede iniciar un stream si el room no está `active`
+- Solo el host del room puede iniciar/terminar streams
+- Al terminar el room (`room.ended`), los streams `live` pasan automáticamente a `ended`
+- Validar límite del plan `concurrent_streams` al pasar a `live`
+
+---
+
+## Integración con LimitService
+
+```php
+// Al pasar stream a 'live'
+if (!$limitService->check($enterprise, 'concurrent_streams')) {
+    throw new PlanLimitExceededException('concurrent_streams');
+}
+$limitService->increment($enterprise, 'concurrent_streams');
+
+// Al pasar stream a 'ended'
+$limitService->decrement($enterprise, 'concurrent_streams');
+```
+
+---
+
+## Eventos para Socket.io
+
+```php
+// Al iniciar stream
+Redis::publish('room.' . $stream->room_id, json_encode([
+    'event' => 'stream.started',
+    'data'  => ['streamId' => $stream->id, 'rtmpKey' => $stream->rtmp_key],
+]));
+
+// Al terminar stream
+Redis::publish('room.' . $stream->room_id, json_encode([
+    'event' => 'stream.ended',
+    'data'  => ['streamId' => $stream->id],
+]));
+```
+
+---
+
+## Checklist
+
+- [ ] CRUD de streams con validaciones de estado
+- [ ] Generación de `rtmp_key` al crear el stream
+- [ ] Ciclo de vida con transiciones válidas
+- [ ] Validación de un solo stream `live` por room
+- [ ] Integración con `LimitService` (concurrent_streams)
+- [ ] Observer para `room.ended` → terminar streams activos
+- [ ] Publicación de eventos en Redis al iniciar/terminar
+- [ ] `addStreamDestination` guardando en `destinations_json`
+- [ ] Tests: ciclo de vida, límites, eventos, validaciones

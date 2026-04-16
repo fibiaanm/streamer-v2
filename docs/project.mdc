@@ -1,0 +1,106 @@
+---
+description: PRD — descripción general, requerimientos funcionales y decisiones de diseño del proyecto
+type: product
+status: referencia
+---
+
+# streamer-v2 — Product Requirements Document
+
+Plataforma SaaS colaborativa con videollamadas, workspaces jerárquicos,
+streaming en vivo y gestión de contenido digital. Soporta usuarios individuales y empresas.
+
+**Tres ejes principales:**
+1. Gestión de cuenta, empresa y suscripción
+2. Organización de contenido mediante workspaces
+3. Colaboración en tiempo real y streaming
+
+Para el plan técnico de implementación ver `docs/plan.mdc`.
+Para el modelo de datos ver `docs/model.mdc`.
+Para features pendientes de fases futuras ver `docs/gaps.mdc`.
+
+---
+
+# Requerimientos funcionales
+
+## Autenticación y cuenta
+- Registro e inicio de sesión (email/password)
+- Gestión de perfil de usuario
+- Asociación a una o varias empresas
+- Soft delete de usuarios
+- Ownership de workspaces exclusivamente por usuario
+
+## Empresas y membresías
+- Creación y administración de empresas
+- Invitación de usuarios por email
+- Roles enterprise: base globales (no editables) + custom por empresa
+- Permisos enterprise completamente desacoplados de permisos workspace
+
+## Suscripciones y planes
+- Catálogo de planes con límites configurables
+- Suscripción activa por empresa
+- Trial period
+- Overrides de límites por contrato personalizado
+- Medición de uso: usuarios, streams simultáneos, almacenamiento
+- En v1: planes gestionados por seeder, sin billing real
+
+## Workspaces
+- Workspaces jerárquicos (anidados) con profundidad limitada por plan
+- Ownership exclusivo por usuario (no por empresa)
+- Al crear workspace hijo: se copian roles y asignaciones del padre (luego desacoplados)
+- Estados: `active`, `archived`, `orphaned`
+- Soft delete (papelera lógica, sin restore en v1)
+- Sistema de roles y permisos propio, independiente del enterprise
+
+## Assets
+- Assets como entidades lógicas reutilizables
+- Archivo físico separado del asset lógico (Spatie Media Library)
+- Referenciables desde otros workspaces sin duplicar el archivo
+- Papelera con retención por plan y eliminación diferida
+
+## Rooms
+- Rooms como espacios de reunión dentro de workspaces
+- Participantes internos, externos y anónimos
+- Acceso temporal por token para externos/anónimos
+- Múltiples conversaciones por room (públicas, privadas, sistema)
+- Conversaciones privadas visibles solo para sus participantes
+- Mensajes con adjuntos basados en assets
+
+## Streams
+- Entidad separada de room con ciclo de vida propio
+- Estados: `draft`, `scheduled`, `live`, `ended`, `archived`
+- En v1: gestión del ciclo de vida sin integración real con compositor
+- Preparada para transmisión en vivo con layout dinámico (fase 3)
+
+## Auditoría
+- Activity log para eventos relevantes del sistema
+- Registra: actor, acción, entidad, contexto, before/after, fecha, IP/UA
+
+---
+
+# Decisiones de diseño
+
+## Ownership y estructura
+- Un workspace pertenece a un usuario, nunca a una empresa
+- Si el owner desaparece → workspace queda `orphaned`
+- Los hijos de un workspace eliminado quedan `orphaned` (no se eliminan en cascada)
+
+## Datos
+- Soft delete universal — nada se elimina físicamente (excepto assets tras retención expirada)
+- Sin restore en v1
+- JSON en DB solo como payload flexible, nunca como base de consulta SQL
+
+## Roles
+- Los roles base (enterprise y workspace) no son editables
+- Los roles custom sí se crean y editan
+- Al crear un workspace hijo se copian roles del padre y quedan desacoplados
+
+## Contenido
+- Rooms y streams son entidades separadas
+- Los assets son reutilizables — las referencias no eliminan el original
+- Los mensajes adjuntan assets existentes (no archivos nuevos directamente)
+- Las conversaciones privadas solo son visibles para sus participantes asignados
+
+## Billing (v1)
+- Planes y suscripciones se gestionan por seeder
+- El modelo está preparado para Stripe sin breaking changes
+- Billing real es fase posterior

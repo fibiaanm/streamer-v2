@@ -1,0 +1,136 @@
+---
+description: Etapa 16 — Dominio de rooms y participantes (internos, externos, anónimos)
+type: stage
+stage: 16
+status: pendiente
+depends_on: 12
+---
+
+# Etapa 16 — Rooms y participantes
+
+## Objetivo
+Rooms como espacios de reunión dentro de workspaces,
+gestión de participantes de tres tipos y tokens de acceso para externos/anónimos.
+
+Cada room tiene una **conversación pública** creada automáticamente al momento de crearse
+(usando un Observer o el propio `CreateRoomService`). Las conversaciones adicionales
+(privadas, de sistema) y los mensajes se gestionan en etapa 18.
+
+---
+
+## Tipos de participante
+
+| `participant_type` | `user_id` | `access_token` | Descripción |
+|---|---|---|---|
+| `internal` | requerido | null | Usuario registrado miembro del workspace |
+| `external` | requerido o null | requerido | Usuario registrado de otra empresa/workspace |
+| `anonymous` | null | requerido | Sin cuenta, solo nombre y token |
+
+---
+
+## Flujo de acceso externo/anónimo
+
+```
+Host invita a external@email.com
+        │
+        ▼
+Crea room_participant (type=external, status=invited, access_token=uuid)
+Envía email con link: /room/{roomId}?token={access_token}
+        │
+Usuario hace clic
+        ▼
+GET /room/{roomId}?token={access_token}
+Valida token en room_participants
+¿Válido y room activa?
+  SÍ → permite acceso (retorna JWT temporal o datos de sala)
+  NO → 403
+        │
+        ▼
+Participant.status = 'joined', joined_at = now()
+```
+
+---
+
+## Ciclo de vida del room
+
+```
+pending ──► active ──► ended ──► archived
+                │
+                └──► soft delete (deleted_at)
+```
+
+| Transición | Quién puede | Condición |
+|---|---|---|
+| `pending` → `active` | host, moderator | al unirse el primer participante o manualmente |
+| `active` → `ended` | host, moderator | cierre manual |
+| `ended` → `archived` | admin workspace | archivo manual |
+| cualquier → soft delete | admin workspace | |
+
+---
+
+## Roles en room
+
+| Rol | Puede hacer |
+|---|---|
+| `host` | todo, incluyendo terminar room y expulsar |
+| `moderator` | gestionar participantes, no terminar room |
+| `participant` | ver, hablar, compartir pantalla |
+| `viewer` | solo ver (sin audio/video) |
+
+---
+
+## Endpoints
+
+```
+# Rooms  [auth.jwt]
+GET    /api/v1/workspaces/{workspace}/rooms                              ListRoomsController             offset
+POST   /api/v1/workspaces/{workspace}/rooms                              CreateRoomController
+GET    /api/v1/workspaces/{workspace}/rooms/{room}                       ShowRoomController
+PATCH  /api/v1/workspaces/{workspace}/rooms/{room}                       UpdateRoomController
+DELETE /api/v1/workspaces/{workspace}/rooms/{room}                       DeleteRoomController
+PATCH  /api/v1/workspaces/{workspace}/rooms/{room}/end                   EndRoomController
+PATCH  /api/v1/workspaces/{workspace}/rooms/{room}/archive               ArchiveRoomController
+
+# Participantes
+GET    /api/v1/rooms/{room}/participants                                  ListParticipantsController      offset
+POST   /api/v1/rooms/{room}/participants/invite                           InviteParticipantController
+POST   /api/v1/rooms/{room}/participants/join                             JoinRoomController              [sin auth para anónimos]
+DELETE /api/v1/rooms/{room}/participants/leave                            LeaveRoomController             [auth.jwt]
+DELETE /api/v1/rooms/{room}/participants/{participant}/kick               KickParticipantController
+PATCH  /api/v1/rooms/{room}/participants/{participant}/role               UpdateParticipantRoleController
+```
+
+---
+
+## Validaciones de negocio
+
+- No se puede unir a un room con status `ended` o `archived`
+- Un access_token solo es válido para el room y participante al que fue asignado
+- El host no puede expulsarse a sí mismo
+- Solo host/moderator puede cambiar roles de participantes
+- La transición de estado solo puede ir hacia adelante (no reactivar un room ended)
+
+---
+
+## Reservado — fases posteriores
+
+- **Notificaciones (gaps.mdc → D):** las invitaciones a room solo envían email con
+  el link de acceso. Notificaciones in-app ("te han invitado a una room") son fase posterior.
+- **Grabación de rooms:** no en scope. `streams` cubre transmisión en vivo,
+  pero grabación local de la room como video es feature futura independiente.
+
+---
+
+## Checklist
+
+- [ ] CRUD de rooms con validación de estado
+- [ ] Ciclo de vida de estados con transiciones válidas
+- [ ] Invitación de participantes internos (por user_id)
+- [ ] Invitación de participantes externos (email + token)
+- [ ] Creación de participantes anónimos (token + display_name)
+- [ ] Mutation `joinRoom` con token opcional
+- [ ] Mutation `leaveRoom` con `left_at = now()`
+- [ ] Kick de participantes con autorización por rol
+- [ ] Cambio de rol de participante
+- [ ] Expiración/revocación de access tokens
+- [ ] Tests: ciclo de vida, participantes, tokens, autorización

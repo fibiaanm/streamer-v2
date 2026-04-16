@@ -1,0 +1,175 @@
+---
+description: Documento de orientación rápida — leer primero en cualquier sesión nueva
+type: context
+status: activo
+---
+
+# streamer-v2 — Contexto rápido
+
+> Leer este documento primero. Contiene todo lo necesario para orientarse
+> en el proyecto sin leer nada más. Cada sección apunta al doc detallado correspondiente.
+
+---
+
+## Qué es este proyecto
+
+**streamer-v2** es una plataforma SaaS colaborativa con:
+- Videollamadas y salas de reunión (rooms)
+- Workspaces jerárquicos como explorador de archivos
+- Streaming en vivo con compositor de layouts
+- Gestión de contenido digital (assets)
+- Multi-empresa con roles y permisos a dos niveles
+
+**Usuarios objetivo:** equipos creativos que necesitan colaborar, organizar contenido y transmitir en vivo desde una sola plataforma.
+
+---
+
+## Stack tecnológico — decisiones definitivas
+
+| Capa | Tecnología | Decisión clave |
+|---|---|---|
+| Backend | Laravel 11 (PHP 8.3) | Modular por dominio en `app/Domain/` |
+| Base de datos | PostgreSQL 16 | Extensión `ltree` para jerarquía de workspaces |
+| API | REST `/api/v1/` | Controladores `__invoke` + `ResponseFormatter`. **No GraphQL.** |
+| Auth | JWT propio | Access 15min + refresh 30 días en DB. No Sanctum, no Passport. |
+| Empresa activa | Header `X-Enterprise-ID` | Por request, no en JWT |
+| Tiempo real | Socket.io (Node.js) + Redis pub/sub | Un solo servicio unificado para todos los eventos |
+| Storage | S3/MinIO + Spatie Media Library | Assets separados entre entidad lógica y archivo físico |
+| Colas | Redis + Laravel Queue | |
+| Búsqueda | Meilisearch + Laravel Scout | Self-hosted, indexa assets y workspaces |
+| Reverse proxy | Traefik | Escalado horizontal con `--scale socketio=2` |
+| Frontend | Vue 3 + Inertia + Vue Router | Vue Router maneja la navegación. **No `<Link>` de Inertia.** |
+| Estado global | Pinia | Solo para enterprise activa y session |
+| Composables | VueUse + custom | Patrón shared-by-ID para estado por workspace |
+| Diseño | Glass morphism | `backdrop-blur`, superficies semi-transparentes, fondo oscuro fijo |
+
+---
+
+## Arquitectura backend — patrones clave
+
+### Controladores
+Cada acción tiene su propio controlador `__invoke`. El controlador atrapa sus propias excepciones.
+
+```php
+class CreateWorkspaceController {
+    public function __invoke(CreateWorkspaceRequest $request, CreateWorkspaceService $service): JsonResponse {
+        try {
+            $workspace = $service->execute($request->validated(), auth()->user());
+            return ResponseFormatter::created($workspace->toArray());
+        } catch (WorkspaceDepthExceededException $e) {
+            return ResponseFormatter::error($e);
+        }
+    }
+}
+```
+
+### Respuesta estándar
+```json
+// Éxito:    { "data": { ... } }
+// Lista:    { "data": [...], "meta": { "current_page", "total", ... }, "links": {...} }
+// Cursor:   { "data": [...], "meta": { "next_cursor", "prev_cursor" } }
+// Error:    { "error": { "code": "workspace.depth_exceeded", "context": {...} } }
+```
+
+### Errores
+`ErrorCode` enum → `AppException` → `ResponseFormatter::error()` → código en `error.code`.
+El frontend resuelve el mensaje i18n con ese código.
+
+### Request ID
+Middleware global `RequestId`: genera/lee `X-Request-ID`, lo pone en `Context` facade,
+lo inyecta en todos los logs y lo devuelve en la respuesta.
+
+---
+
+## Arquitectura frontend — patrones clave
+
+### Composables singleton
+- `useSession()` — usuario autenticado, singleton
+- `useSocket()` — conexión Socket.io, singleton, transversal
+- `useCapabilities()` — permisos enterprise, singleton
+
+### Composables shared-by-ID
+- `useWorkspace(id)` — misma instancia reactiva para el mismo ID
+- `useWorkspaceMembers(id)` — igual
+- Cada instancia tiene `status: 'idle' | 'loading' | 'ready' | 'error'`
+
+### Socket → composables
+`useScopeEffect(scope, handler)` — registra un handler para un scope (ej. `workspace:42`).
+El socket despacha eventos → `dispatchScopeEffect` → handlers registrados.
+Se limpia automáticamente en `onUnmounted`.
+
+---
+
+## Convenciones — sin excepciones
+
+| Convención | Descripción |
+|---|---|
+| Soft delete universal | Nada se elimina físicamente (excepto assets tras retención expirada) |
+| Orphaned | Hijos de un nodo eliminado quedan `orphaned`, no se borran en cascada |
+| TDD | Siempre tests primero: éxito → borde → excepción. Pest. |
+| Backend primero | En cada par backend/frontend: primero los endpoints, luego las vistas |
+| Design system primero | Ninguna vista sin haber leído/completado etapa 07 (design standards) |
+| JSON en DB | Solo como payload flexible, nunca como base de consulta SQL |
+| ltree | PostgreSQL para tests de workspaces (`->group('pgsql')`) |
+
+---
+
+## Mapa de documentos
+
+| Archivo | Qué contiene | Cuándo leer |
+|---|---|---|
+| `docs/CONTEXT.mdc` | **Este archivo** — orientación rápida | Siempre primero |
+| `docs/plan.mdc` | Tabla de 23 etapas + decisiones + fases | Para entender el plan completo |
+| `docs/project.mdc` | PRD — requerimientos funcionales y decisiones de producto | Para entender el negocio |
+| `docs/model.mdc` | Modelo de datos completo (27+ tablas) | Al trabajar con DB o migraciones |
+| `docs/testing.mdc` | Estándares Pest, ErrorCode enum, AppException, factories | Al escribir cualquier test |
+| `docs/gaps.mdc` | Features fuera de v1 (billing, 2FA, notificaciones) | Para entender qué NO implementar |
+| `docs/stages/NN-nombre.mdc` | Detalle de cada etapa: objetivo, código, checklist | Al implementar esa etapa |
+| `ingestor/ingestor.mdc` | Decisiones de arquitectura del compositor/ingestor | Al trabajar en etapa 23 |
+
+---
+
+## Plan en 23 etapas — vista rápida
+
+```
+Fase 1 — Fundación:      01 Infra · 02 Backend base · 03 Migraciones
+                          04 Auth backend · 05 Socket.io
+                          06 Frontend base · 07 Design standards · 08 Auth views
+
+Fase 2 — Identidad:      09 Enterprises · 10 Subscriptions · 11 Frontend config
+                          12 Workspaces · 13 Frontend workspaces
+                          14 Assets · 15 Frontend assets + search
+
+Fase 3 — Colaboración:   16 Rooms · 17 Frontend rooms
+                          18 Conversations · 19 Frontend conversations
+                          20 Activity logs
+
+Fase 4 — Streaming:      21 Streams · 22 Frontend streams · 23 Compositor
+```
+
+Regla: cada etapa de backend tiene su etapa de frontend correspondiente inmediatamente después.
+
+---
+
+## Dominios del sistema
+
+```
+app/Domain/
+├── Auth/          (JWT, refresh tokens)
+├── Enterprises/   (empresa, roles enterprise, miembros, invitaciones)
+├── Subscriptions/ (planes, límites, LimitService)
+├── Workspaces/    (jerarquía ltree, roles workspace, orphaned)
+├── Assets/        (upload S3, Spatie, referencias cruzadas)
+├── Rooms/         (participantes: internal/external/anonymous)
+├── Conversations/ (mensajes, adjuntos, threading, sistema)
+├── ActivityLogs/  (observers, trazabilidad)
+└── Streams/       (ciclo de vida, LimitService, compositor fase 4)
+```
+
+---
+
+## Estado actual
+
+- **Documentación:** completa para las 23 etapas
+- **Implementación:** aún no iniciada (todos los stages en `status: pendiente`)
+- **Próximo paso:** comenzar por etapa 01 (Infraestructura)

@@ -1,0 +1,167 @@
+---
+description: Etapa 08 — Vistas de login y registro con design system glass
+type: stage
+stage: 08
+status: pendiente
+depends_on: 07
+---
+
+# Etapa 08 — Auth Views
+
+## Objetivo
+Páginas de login y registro usando el design system glass (etapa 07),
+consumiendo los endpoints de auth (etapa 04).
+Siempre: primero los endpoints, luego las vistas.
+
+---
+
+## Login (`Pages/Auth/Login.vue`)
+
+Panel glass centrado sobre el fondo oscuro de la app.
+
+```vue
+<template>
+  <div class="bg-app min-h-screen flex items-center justify-center p-4">
+    <GlassCard class="w-full max-w-md" padding="p-8">
+
+      <div class="mb-8 text-center">
+        <h1 class="text-2xl font-bold text-white">Bienvenido</h1>
+        <p class="text-white/50 text-sm mt-1">Inicia sesión en tu cuenta</p>
+      </div>
+
+      <form @submit.prevent="submit" class="space-y-4">
+        <BaseInput v-model="form.email"    type="email"    label="Email"      :error="errors.email" />
+        <BaseInput v-model="form.password" type="password" label="Contraseña" :error="errors.password" />
+
+        <p v-if="apiError" class="text-red-400 text-xs">{{ apiError }}</p>
+
+        <BaseButton type="submit" :loading="loading" class="w-full mt-2">
+          Iniciar sesión
+        </BaseButton>
+      </form>
+
+      <p class="text-white/40 text-sm text-center mt-6">
+        ¿Sin cuenta?
+        <RouterLink to="/register" class="text-brand-light hover:text-brand hover:underline">
+          Regístrate
+        </RouterLink>
+      </p>
+
+    </GlassCard>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { api } from '../../lib/api'
+import { useSession } from '../../composables/core/useSession'
+
+const router  = useRouter()
+const session = useSession()
+
+const form     = ref({ email: '', password: '' })
+const errors   = ref({})
+const apiError = ref(null)
+const loading  = ref(false)
+
+async function submit() {
+  errors.value   = {}
+  apiError.value = null
+  loading.value  = true
+  try {
+    const res = await api.post('/auth/login', form.value)
+    session.setTokens(res.data.data.access_token, res.data.data.refresh_token)
+    router.push('/app')
+  } catch (err) {
+    const code = err.response?.data?.error?.code
+    if (code === 'auth.invalid_credentials') {
+      apiError.value = 'Email o contraseña incorrectos'
+    } else if (code === 'validation.failed') {
+      errors.value = err.response.data.error.context.fields
+    } else {
+      apiError.value = 'Error del servidor. Inténtalo de nuevo.'
+    }
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+```
+
+---
+
+## Register (`Pages/Auth/Register.vue`)
+
+Mismo patrón visual. Campos: nombre, email, password, confirmar password.
+
+```
+POST /api/v1/auth/register → en éxito, auto-login y redirect a /app
+```
+
+Validaciones locales antes de enviar:
+- Email con formato válido
+- Password mínimo 8 caracteres
+- Confirm password igual a password
+
+---
+
+## Rutas
+
+```php
+// routes/web.php — páginas Inertia independientes (no pasan por Vue Router)
+Route::get('/login',    fn () => Inertia::render('Auth/Login'))->name('login');
+Route::get('/register', fn () => Inertia::render('Auth/Register'))->name('register');
+```
+
+El redirect post-login lleva a `/app`, donde Vue Router toma el control.
+
+---
+
+## Guard de rutas Vue Router
+
+El guard se define en un archivo separado y se registra en `app.js` tras crear el router.
+
+```js
+// router/guards.js
+import { useSession } from '../composables/core/useSession'
+
+export function authGuard(to) {
+  const session = useSession()
+  if (to.path.startsWith('/app') && !session.authenticated.value) {
+    return '/login'
+  }
+}
+```
+
+```js
+// app.js — tras createRouter(...)
+import { authGuard } from './router/guards'
+router.beforeEach(authGuard)
+```
+
+---
+
+## Mapeo de errores de API → UX
+
+| Código `error.code` | Mensaje mostrado |
+|---|---|
+| `auth.invalid_credentials` | "Email o contraseña incorrectos" |
+| `validation.failed` | Errores inline por campo |
+| `general.server_error` | "Error del servidor. Inténtalo de nuevo." |
+
+El mensaje de `auth.invalid_credentials` es siempre el mismo para email y password
+(no revela si el email existe — mismo comportamiento que el backend).
+
+---
+
+## Checklist
+
+- [ ] `Login.vue` con GlassCard, BaseInput x2, BaseButton, error mapping
+- [ ] `Register.vue` con nombre, email, password, confirmar password
+- [ ] Redirect a `/app` en auth exitosa
+- [ ] Guard en Vue Router: `/app/**` requiere estar autenticado
+- [ ] Redirect a `/login` si token ausente o expirado
+- [ ] `RouterLink` para navegar entre login ↔ registro (no `<Link>` de Inertia)
+- [ ] Spinner/loading state en botón durante el submit
+- [ ] Tests: login exitoso, credenciales incorrectas, validación de campos

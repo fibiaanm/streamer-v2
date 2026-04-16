@@ -1,0 +1,134 @@
+---
+description: Etapa 09 — Dominio de empresas, roles enterprise, membresías e invitaciones
+type: stage
+stage: 09
+status: pendiente
+depends_on: 05
+---
+
+# Etapa 09 — Empresas y membresías
+
+## Objetivo
+CRUD de empresas, sistema de roles y permisos enterprise,
+gestión de membresías y flujo completo de invitaciones por email.
+
+---
+
+## Roles base enterprise (seeder)
+
+| Rol | Permisos base |
+|---|---|
+| `owner` | todos los permisos |
+| `admin` | gestión de miembros, rooms, workspaces |
+| `member` | acceso a rooms y workspaces asignados |
+| `billing` | ver y gestionar suscripción |
+
+Los roles base tienen `enterprise_id = null` y no son editables.
+Los roles custom tienen `enterprise_id` y son editables/eliminables.
+
+---
+
+## Middleware `SetActiveEnterprise`
+
+Se aplica en todas las mutations/queries que requieren contexto de empresa.
+
+```
+Request con header X-Enterprise-ID: 42
+        │
+        ▼
+¿Usuario es miembro activo de enterprise 42?
+  NO → 403 Forbidden
+  SÍ → inyecta enterprise en el request (`$request->enterprise`)
+        │
+        ▼
+Controladores acceden via $request->enterprise o helper `activeEnterprise()`
+```
+
+---
+
+## Flujo de invitaciones
+
+```
+Admin invita a user@email.com con rol 'member'
+        │
+        ▼
+Crea invitations (status=pending, token=uuid, expires=7 días)
+Envía email con link: /accept-invitation?token=abc123
+        │
+Usuario hace clic en el link
+        ▼
+GET /invitation/accept?token=abc123
+Verifica token (exists, pending, no expirado)
+        │
+¿Usuario registrado?
+  NO → redirige a /register?invitation=abc123
+  SÍ → acepta directamente
+        │
+        ▼
+Crea enterprise_user (membresía activa)
+Marca invitation.status = accepted
+Retorna JWT del usuario
+```
+
+---
+
+## Endpoints
+
+```
+# Empresa  [auth.jwt + enterprise]
+GET    /api/v1/enterprises/current             ShowEnterpriseController
+POST   /api/v1/enterprises                     CreateEnterpriseController      [auth.jwt]
+PATCH  /api/v1/enterprises/current             UpdateEnterpriseController
+
+# Miembros
+GET    /api/v1/enterprises/current/members     ListMembersController           offset
+DELETE /api/v1/enterprises/current/members/{userId}  RemoveMemberController
+
+# Roles custom
+GET    /api/v1/enterprises/current/roles       ListRolesController
+POST   /api/v1/enterprises/current/roles       CreateRoleController
+PATCH  /api/v1/enterprises/current/roles/{id}  UpdateRoleController
+DELETE /api/v1/enterprises/current/roles/{id}  DeleteRoleController
+PATCH  /api/v1/enterprises/current/members/{userId}/role  AssignRoleController
+
+# Invitaciones
+GET    /api/v1/enterprises/current/invitations          ListInvitationsController  offset
+POST   /api/v1/enterprises/current/invitations          InviteMemberController
+DELETE /api/v1/enterprises/current/invitations/{id}     CancelInvitationController
+POST   /api/v1/invitations/{token}/accept               AcceptInvitationController [sin auth]
+```
+
+---
+
+## Validaciones de negocio
+
+- Solo `owner` puede eliminar la empresa o transferir ownership
+- No se puede eliminar el último `owner` de una empresa
+- No se puede invitar a alguien que ya es miembro
+- Los roles base no pueden editarse ni eliminarse
+- Un rol custom no puede eliminarse si hay usuarios asignados a él
+
+---
+
+## Reservado — fases posteriores
+
+- **Notificaciones (gaps.mdc → D):** en esta etapa las invitaciones solo envían el email
+  del link de aceptación. El sistema completo de notificaciones (in-app, preferencias
+  por usuario, badge) es fase posterior.
+- **Notificación al añadir/remover miembro:** en v1 no hay aviso al usuario afectado
+  más allá del email de invitación.
+
+---
+
+## Checklist
+
+- [ ] `EnterprisePermissionSeeder` y `EnterpriseRoleSeeder` ejecutados
+- [ ] CRUD de empresas con autorización por rol
+- [ ] Middleware `SetActiveEnterprise` funcional en todas las rutas protegidas
+- [ ] CRUD de roles custom enterprise
+- [ ] Asignación de roles a miembros
+- [ ] Mutation `inviteToEnterprise` creando registro y enviando email
+- [ ] Endpoint `acceptInvitation` con flujo completo (nuevo y existente usuario)
+- [ ] Expiración automática de invitaciones (job o scope)
+- [ ] Validaciones de negocio implementadas
+- [ ] Tests: invitación, aceptación, roles, permisos

@@ -1,0 +1,151 @@
+---
+description: Etapa 14 — Dominio de assets, upload con signed URLs y Spatie Media Library
+type: stage
+stage: 14
+status: pendiente
+depends_on: 12
+---
+
+# Etapa 14 — Assets
+
+## Objetivo
+Gestión de assets con upload directo a S3 via signed URLs,
+Spatie Media Library para la relación lógica/física,
+referencias cruzadas entre workspaces y retención por plan.
+
+---
+
+## Flujo de upload
+
+El archivo nunca pasa por Laravel — va directo a S3:
+
+```
+Cliente solicita URL firmada
+        │
+POST /api/v1/workspaces/{workspace}/assets/upload-url
+        │
+        ▼
+Laravel genera:
+  - asset (status='pending')
+  - presigned PUT URL de S3 (expira en 15min)
+        │
+        ▼
+Retorna { assetId, uploadUrl, expiresAt }
+        │
+Cliente hace PUT directo a S3 con el archivo
+        │
+Cliente confirma la subida
+        │
+POST /api/v1/workspaces/{workspace}/assets/{asset}/confirm
+        │
+        ▼
+Laravel verifica que el archivo existe en S3
+Crea registro en tabla `media` (Spatie)
+Asset.status = 'active'
+Incrementa subscription_usage 'storage_bytes'
+```
+
+---
+
+## Spatie Media Library
+
+```php
+// Asset model implementa HasMedia
+class Asset extends Model implements HasMedia
+{
+    use InteractsWithMedia;
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('file')->singleFile();
+        $this->addMediaCollection('thumbnail')->singleFile(); // fase posterior
+    }
+}
+```
+
+Separación lógica/física:
+- `assets` → entidad lógica (título, tipo, status, workspace)
+- `media` → archivo físico en S3 (path, mime, size, Spatie gestiona)
+
+---
+
+## Referencias cruzadas
+
+Un asset del workspace A puede ser referenciado desde el workspace B
+sin duplicar el archivo físico:
+
+```php
+// AssetReference: workspace B referencia asset de workspace A
+AssetReference::create([
+    'asset_id'            => $asset->id,        // workspace A
+    'workspace_id'        => $workspaceB->id,
+    'created_by_user_id'  => $user->id,
+    'reference_type'      => AssetReferenceType::Shortcut,
+]);
+```
+
+Al eliminar el asset original:
+- El archivo físico se mantiene hasta que no queden referencias
+- Las referencias quedan con `deleted_at` (orphaned)
+
+---
+
+## Retención y limpieza
+
+```php
+// Job: CleanupExpiredAssets (diario)
+// 1. Encuentra assets en papelera (status='trashed') cuya retención venció
+// 2. Retención por plan: limits_json['asset_retention_days']
+// 3. Verifica que no haya referencias activas
+// 4. Elimina archivo de S3 (Spatie)
+// 5. Elimina registro media
+// 6. Hard delete del asset (único hard delete del sistema)
+// 7. Decrementa subscription_usage 'storage_bytes'
+```
+
+---
+
+## Límite de almacenamiento
+
+```php
+// Antes de confirmar upload
+$currentBytes = $subscription->usage()->where('metric_key', 'storage_bytes')->first()?->used_value ?? 0;
+$limitBytes   = $limitService->getLimit($enterprise, 'storage_gb') * 1024 * 1024 * 1024;
+
+if ($limitBytes !== -1 && ($currentBytes + $fileSize) > $limitBytes) {
+    throw new PlanLimitExceededException('storage_bytes');
+}
+```
+
+---
+
+## Endpoints
+
+```
+# Assets  [auth.jwt]
+POST   /api/v1/workspaces/{workspace}/assets/upload-url              CreateAssetUploadUrlController
+POST   /api/v1/workspaces/{workspace}/assets/{asset}/confirm         ConfirmAssetUploadController
+GET    /api/v1/workspaces/{workspace}/assets                         ListAssetsController           offset
+GET    /api/v1/workspaces/{workspace}/assets/{asset}                 ShowAssetController
+PATCH  /api/v1/workspaces/{workspace}/assets/{asset}                 UpdateAssetController
+DELETE /api/v1/workspaces/{workspace}/assets/{asset}                 TrashAssetController
+
+# Referencias cruzadas
+POST   /api/v1/workspaces/{workspace}/asset-references               CreateAssetReferenceController
+DELETE /api/v1/workspaces/{workspace}/asset-references/{reference}   DeleteAssetReferenceController
+```
+
+---
+
+## Checklist
+
+- [ ] Spatie Media Library instalado y configurado para S3
+- [ ] Generación de presigned PUT URL (15min de expiración)
+- [ ] Asset en estado `pending` hasta confirmación
+- [ ] `confirmAssetUpload` verificando existencia en S3 y activando asset
+- [ ] Incremento de `storage_bytes` en `subscription_usage`
+- [ ] Validación de límite de almacenamiento por plan
+- [ ] Soft delete a papelera (status = `trashed`)
+- [ ] Referencias cruzadas entre workspaces
+- [ ] Job `CleanupExpiredAssets` con retención por plan
+- [ ] Tests: upload, confirmación, referencias, retención, límites

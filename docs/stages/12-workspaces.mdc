@@ -1,0 +1,155 @@
+---
+description: Etapa 12 — Dominio de workspaces con jerarquía ltree, roles y permisos
+type: stage
+stage: 12
+status: pendiente
+depends_on: 10
+---
+
+# Etapa 12 — Workspaces
+
+## Objetivo
+CRUD de workspaces con jerarquía ltree, sistema de roles seeded,
+permisos por workspace, invitaciones y manejo de orphaned.
+
+---
+
+## Gestión del path ltree
+
+Al crear un workspace:
+```php
+// Workspace raíz
+$workspace->path = (string) $workspace->id;
+// "42"
+
+// Workspace hijo
+$parent = Workspace::find($parentId);
+$workspace->path = $parent->path . '.' . $workspace->id;
+// "42.87"
+
+// Nieto
+// "42.87.103"
+```
+
+**Validación de profundidad antes de crear:**
+```php
+$depth = DB::selectOne(
+    'SELECT nlevel(path) as depth FROM workspaces WHERE id = ?',
+    [$parentId]
+)->depth;
+
+if ($depth + 1 > $limitService->getLimit($enterprise, 'max_workspace_depth')) {
+    throw new PlanLimitExceededException('max_workspace_depth');
+}
+```
+
+**Queries útiles con ltree:**
+```sql
+-- Todos los descendientes de workspace 42
+SELECT * FROM workspaces WHERE path <@ '42' AND id != 42;
+
+-- Profundidad de un workspace
+SELECT nlevel(path) FROM workspaces WHERE id = 42;
+
+-- Ancestros de un workspace
+SELECT * FROM workspaces WHERE path @> '42.87.103' AND id != 103;
+```
+
+---
+
+## Roles base seeded al crear workspace
+
+Al crear cualquier workspace se insertan automáticamente:
+
+| Rol | `is_base` | Descripción |
+|---|---|---|
+| `owner` | true | Control total |
+| `admin` | true | Gestión sin transferir ownership |
+| `editor` | true | Crear y editar contenido |
+| `viewer` | true | Solo lectura |
+| `guest` | true | Acceso mínimo (assets públicos) |
+
+Los roles base tienen `is_base = true` y no son editables.
+Los roles custom tienen `is_base = false` y son editables.
+
+**Al crear workspace hijo**, se copian roles Y asignaciones del padre.
+Luego quedan **desacoplados** — cambios en el padre no se propagan.
+
+---
+
+## Manejo de orphaned
+
+```php
+// Al hacer soft delete de un workspace
+// 1. Workspace → deleted_at = now()
+// 2. Workspaces hijos directos → status = 'orphaned'
+// 3. NO se eliminan en cascada
+
+// Al hacer soft delete de un usuario (owner)
+// Todos sus workspaces → status = 'orphaned'
+```
+
+Un workspace `orphaned` sigue existiendo y siendo accesible para sus miembros,
+pero no puede recibir nuevo contenido ni tener nuevos miembros hasta que
+se reasigne ownership (feature futura).
+
+---
+
+## Endpoints
+
+```
+# Workspaces  [auth.jwt]
+GET    /api/v1/workspaces                              ListWorkspacesController         offset
+POST   /api/v1/workspaces                              CreateWorkspaceController
+GET    /api/v1/workspaces/{workspace}                  ShowWorkspaceController
+PATCH  /api/v1/workspaces/{workspace}                  UpdateWorkspaceController
+DELETE /api/v1/workspaces/{workspace}                  DeleteWorkspaceController
+PATCH  /api/v1/workspaces/{workspace}/archive          ArchiveWorkspaceController
+GET    /api/v1/workspaces/{workspace}/children         ListChildrenController          offset
+
+# Miembros
+GET    /api/v1/workspaces/{workspace}/members                   ListMembersController  offset
+POST   /api/v1/workspaces/{workspace}/invitations               InviteMemberController
+DELETE /api/v1/workspaces/{workspace}/members/{userId}          RemoveMemberController
+PATCH  /api/v1/workspaces/{workspace}/members/{userId}/role     AssignRoleController
+
+# Roles custom
+GET    /api/v1/workspaces/{workspace}/roles            ListRolesController
+POST   /api/v1/workspaces/{workspace}/roles            CreateRoleController
+DELETE /api/v1/workspaces/{workspace}/roles/{role}     DeleteRoleController
+```
+
+---
+
+## Validaciones de negocio
+
+- Solo el `owner` puede eliminar o transferir ownership
+- No se puede crear hijo si la profundidad supera el límite del plan
+- No se pueden editar ni eliminar roles con `is_base = true`
+- Al eliminar un rol custom, los miembros con ese rol deben ser reasignados
+- Workspaces `orphaned` son de solo lectura hasta reasignación
+
+---
+
+## Reservado — fases posteriores
+
+- **Notificaciones (gaps.mdc → D):** las invitaciones a workspace solo envían email
+  del link de aceptación. Notificaciones in-app y preferencias son fase posterior.
+- **Reasignación de ownership de workspace orphaned:** cuando un workspace queda
+  `orphaned`, en v1 no hay flujo para reasignar el owner. Feature futura.
+
+---
+
+## Checklist
+
+- [ ] `WorkspacePermissionSeeder` con permisos base
+- [ ] Creación de workspace raíz con `path = id`
+- [ ] Creación de workspace hijo con `path = parent.path.id`
+- [ ] Validación de profundidad contra `LimitService`
+- [ ] Seed automático de 5 roles base al crear workspace
+- [ ] Copia de roles y asignaciones del padre al crear hijo
+- [ ] Soft delete con marcado de hijos como `orphaned`
+- [ ] Soft delete de usuario marca sus workspaces como `orphaned`
+- [ ] Flujo de invitaciones a workspace (reutiliza tabla `invitations`)
+- [ ] Query de subtree completo via ltree
+- [ ] Tests: jerarquía, límites, orphaned, roles, permisos

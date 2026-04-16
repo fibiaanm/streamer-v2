@@ -1,0 +1,759 @@
+---
+description: Etapa 02 — Estructura base del backend Laravel, REST API y convenciones
+type: stage
+stage: 02
+status: pendiente
+depends_on: 01
+---
+
+# Etapa 02 — Base del backend
+
+## Objetivo
+Proyecto Laravel configurado con arquitectura hexagonal por dominios, API REST versionada,
+formatters de respuesta, sistema de excepciones, ID hashing con sqids y Pest listo para TDD.
+
+---
+
+## Arquitectura: hexagonal por dominio
+
+Cada dominio tiene tres capas internas:
+
+| Capa | Qué contiene | Dependencias |
+|---|---|---|
+| **Exceptions/** | Excepciones propias del dominio | Solo `AppException` base |
+| **Application/** | Use Cases + Ports (interfaces) | Solo Domain |
+| **Http/** | Controllers, Requests, Resources (adapters HTTP) | Application + Domain |
+
+Las capas `Exceptions/` y `Application/` no importan nada de Laravel HTTP.
+Los Use Cases reciben arrays o value objects — nunca `Request`.
+Los modelos Eloquent viven en `app/Models/` (convención Laravel); son los objetos de dominio.
+Todos los modelos tienen `$hidden = ['id']` — el ID numérico nunca se expone.
+
+---
+
+## Estructura de carpetas
+
+```
+app/
+├── Domain/
+│   ├── Auth/
+│   │   ├── Http/
+│   │   │   ├── Controllers/
+│   │   │   │   ├── LoginController.php
+│   │   │   │   ├── RegisterController.php
+│   │   │   │   ├── RefreshController.php
+│   │   │   │   └── LogoutController.php
+│   │   │   ├── Requests/
+│   │   │   │   ├── LoginRequest.php
+│   │   │   │   └── RegisterRequest.php
+│   │   │   └── Resources/
+│   │   │       └── UserResource.php       # expone hash_id, oculta id numérico
+│   │   ├── Application/
+│   │   │   └── UseCases/
+│   │   │       ├── LoginUseCase.php
+│   │   │       └── RegisterUseCase.php
+│   │   └── Exceptions/
+│   │       ├── InvalidCredentialsException.php
+│   │       └── TokenExpiredException.php
+│   │
+│   ├── Enterprises/
+│   │   ├── Http/
+│   │   │   ├── Controllers/
+│   │   │   ├── Requests/
+│   │   │   └── Resources/
+│   │   ├── Application/
+│   │   │   └── UseCases/
+│   │   └── Exceptions/
+│   │       └── EnterpriseNotFoundException.php
+│   │
+│   ├── Subscriptions/
+│   ├── Workspaces/
+│   ├── Assets/
+│   ├── Rooms/
+│   ├── Conversations/
+│   ├── Streams/
+│   └── ActivityLogs/
+│
+├── Models/              # Eloquent models — todos con $hidden = ['id']
+│   ├── User.php
+│   ├── Enterprise.php
+│   ├── EnterpriseMember.php
+│   └── ...
+│
+├── Exceptions/          # Transversales
+│   ├── AppException.php
+│   └── ErrorCode.php
+│
+└── Http/
+    ├── Middleware/
+    │   ├── RequestId.php
+    │   ├── AuthenticateJWT.php
+    │   └── SetActiveEnterprise.php
+    └── Formatters/
+        └── ResponseFormatter.php
+
+routes/
+├── api.php
+├── auth.php
+├── enterprises.php
+├── workspaces.php
+├── assets.php
+├── rooms.php
+├── conversations.php
+├── streams.php
+└── activity_logs.php
+
+tests/
+├── Unit/
+│   ├── Auth/
+│   ├── Enterprises/
+│   ├── Workspaces/
+│   └── ...
+├── Feature/
+│   ├── Auth/
+│   ├── Enterprises/
+│   ├── Workspaces/
+│   └── ...
+└── E2E/
+    ├── OnboardingFlowTest.php
+    ├── WorkspaceCollaborationFlowTest.php
+    ├── RoomSessionFlowTest.php
+    └── StreamingFlowTest.php
+```
+
+---
+
+## Paquetes a instalar
+
+```bash
+# JWT
+composer require tymon/jwt-auth
+
+# ID hashing (IDs alfanuméricos URL-safe no secuenciales)
+composer require sqids/sqids
+
+# Testing
+composer require pestphp/pest --dev
+composer require pestphp/pest-plugin-laravel --dev
+composer require pestphp/pest-plugin-faker --dev
+```
+
+---
+
+## ID Hashing con sqids
+
+Los IDs numéricos de base de datos **nunca** se exponen. Todo lo que sale por la API usa un hash alfanumérico generado con sqids.
+
+### Helper `HashId`
+
+Clase estática de bajo nivel. La usan el trait y el middleware (al decodificar el header `X-Enterprise-ID`).
+
+```php
+// app/Services/HashId.php
+namespace App\Services;
+
+use Sqids\Sqids;
+
+class HashId
+{
+    private static ?Sqids $sqids = null;
+
+    private static function instance(): Sqids
+    {
+        return self::$sqids ??= new Sqids(
+            alphabet: config('app.sqids_alphabet'),
+            minLength: 6,
+        );
+    }
+
+    public static function encode(int $id): string
+    {
+        return self::instance()->encode([$id]);
+    }
+
+    public static function decode(string $hash): ?int
+    {
+        $ids = self::instance()->decode($hash);
+        return $ids[0] ?? null;
+    }
+}
+```
+
+Ejemplo de IDs generados:
+```
+1  → "He3bqD"
+2  → "k8ZmJ2"
+42 → "nGtA7R"
+```
+
+### Trait `HasHashId`
+
+Añadido a todos los modelos Eloquent. Centraliza tres responsabilidades:
+- Ocultar el `id` numérico en serialización
+- Exponer `getHashId()` para construir Resources
+- Sobrescribir route model binding para aceptar hash_ids en los parámetros de ruta
+
+```php
+// app/Traits/HasHashId.php
+namespace App\Traits;
+
+use App\Services\HashId;
+
+trait HasHashId
+{
+    /**
+     * Se llama automáticamente en boot del modelo (convención Laravel: initialize{Trait}).
+     * Oculta el id numérico sin necesidad de declarar $hidden en cada modelo.
+     */
+    public function initializeHasHashId(): void
+    {
+        $this->makeHidden('id');
+    }
+
+    /**
+     * Hash alfanumérico de la PK. Usado en API Resources.
+     */
+    public function getHashId(): string
+    {
+        return HashId::encode((int) $this->getKey());
+    }
+
+    /**
+     * Laravel serializa el modelo como parámetro de ruta usando este valor.
+     * Así, url()->route('workspaces.show', $workspace) produce /workspaces/He3bqD.
+     */
+    public function getRouteKey(): string
+    {
+        return $this->getHashId();
+    }
+
+    /**
+     * Al resolver un parámetro de ruta, se decodifica el hash_id → id numérico
+     * y se busca el registro. Devuelve null si el hash no es válido.
+     */
+    public function resolveRouteBinding(mixed $value, $field = null): static|null
+    {
+        $id = HashId::decode((string) $value);
+
+        if ($id === null) {
+            return null;
+        }
+
+        return $this->where($this->getKeyName(), $id)->first();
+    }
+}
+```
+
+Uso en cualquier modelo:
+
+```php
+// app/Models/Workspace.php
+use App\Traits\HasHashId;
+
+class Workspace extends Model
+{
+    use HasHashId;
+    // Sin $hidden = ['id'] manual — lo hace el trait
+}
+```
+
+### API Resources
+
+Los Resources leen `getHashId()` del trait — nunca `$this->id` directamente:
+
+```php
+// app/Domain/Auth/Http/Resources/UserResource.php
+namespace App\Domain\Auth\Http\Resources;
+
+use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Request;
+
+class UserResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id'    => $this->getHashId(),
+            'email' => $this->email,
+            'name'  => $this->name,
+        ];
+    }
+}
+```
+
+Los controllers siempre devuelven Resources, nunca `$model->toArray()`.
+
+---
+
+## Convenciones REST
+
+### Rutas — `/api/v1/`
+
+```php
+// routes/api.php
+Route::prefix('v1')->group(function () {
+    require base_path('routes/auth.php');
+
+    Route::middleware('auth.jwt')->group(function () {
+        require base_path('routes/workspaces.php');
+        require base_path('routes/assets.php');
+        require base_path('routes/activity_logs.php');
+
+        Route::middleware('enterprise')->group(function () {
+            require base_path('routes/enterprises.php');
+            require base_path('routes/subscriptions.php');
+            require base_path('routes/rooms.php');
+            require base_path('routes/conversations.php');
+            require base_path('routes/streams.php');
+        });
+    });
+});
+```
+
+### Controladores — un `__invoke` por acción
+
+```php
+// app/Domain/Workspaces/Http/Controllers/CreateWorkspaceController.php
+namespace App\Domain\Workspaces\Http\Controllers;
+
+use App\Domain\Workspaces\Application\UseCases\CreateWorkspaceUseCase;
+use App\Domain\Workspaces\Exceptions\WorkspaceDepthExceededException;
+use App\Domain\Workspaces\Http\Requests\CreateWorkspaceRequest;
+use App\Domain\Workspaces\Http\Resources\WorkspaceResource;
+use App\Domain\Subscriptions\Exceptions\PlanLimitExceededException;
+use App\Http\Formatters\ResponseFormatter;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+class CreateWorkspaceController
+{
+    public function __invoke(
+        CreateWorkspaceRequest $request,
+        CreateWorkspaceUseCase $useCase,
+    ): JsonResponse {
+        try {
+            $workspace = $useCase->execute(
+                userId: auth()->id(),
+                data: $request->validated(),
+            );
+
+            Log::info('workspace.created', ['workspace_id' => $workspace->id]);
+
+            return ResponseFormatter::created(new WorkspaceResource($workspace));
+
+        } catch (WorkspaceDepthExceededException $e) {
+            Log::warning('workspace.depth_exceeded', ['context' => $e->getContext()]);
+            return ResponseFormatter::error($e);
+
+        } catch (PlanLimitExceededException $e) {
+            Log::warning('workspace.plan_limit', ['context' => $e->getContext()]);
+            return ResponseFormatter::error($e);
+
+        } catch (Throwable $e) {
+            Log::error('workspace.create_unexpected', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+            return ResponseFormatter::serverError();
+        }
+    }
+}
+```
+
+Reglas de catch:
+1. Excepciones de dominio esperadas → `Log::warning` + `ResponseFormatter::error($e)`
+2. `\Throwable` al final, siempre → `Log::error` + `ResponseFormatter::serverError()`
+
+### Niveles de log
+
+| Nivel | Cuándo usarlo |
+|---|---|
+| `Log::info` | Operación completada con éxito (notable) |
+| `Log::warning` | Error de negocio esperado (plan limit, not found, no autorizado) |
+| `Log::error` | Excepción inesperada (`\Throwable`) |
+
+---
+
+## ResponseFormatter
+
+```php
+// app/Http/Formatters/ResponseFormatter.php
+class ResponseFormatter
+{
+    public static function success(JsonResource|array $data, int $status = 200): JsonResponse
+    {
+        $payload = $data instanceof JsonResource ? $data->resolve() : $data;
+        return response()->json(['data' => $payload], $status);
+    }
+
+    public static function created(JsonResource|array $data): JsonResponse
+    {
+        return static::success($data, 201);
+    }
+
+    public static function noContent(): JsonResponse
+    {
+        return response()->json(null, 204);
+    }
+
+    public static function paginated(LengthAwarePaginator $paginator, string $resourceClass): JsonResponse
+    {
+        return response()->json([
+            'data'  => $resourceClass::collection($paginator->getCollection())->resolve(),
+            'meta'  => [
+                'current_page' => $paginator->currentPage(),
+                'per_page'     => $paginator->perPage(),
+                'total'        => $paginator->total(),
+                'last_page'    => $paginator->lastPage(),
+            ],
+            'links' => [
+                'prev' => $paginator->previousPageUrl(),
+                'next' => $paginator->nextPageUrl(),
+            ],
+        ]);
+    }
+
+    public static function cursor(CursorPaginator $paginator, string $resourceClass): JsonResponse
+    {
+        return response()->json([
+            'data' => $resourceClass::collection($paginator->getCollection())->resolve(),
+            'meta' => [
+                'per_page'    => $paginator->perPage(),
+                'next_cursor' => $paginator->nextCursor()?->encode(),
+                'prev_cursor' => $paginator->previousCursor()?->encode(),
+            ],
+        ]);
+    }
+
+    public static function error(AppException $e): JsonResponse
+    {
+        return response()->json([
+            'error' => [
+                'code'    => $e->getErrorCode()->value,
+                'context' => $e->getContext(),
+            ],
+        ], $e->getHttpStatus());
+    }
+
+    public static function serverError(): JsonResponse
+    {
+        return response()->json([
+            'error' => [
+                'code'    => ErrorCode::SERVER_ERROR->value,
+                'context' => [],
+            ],
+        ], 500);
+    }
+}
+```
+
+---
+
+## Formatos de respuesta
+
+```json
+// Éxito — recurso único (id siempre como hash)
+{ "data": { "id": "He3bqD", "name": "My Workspace", "status": "active" } }
+
+// Éxito — lista paginada (offset)
+{
+  "data": [...],
+  "meta": { "current_page": 1, "per_page": 20, "total": 150, "last_page": 8 },
+  "links": { "prev": null, "next": "/api/v1/workspaces?page=2" }
+}
+
+// Éxito — lista paginada (cursor)
+{
+  "data": [...],
+  "meta": { "per_page": 50, "next_cursor": "eyJpZCI6NDB9", "prev_cursor": null }
+}
+
+// Error de negocio
+{
+  "error": {
+    "code": "workspace.depth_exceeded",
+    "context": { "current_depth": 5, "max_depth": 3 }
+  }
+}
+
+// Error de validación (422 — formateado en Handler)
+{
+  "error": {
+    "code": "validation.failed",
+    "context": {
+      "fields": {
+        "email": ["The email field is required."],
+        "name":  ["The name must be at least 3 characters."]
+      }
+    }
+  }
+}
+```
+
+---
+
+## Middleware
+
+### `RequestId`
+Se aplica globalmente (primero en la cadena).
+El `request_id` **siempre** lo genera el backend — nunca se lee del header del cliente.
+
+```php
+// app/Http/Middleware/RequestId.php
+class RequestId
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        // Siempre generado por el backend — el header del cliente se ignora
+        $requestId = (string) Str::uuid();
+
+        Context::add('request_id', $requestId);
+
+        $response = $next($request);
+
+        // Propagado de vuelta al cliente para trazabilidad
+        $response->headers->set('X-Request-ID', $requestId);
+
+        return $response;
+    }
+}
+```
+
+El `request_id` se inyecta automáticamente en todos los logs vía `config/logging.php`:
+
+```php
+// app/Logging/InjectRequestIdProcessor.php
+class InjectRequestIdProcessor
+{
+    public function __invoke($logger): void
+    {
+        $logger->pushProcessor(function ($record) {
+            $record['extra']['request_id'] = Context::get('request_id');
+            return $record;
+        });
+    }
+}
+```
+
+### `AuthenticateJWT`
+Verifica la firma del JWT y luego **hace lookup en DB** tanto del usuario como de la empresa.
+No hay shortcut — un token bien firmado con un `user_id` inexistente o de un usuario eliminado debe ser rechazado.
+
+```php
+// app/Http/Middleware/AuthenticateJWT.php
+namespace App\Http\Middleware;
+
+use App\Domain\Auth\Exceptions\TokenExpiredException;
+use App\Domain\Auth\Exceptions\UnauthorizedException;
+use App\Models\User;
+use Closure;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
+use Tymon\JWTAuth\Exceptions\JWTException;
+use Tymon\JWTAuth\Facades\JWTAuth;
+
+class AuthenticateJWT
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        try {
+            // 1. Valida firma y extrae payload
+            $payload = JWTAuth::parseToken()->getPayload();
+
+            // 2. DB lookup del usuario — evita tokens con user_id fake o usuario eliminado
+            $user = User::findOrFail($payload->get('sub'));
+
+            // 3. Inyecta el usuario en el guard de Laravel
+            auth()->setUser($user);
+
+        } catch (TokenExpiredException) {
+            Log::warning('auth.token_expired');
+            throw new TokenExpiredException();
+
+        } catch (JWTException) {
+            Log::warning('auth.token_invalid');
+            throw new UnauthorizedException();
+
+        } catch (ModelNotFoundException) {
+            Log::warning('auth.user_not_found', ['sub' => $payload->get('sub') ?? null]);
+            throw new UnauthorizedException();  // mismo 401 — no revelar que el user no existe
+        }
+
+        return $next($request);
+    }
+}
+```
+
+### `SetActiveEnterprise`
+Lee el header `X-Enterprise-ID` (hash), decodifica al ID numérico,
+verifica que la empresa existe y que el usuario es miembro activo.
+
+```php
+// app/Http/Middleware/SetActiveEnterprise.php
+namespace App\Http\Middleware;
+
+use App\Domain\Enterprises\Exceptions\EnterpriseHeaderRequiredException;
+use App\Domain\Enterprises\Exceptions\EnterpriseNotFoundException;
+use App\Domain\Enterprises\Exceptions\EnterpriseNotMemberException;
+use App\Models\Enterprise;
+use App\Models\EnterpriseMember;
+use App\Services\HashId;
+use Closure;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
+
+class SetActiveEnterprise
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $hashId = $request->header(config('app.enterprise_header'));  // X-Enterprise-ID
+
+        if (!$hashId) {
+            throw new EnterpriseHeaderRequiredException();  // 422
+        }
+
+        $enterpriseId = HashId::decode($hashId);
+
+        if (!$enterpriseId) {
+            throw new EnterpriseNotFoundException();  // 404
+        }
+
+        try {
+            $enterprise = Enterprise::findOrFail($enterpriseId);
+        } catch (ModelNotFoundException) {
+            throw new EnterpriseNotFoundException();  // 404
+        }
+
+        // Verificar membresía activa
+        $isMember = EnterpriseMember::where('enterprise_id', $enterprise->id)
+            ->where('user_id', auth()->id())
+            ->where('status', 'active')
+            ->exists();
+
+        if (!$isMember) {
+            Log::warning('enterprise.not_member', [
+                'enterprise_id' => $enterprise->id,
+                'user_id'       => auth()->id(),
+            ]);
+            throw new EnterpriseNotMemberException();  // 403
+        }
+
+        $request->merge(['active_enterprise' => $enterprise]);
+
+        return $next($request);
+    }
+}
+```
+
+| Caso | HTTP | Error code |
+|---|---|---|
+| Header ausente | 422 | `enterprise.header_required` |
+| Hash inválido o enterprise no existe | 404 | `enterprise.not_found` |
+| Usuario no es miembro activo | 403 | `enterprise.not_member` |
+
+---
+
+## Empresa silenciosa (personal enterprise)
+
+Los usuarios individuales no registran empresa explícita.
+Al crear una cuenta se crea automáticamente una **empresa silenciosa** ligada al usuario.
+
+Comportamiento:
+- La empresa silenciosa existe en la tabla `enterprises` con `type = 'personal'`
+- Si el usuario no está en un plan enterprise, las rutas bajo `middleware('enterprise')` devuelven `403 enterprise.plan_required`
+- Las features colaborativas (rooms, conversations, streams) requieren plan enterprise
+
+```php
+// Al registrar usuario — parte de RegisterUseCase
+$enterprise = Enterprise::create([
+    'name'    => $user->name,
+    'type'    => 'personal',   // empresa silenciosa
+    'user_id' => $user->id,
+]);
+
+EnterpriseMember::create([
+    'enterprise_id' => $enterprise->id,
+    'user_id'       => $user->id,
+    'role'          => 'owner',
+    'status'        => 'active',
+]);
+```
+
+El middleware `SetActiveEnterprise` no distingue personal de enterprise — solo verifica membresía.
+La distinción de plan se hace dentro de cada Use Case que lo necesite.
+
+---
+
+## Manejo de errores
+
+El `Handler.php` formatea:
+
+| Excepción | HTTP | Error code |
+|---|---|---|
+| `ValidationException` | 422 | `validation.failed` |
+| `AuthenticationException` | 401 | `auth.unauthorized` |
+| `NotFoundHttpException` | 404 | `general.not_found` |
+| `ModelNotFoundException` (no capturada en controller) | 404 | `general.not_found` |
+| `\Throwable` | 500 | `general.server_error` (sin context en producción) |
+
+`ModelNotFoundException` que llega al `Handler` es el fallback — los controllers deben capturarla
+y convertirla al error code correcto del dominio antes de que llegue ahí.
+
+---
+
+## Paginación por tipo de recurso
+
+| Recurso | Tipo | Por qué |
+|---|---|---|
+| Mensajes | Cursor | Append-only, tiempo real |
+| Activity logs | Cursor | Append-only, tiempo real |
+| Workspaces, rooms, assets | Offset | Listas admin, navegación por páginas |
+| Participantes, miembros | Offset | Lista estática durante la sesión |
+
+---
+
+## Testing
+
+Ver `docs/testing.mdc` para el estándar completo.
+
+```bash
+./vendor/bin/pest                        # todos los tests
+./vendor/bin/pest --exclude-group=pgsql  # sin PostgreSQL (CI rápido)
+./vendor/bin/pest --group=pgsql          # solo ltree
+php artisan errors:export                # sincronizar error codes al frontend
+```
+
+---
+
+## Checklist
+
+- [ ] Proyecto Laravel 11 creado
+- [ ] Estructura `app/Domain/{name}/{Http,Application,Exceptions}/` por dominio
+- [ ] `app/Models/` con todos los modelos usando el trait `HasHashId` (sin `$hidden = ['id']` manual)
+- [ ] `sqids/sqids` instalado; `HashId::encode/decode` en `app/Services/HashId.php`
+- [ ] `app/Traits/HasHashId.php` con `initializeHasHashId`, `getHashId`, `getRouteKey`, `resolveRouteBinding`
+- [ ] `app/Domain/{name}/Http/Resources/` con API Resources que llaman `$this->getHashId()`
+- [ ] `routes/api.php` con prefix `v1` y archivos por dominio
+- [ ] `ResponseFormatter` con `success`, `created`, `noContent`, `paginated`, `cursor`, `error`, `serverError`
+- [ ] `Handler.php` formateando `ValidationException`, `AuthenticationException`, 404, 500
+- [ ] `tymon/jwt-auth` instalado y configurado
+- [ ] Middleware `RequestId` aplicado globalmente (genera UUID — nunca lee del cliente)
+- [ ] `request_id` inyectado en Context facade y en todos los logs
+- [ ] Header `X-Request-ID` incluido en todas las respuestas
+- [ ] Middleware `AuthenticateJWT` con DB lookup de usuario
+- [ ] `auth()->setUser($user)` configurado correctamente en `AuthenticateJWT`
+- [ ] Middleware `SetActiveEnterprise` con `enterprise.not_found` (no `general.not_found`)
+- [ ] Todos los controllers con `catch (\Throwable $e)` como último catch
+- [ ] Logging: `info` para éxitos, `warning` para errores de negocio, `error` para inesperados
+- [ ] `ErrorCode` enum con todos los códigos base
+- [ ] `AppException` base con `getErrorCode`, `getContext`, `getHttpStatus`
+- [ ] Empresa silenciosa creada en `RegisterUseCase`
+- [ ] Pest instalado con plugins de Laravel y Faker
+- [ ] Estructura `tests/Unit/`, `tests/Feature/`, `tests/E2E/` creada
+- [ ] `pest.php` configurado: `RefreshDatabase` en Feature y E2E, grupo `pgsql`
+- [ ] Health check en `/up` respondiendo

@@ -1,0 +1,257 @@
+---
+description: Etapa 07 — Sistema de diseño glass morphism, tokens de color, componentes base
+type: stage
+stage: 07
+status: pendiente
+depends_on: 06
+---
+
+# Etapa 07 — Design Standards
+
+## Objetivo
+Definir y documentar el sistema visual completo **antes** de construir cualquier vista.
+Todas las etapas de frontend posteriores siguen este estándar sin excepción.
+Esta etapa produce: configuración de Tailwind, componentes base reutilizables
+y una ruta `/dev/components` como galería visual de referencia.
+
+---
+
+## Estética general
+
+**Glass morphism** sobre fondo oscuro:
+- Superficies semi-transparentes con `backdrop-blur`
+- Bordes sutiles en blanco con baja opacidad
+- Profundidad de capas vía opacidad (no sombras duras)
+- Acentos en violeta/brand sobre fondos neutros oscuros
+
+---
+
+## Fondo base de la aplicación
+
+```css
+/* resources/css/app.css */
+.bg-app {
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a0f2e 50%, #0f1a1a 100%);
+  min-height: 100vh;
+}
+```
+
+Siempre hay un fondo oscuro fijo detrás de todos los paneles.
+
+---
+
+## Tokens Tailwind
+
+```js
+// tailwind.config.js
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        glass: {
+          DEFAULT: 'rgba(255, 255, 255, 0.06)',
+          hover:   'rgba(255, 255, 255, 0.10)',
+          active:  'rgba(255, 255, 255, 0.15)',
+          border:  'rgba(255, 255, 255, 0.12)',
+        },
+        brand: {
+          DEFAULT: '#7c3aed',   // violet-600
+          light:   '#a78bfa',
+          dark:    '#5b21b6',
+        },
+        surface: {
+          base:   'rgba(255, 255, 255, 0.04)',
+          raised: 'rgba(255, 255, 255, 0.08)',
+          modal:  'rgba(10, 10, 20, 0.85)',
+        },
+      },
+      backdropBlur: {
+        glass: '16px',
+        modal: '24px',
+        bar:   '20px',
+      },
+    },
+  },
+}
+```
+
+---
+
+## Clases de superficie
+
+### Card glass
+
+```html
+<div class="bg-glass backdrop-blur-glass border border-glass-border rounded-2xl p-6">
+```
+
+### Panel elevado (dropdown, tooltip)
+
+```html
+<div class="bg-surface-raised backdrop-blur-modal border border-glass-border rounded-xl p-4 shadow-xl shadow-black/40">
+```
+
+### Modal / Drawer
+
+```html
+<!-- Overlay -->
+<div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" />
+
+<!-- Panel -->
+<div class="fixed inset-0 flex items-center justify-center z-50 p-4">
+  <div class="bg-surface-modal backdrop-blur-modal border border-glass-border
+              rounded-3xl w-full max-w-lg p-8 shadow-2xl shadow-black/50">
+```
+
+---
+
+## Componentes base
+
+### `BaseButton.vue` — tres variantes
+
+```html
+<!-- Primary -->
+<button class="bg-brand hover:bg-brand-light text-white font-medium
+               px-6 py-3 rounded-xl transition-all duration-200 active:scale-95">
+
+<!-- Ghost -->
+<button class="bg-transparent hover:bg-glass-hover border border-glass-border
+               hover:border-white/20 text-white/80 hover:text-white
+               px-6 py-3 rounded-xl transition-all duration-200">
+
+<!-- Destructive -->
+<button class="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30
+               text-red-400 hover:text-red-300 px-6 py-3 rounded-xl
+               transition-all duration-200">
+```
+
+### `BaseInput.vue`
+
+```html
+<div>
+  <label class="text-xs font-medium text-white/60 uppercase tracking-wide mb-2 block">
+    {{ label }}
+  </label>
+  <input class="w-full bg-glass backdrop-blur-sm border border-glass-border rounded-xl
+                px-4 py-3 text-white placeholder-white/30
+                focus:outline-none focus:border-brand/60 focus:bg-glass-hover
+                transition-all duration-200" />
+  <p v-if="error" class="text-red-400 text-xs mt-1">{{ error }}</p>
+</div>
+```
+
+### `BaseModal.vue`
+
+```vue
+<template>
+  <Teleport to="body">
+    <Transition name="modal">
+      <div v-if="modelValue" class="fixed inset-0 z-40 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="$emit('update:modelValue', false)" />
+        <div class="relative bg-surface-modal backdrop-blur-modal border border-glass-border
+                    rounded-3xl w-full max-w-lg p-8 shadow-2xl shadow-black/50 z-50">
+          <slot />
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+</template>
+```
+
+### `GlassCard.vue`
+
+```vue
+<template>
+  <div class="bg-glass backdrop-blur-glass border border-glass-border rounded-2xl" :class="padding">
+    <slot />
+  </div>
+</template>
+
+<script setup>
+defineProps({ padding: { type: String, default: 'p-6' } })
+</script>
+```
+
+---
+
+## Tipografía
+
+```js
+// tailwind.config.js
+fontFamily: {
+  sans: ['Inter', 'system-ui', 'sans-serif'],
+  mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+}
+```
+
+| Uso | Tailwind |
+|---|---|
+| Heading grande | `text-2xl font-bold text-white` |
+| Heading sección | `text-lg font-semibold text-white` |
+| Body | `text-sm text-white/80` |
+| Secundario | `text-sm text-white/50` |
+| Label input | `text-xs font-medium text-white/60 uppercase tracking-wide` |
+| Código | `text-sm font-mono text-brand-light` |
+
+---
+
+## Interacción y movimiento
+
+```css
+/* Transición estándar — hover, focus */
+transition-all duration-200
+
+/* Transición de layout — panels, drawers */
+transition-all duration-300
+
+/* Feedback táctil */
+active:scale-95
+
+/* Hover en filas de lista */
+hover:bg-glass-hover rounded-xl transition-all duration-150 cursor-pointer px-3 py-2
+```
+
+Animaciones de entrada para modals/drawers via `<Transition>`:
+```css
+.modal-enter-from { opacity: 0; transform: scale(0.95); }
+.modal-enter-active { transition: all 0.2s ease-out; }
+.modal-leave-to { opacity: 0; transform: scale(0.95); }
+.modal-leave-active { transition: all 0.15s ease-in; }
+```
+
+---
+
+## Z-index
+
+| Capa | z | Uso |
+|---|---|---|
+| Base | 0 | Contenido |
+| Sticky | 10 | TopBar |
+| Dropdown | 20 | Menús |
+| Drawer | 30 | Side panels |
+| Overlay | 40 | Fondos oscuros |
+| Modal | 50 | Paneles modales |
+| Toast | 60 | Notificaciones |
+
+---
+
+## Galería de componentes (`/dev/components`)
+
+Ruta solo activa en `APP_ENV=local`. Muestra todos los componentes base en sus
+variantes y estados. Sirve como referencia visual durante el desarrollo.
+
+---
+
+## Checklist
+
+- [ ] `tailwind.config.js` con tokens glass, brand, surface, backdropBlur
+- [ ] Inter + JetBrains Mono configuradas (Vite + Google Fonts o local)
+- [ ] Clase `bg-app` con gradiente en `app.css`
+- [ ] `GlassCard.vue` con prop `padding`
+- [ ] `BaseButton.vue` con variantes: primary, ghost, destructive + prop `loading`
+- [ ] `BaseInput.vue` con label, error y slot de icono
+- [ ] `BaseModal.vue` con Teleport, Transition y cierre al hacer clic en overlay
+- [ ] `BaseDrawer.vue` (slide desde la derecha, mismo glass)
+- [ ] `BaseBadge.vue` para estados (active, pending, orphaned, etc.)
+- [ ] Animaciones de entrada/salida para modal y drawer
+- [ ] Ruta `/dev/components` con galería visual (solo en local)

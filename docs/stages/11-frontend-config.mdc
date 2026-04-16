@@ -1,0 +1,244 @@
+---
+description: Etapa 11 — TopBar completa, useCapabilities y ConfigPanel con módulos enterprise y subscription
+type: stage
+stage: 11
+status: pendiente
+depends_on: 10
+---
+
+# Etapa 11 — Frontend Config
+
+## Objetivo
+TopBar flotante completa con logo de empresa y dropdown de usuario.
+Panel de configuración central con módulos de empresa (etapa 09) y suscripción (etapa 10).
+El input de búsqueda en TopBar existe pero es placeholder — se activa en etapa 15.
+
+---
+
+## TopBar (`components/layout/TopBar.vue`)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  [Logo / Iniciales]   [  🔍 Buscar...  (placeholder)  ]   [Avatar ▼] │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+```vue
+<template>
+  <header class="fixed top-0 left-0 right-0 z-10
+                 bg-glass-white backdrop-blur-bar border-b border-glass-border
+                 px-6 py-3 flex items-center gap-4">
+
+    <!-- Logo empresa -->
+    <div class="flex items-center gap-3 flex-shrink-0">
+      <img v-if="enterprise?.logo_url" :src="enterprise.logo_url"
+           class="h-8 w-8 rounded-lg object-cover" />
+      <div v-else class="h-8 w-8 rounded-lg bg-brand/30 border border-brand/40
+                         flex items-center justify-center text-brand-light font-bold text-sm">
+        {{ enterpriseInitials }}
+      </div>
+      <span class="text-white font-medium text-sm hidden sm:block">{{ enterprise?.name }}</span>
+    </div>
+
+    <!-- Search placeholder (funcional en etapa 15) -->
+    <div class="flex-1 max-w-xl mx-auto">
+      <div class="bg-glass border border-glass-border rounded-xl px-4 py-2
+                  flex items-center gap-2 text-white/30 text-sm cursor-not-allowed opacity-50">
+        🔍 Buscar archivos y carpetas...
+      </div>
+    </div>
+
+    <!-- Usuario -->
+    <div class="relative flex-shrink-0">
+      <button @click="dropdownOpen = !dropdownOpen"
+              class="flex items-center gap-2 hover:bg-glass-hover rounded-xl px-3 py-2
+                     transition-all duration-200">
+        <div class="h-8 w-8 rounded-full bg-brand/40 border border-brand/40
+                    flex items-center justify-center text-white text-sm font-medium">
+          {{ userInitials }}
+        </div>
+        <span class="text-white/80 text-sm hidden sm:block">{{ user?.name }}</span>
+      </button>
+
+      <!-- Dropdown -->
+      <Transition name="modal">
+        <div v-if="dropdownOpen"
+             class="absolute right-0 top-full mt-2 w-56
+                    bg-surface-raised backdrop-blur-modal border border-glass-border
+                    rounded-2xl p-2 shadow-xl shadow-black/40 z-20">
+          <div class="px-3 py-2 border-b border-glass-border mb-2">
+            <p class="text-white text-sm font-medium">{{ user?.name }}</p>
+            <p class="text-white/40 text-xs">{{ user?.email }}</p>
+          </div>
+          <button @click="openConfig"
+                  class="w-full text-left px-3 py-2 rounded-xl text-white/80 text-sm
+                         hover:bg-glass-hover transition-all duration-150">
+            ⚙ Configuración
+          </button>
+          <button @click="logout"
+                  class="w-full text-left px-3 py-2 rounded-xl text-red-400 text-sm
+                         hover:bg-red-500/10 transition-all duration-150">
+            → Cerrar sesión
+          </button>
+        </div>
+      </Transition>
+    </div>
+
+  </header>
+</template>
+```
+
+---
+
+## `useCapabilities` — permisos enterprise del usuario
+
+Singleton. Carga los permisos del usuario en la empresa activa una sola vez.
+
+```js
+// composables/useCapabilities.js
+let _instance = null
+
+export function useCapabilities() {
+  if (_instance) return _instance
+
+  const permissions = ref([])
+  const status      = ref('idle')
+  const can         = (p) => permissions.value.includes(p)
+
+  async function load() {
+    if (status.value !== 'idle') return
+    status.value      = 'loading'
+    const res         = await api.get('/enterprises/current/capabilities')
+    permissions.value = res.data.data
+    status.value      = 'ready'
+  }
+
+  _instance = { permissions, status, can, load }
+  return _instance
+}
+```
+
+Endpoint backend:
+```
+GET /api/v1/enterprises/current/capabilities
+→ { "data": ["enterprise.admin", "enterprise.invite_member", "enterprise.manage_roles", "enterprise.billing", "enterprise.create_workspace"] }
+```
+
+---
+
+## ConfigPanel (`components/layout/ConfigPanel.vue`)
+
+Drawer lateral (slide desde la derecha) o modal grande. Accesible desde el
+dropdown de usuario. Contiene las secciones según permisos.
+
+### Estructura de secciones
+
+```
+Configuración
+│
+├── Mi cuenta                        ← siempre visible
+│   ├── Avatar (upload)
+│   ├── Nombre, email
+│   └── Cambiar contraseña
+│
+├── Empresa                          ← can('enterprise.admin')
+│   ├── Nombre y logo
+│   ├── Miembros del equipo
+│   │   ├── Lista con roles (useTeamMembers)
+│   │   ├── Cambiar rol de miembro
+│   │   ├── Eliminar miembro
+│   │   └── Invitar por email → POST /enterprises/current/invitations
+│   ├── Roles enterprise
+│   │   ├── Base (solo lectura)
+│   │   └── Custom: crear, editar permisos, eliminar
+│   └── Invitaciones pendientes
+│
+└── Facturación                      ← can('enterprise.billing')
+    ├── Plan actual: nombre + límites
+    ├── Uso: usuarios, almacenamiento, streams concurrentes
+    └── [Gestión de pago — Stripe fase posterior]
+```
+
+### Tabs de navegación interna
+
+```vue
+<template>
+  <BaseDrawer v-model="open">
+    <div class="flex gap-1 mb-6 p-1 bg-glass rounded-xl">
+      <button v-for="tab in visibleTabs" :key="tab.id"
+              @click="activeTab = tab.id"
+              :class="activeTab === tab.id ? 'bg-brand text-white' : 'text-white/60 hover:text-white hover:bg-glass-hover'"
+              class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200">
+        {{ tab.label }}
+      </button>
+    </div>
+    <component :is="activeComponent" />
+  </BaseDrawer>
+</template>
+
+<script setup>
+const { can } = useCapabilities()
+
+const tabs = [
+  { id: 'account',  label: 'Mi cuenta',   always: true },
+  { id: 'company',  label: 'Empresa',      guard: () => can('enterprise.admin') },
+  { id: 'billing',  label: 'Facturación',  guard: () => can('enterprise.billing') },
+]
+
+const visibleTabs = computed(() => tabs.filter(t => t.always || t.guard?.()))
+</script>
+```
+
+---
+
+## Sección: Facturación (read-only en v1)
+
+```vue
+<template>
+  <div class="space-y-6">
+    <GlassCard>
+      <h3 class="text-white font-semibold mb-4">Plan actual</h3>
+      <div class="flex items-center justify-between">
+        <span class="text-white text-lg font-bold">{{ subscription.plan.name }}</span>
+        <BaseBadge :label="subscription.status" />
+      </div>
+    </GlassCard>
+
+    <GlassCard>
+      <h3 class="text-white font-semibold mb-4">Uso actual</h3>
+      <UsageBar label="Usuarios"    :used="usage.users_count"      :limit="limits.max_users" />
+      <UsageBar label="Almacenamiento" :used="usage.storage_bytes" :limit="limits.storage_gb * 1024 * 1024 * 1024" />
+      <UsageBar label="Streams"     :used="usage.concurrent_streams" :limit="limits.max_concurrent_streams" />
+    </GlassCard>
+  </div>
+</template>
+```
+
+---
+
+## Logout
+
+```js
+async function logout() {
+  await api.post('/auth/logout')
+  session.clear()
+  router.push('/login')
+}
+```
+
+---
+
+## Checklist
+
+- [ ] `TopBar.vue` con logo empresa (imagen o iniciales), search placeholder, dropdown usuario
+- [ ] Dropdown: nombre, email, "Configuración", "Cerrar sesión"
+- [ ] `useCapabilities` singleton con endpoint `GET /enterprises/current/capabilities`
+- [ ] `ConfigPanel.vue` / `BaseDrawer.vue` con tabs: Mi cuenta, Empresa, Facturación
+- [ ] Guard de secciones: Empresa visible solo con `enterprise.admin`
+- [ ] Guard de secciones: Facturación visible solo con `enterprise.billing`
+- [ ] Sección "Mi cuenta": nombre, email, cambiar contraseña
+- [ ] Sección "Empresa": miembros (useTeamMembers), roles, invitaciones
+- [ ] Sección "Facturación": plan + barras de uso (read-only)
+- [ ] Endpoint backend `GET /enterprises/current/capabilities`
+- [ ] Logout: revoca token + limpia sesión + redirect a /login
+- [ ] Endpoint backend `GET /api/v1/enterprises/current/subscription/usage`

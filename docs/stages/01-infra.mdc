@@ -1,0 +1,248 @@
+---
+description: Etapa 01 — Infraestructura Docker completa del proyecto
+type: stage
+stage: 01
+status: completado
+depends_on: —
+---
+
+# Etapa 01 — Infraestructura
+
+## Objetivo
+Todos los servicios corriendo localmente con Docker Compose,
+listos para que el backend y los servicios adicionales se conecten.
+
+---
+
+## Servicios implementados
+
+| Servicio | Imagen | Puerto externo (default) | Notas |
+|---|---|---|---|
+| `nginx` | nginx:stable-alpine | `APP_PORT` (8000) | Sirve la app, proxea PHP a `php:9000` |
+| `php` | docker/php/Dockerfile | interno 9000 | php-fpm, healthcheck `php -v` |
+| `queue` | docker/queue/Dockerfile | — | `php artisan queue:work` |
+| `scheduler` | docker/scheduler/Dockerfile | — | loop `php artisan schedule:run` |
+| `socketio` | services/socketio/ | `SOCKETIO_PORT` (3000) | Placeholder TS — reemplazar en etapa 05 |
+| `postgres` | postgres:16 | interno | healthcheck `pg_isready` |
+| `redis` | redis:7-alpine | interno | healthcheck `redis-cli ping` |
+| `minio` | minio/minio | `MINIO_CONSOLE_PORT` (9001) | healthcheck curl /minio/health/live |
+| `minio-setup` | minio/mc | — | Init container, crea el bucket, exit 0 |
+| `mailpit` | axllent/mailpit | `MAILPIT_UI_PORT` (8025) / `MAILPIT_SMTP_PORT` (1025) | |
+| `pgadmin` | dpage/pgadmin4 | `PGADMIN_PORT` (5050) | `PGADMIN_LISTEN_PORT=5050` |
+| `redis-insight` | redis/redisinsight | `REDIS_INSIGHT_PORT` (5540) | |
+| `mediamtx` | bluenviron/mediamtx | 8554 / 1935 / 8888 / 8889 | RTSP / RTMP / HLS / WebRTC |
+| `meilisearch` | getmeili/meilisearch:v1.8 | `MEILISEARCH_PORT` (7700) | |
+
+> Traefik fue evaluado y descartado para desarrollo local.
+> El routing lo hace nginx directamente con puerto configurable.
+> `compositor` se añade en etapa 23.
+
+---
+
+## Red Docker
+
+Una sola red `backend`. Todos los servicios se comunican por nombre de contenedor.
+No hay red `frontend` — nginx expone el puerto directamente al host.
+
+```yaml
+networks:
+  backend:
+```
+
+---
+
+## Volúmenes persistentes
+
+```yaml
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  pgadmin_data:
+  meilisearch_data:
+```
+
+---
+
+## Estructura de archivos
+
+```
+/
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── Makefile
+├── CLAUDE.md
+├── make/
+│   └── dev.mk
+├── docker/
+│   ├── nginx/
+│   │   └── default.conf          # proxy fastcgi → php:9000
+│   ├── php/
+│   │   ├── Dockerfile            # php:8.3-fpm + extensiones + Composer
+│   │   ├── php.ini               # upload 100M, memory 512M
+│   │   └── php-fpm.conf          # listen 0.0.0.0:9000
+│   ├── queue/
+│   │   └── Dockerfile            # mismo PHP, CMD: queue:work
+│   └── scheduler/
+│       └── Dockerfile            # mismo PHP, CMD: schedule loop
+└── services/
+    └── socketio/                 # placeholder TS (reemplazar en etapa 05)
+        ├── src/server.ts
+        ├── Dockerfile
+        ├── package.json
+        └── tsconfig.json
+```
+
+---
+
+## Variables de entorno (`.env.example`)
+
+```env
+# App
+APP_NAME=streamer-v2
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+# DB
+DB_CONNECTION=pgsql
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=streamer
+DB_USERNAME=streamer
+DB_PASSWORD=secret
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Session, caché y colas
+SESSION_DRIVER=redis
+CACHE_DRIVER=redis
+QUEUE_CONNECTION=redis
+
+# JWT
+JWT_SECRET=
+JWT_ACCESS_TTL=15
+JWT_REFRESH_TTL=43200
+
+# S3 / MinIO
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=streamer
+AWS_ENDPOINT=http://minio:9000
+AWS_USE_PATH_STYLE_ENDPOINT=true
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
+
+# Mail
+MAIL_MAILER=smtp
+MAIL_HOST=mailpit
+MAIL_PORT=1025
+
+# Socket.io
+SOCKETIO_URL=http://socketio:3000
+SOCKETIO_SECRET=
+
+# Enterprise header
+ENTERPRISE_HEADER=X-Enterprise-ID
+
+# Meilisearch
+MEILISEARCH_HOST=http://meilisearch:7700
+MEILISEARCH_KEY=localdevkey1234567890
+SCOUT_DRIVER=meilisearch
+
+# pgAdmin
+PGADMIN_EMAIL=admin@streamer.dev
+PGADMIN_PASSWORD=admin
+
+# Puertos expuestos — cambiar si hay conflictos con otros proyectos
+APP_PORT=8000
+SOCKETIO_PORT=3000
+MINIO_CONSOLE_PORT=9001
+MAILPIT_UI_PORT=8025
+MAILPIT_SMTP_PORT=1025
+PGADMIN_PORT=5050
+REDIS_INSIGHT_PORT=5540
+MEILISEARCH_PORT=7700
+```
+
+---
+
+## Separación nginx / php-fpm
+
+`nginx` y `php` son contenedores independientes en la misma red `backend`.
+`nginx` sirve archivos estáticos del volumen `.:/var/www/html:ro`
+y proxea peticiones PHP a `php:9000` vía fastcgi.
+
+```
+Browser → nginx:80 (expuesto en APP_PORT) → fastcgi → php:9000
+```
+
+El archivo `docker/nginx/default.conf` configura el `fastcgi_pass php:9000`.
+
+---
+
+## Bucket MinIO
+
+`minio-setup` es un init container con `minio/mc` que:
+1. Espera a que `minio` pase su healthcheck
+2. Crea el bucket `${AWS_BUCKET:-streamer}` con `mc mb --ignore-existing`
+3. Sale con código 0 y no se reinicia (`restart: "no"`)
+
+---
+
+## Puertos configurables
+
+Todos los puertos expuestos al host son variables de entorno con defaults.
+Si un puerto está ocupado por otro proyecto, añadir el override en `.env`:
+
+```env
+APP_PORT=8010          # si 8000 está ocupado
+MINIO_CONSOLE_PORT=9011  # si 9001 está ocupado
+MAILPIT_UI_PORT=8026   # si 8025 está ocupado
+```
+
+---
+
+## Comandos
+
+```bash
+make prepare   # primera vez: crea .env, build, up
+make dev       # arrancar contenedores
+make down      # parar contenedores
+make logs      # seguir logs de todos los servicios
+make logs-php  # logs de un servicio específico
+make ps        # estado de los contenedores
+```
+
+---
+
+## Checklist
+
+- [x] `docker-compose.yml` con todos los servicios
+- [x] Red `backend` única
+- [x] Volúmenes persistentes definidos
+- [x] `nginx` separado de `php` — nginx proxea a `php:9000`
+- [x] Healthchecks en `postgres`, `redis`, `minio`, `php`
+- [x] Todos los puertos expuestos son configurables vía `.env`
+- [x] `.env.example` completo
+- [x] `.gitignore` con `.env`, `vendor/`, `node_modules/`
+- [x] `docker/php/Dockerfile` con PHP 8.3-fpm + extensiones + Composer
+- [x] `docker/php/php.ini` con límites de upload/memory
+- [x] `docker/php/php-fpm.conf` escuchando en `0.0.0.0:9000`
+- [x] `docker/nginx/default.conf` para Laravel + proxy a `php:9000`
+- [x] `docker/queue/Dockerfile` con CMD: `php artisan queue:work`
+- [x] `docker/scheduler/Dockerfile` con CMD: loop `php artisan schedule:run`
+- [x] `services/socketio/` con placeholder TypeScript (socket.io instalado)
+- [x] `minio-setup` crea el bucket inicial automáticamente
+- [x] `Makefile` + `make/dev.mk` con targets: prepare, dev, down, logs, shell, test…
+- [x] `CLAUDE.md` con reglas de trabajo del repositorio
+- [x] `docker compose up` arranca sin errores
+- [x] pgAdmin accesible en `localhost:${PGADMIN_PORT}`
+- [x] Mailpit accesible en `localhost:${MAILPIT_UI_PORT}`
+- [x] RedisInsight accesible en `localhost:${REDIS_INSIGHT_PORT}`
+- [x] Meilisearch responde en `localhost:${MEILISEARCH_PORT}/health`

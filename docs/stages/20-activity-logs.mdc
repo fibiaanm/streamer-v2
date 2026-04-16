@@ -1,0 +1,168 @@
+---
+description: Etapa 20 — Sistema de activity logs con Observers y trazabilidad de acciones
+type: stage
+stage: 20
+status: pendiente
+depends_on: 09
+---
+
+# Etapa 20 — Activity logs
+
+## Objetivo
+Registro homogéneo de eventos relevantes del sistema con actor, acción,
+entidad afectada y contexto before/after. Implementado via Observers de Laravel.
+
+---
+
+## Estructura del log
+
+```json
+{
+  "actor_user_id": 42,
+  "action": "workspace.created",
+  "subject_type": "Workspace",
+  "subject_id": 87,
+  "workspace_id": 87,
+  "enterprise_id": 5,
+  "room_id": null,
+  "metadata_json": {
+    "before": null,
+    "after": { "name": "Mi workspace", "status": "active" },
+    "context": { "parent_workspace_id": null },
+    "reason": null
+  },
+  "ip_address": "192.168.1.1",
+  "user_agent": "Mozilla/5.0..."
+}
+```
+
+---
+
+## Acciones a registrar
+
+| Acción | Entidad | Before/After |
+|---|---|---|
+| `user.registered` | User | null / user data |
+| `user.login` | User | null / null |
+| `user.deleted` | User | user data / null |
+| `enterprise.created` | Enterprise | null / enterprise data |
+| `enterprise.member_invited` | Invitation | null / invitation data |
+| `enterprise.member_joined` | EnterpriseUser | null / member data |
+| `enterprise.member_removed` | EnterpriseUser | member data / null |
+| `subscription.changed` | Subscription | before / after |
+| `workspace.created` | Workspace | null / workspace data |
+| `workspace.updated` | Workspace | before / after |
+| `workspace.deleted` | Workspace | workspace data / null |
+| `workspace.member_added` | WorkspaceUser | null / member data |
+| `asset.created` | Asset | null / asset data |
+| `asset.trashed` | Asset | asset data / null |
+| `room.created` | Room | null / room data |
+| `room.ended` | Room | before / after |
+| `room.participant_joined` | RoomParticipant | null / participant data |
+| `room.participant_kicked` | RoomParticipant | participant data / null |
+| `stream.started` | Stream | before / after |
+| `stream.ended` | Stream | before / after |
+
+---
+
+## Implementación via Observers
+
+```php
+// app/Domain/Workspaces/Observers/WorkspaceObserver.php
+
+class WorkspaceObserver
+{
+    public function created(Workspace $workspace): void
+    {
+        ActivityLogger::log(
+            action:      'workspace.created',
+            subject:     $workspace,
+            workspaceId: $workspace->id,
+            after:       $workspace->toLogArray(),
+        );
+    }
+
+    public function updated(Workspace $workspace): void
+    {
+        ActivityLogger::log(
+            action:      'workspace.updated',
+            subject:     $workspace,
+            workspaceId: $workspace->id,
+            before:      $workspace->getOriginal(),
+            after:       $workspace->getDirty(),
+        );
+    }
+
+    public function deleted(Workspace $workspace): void
+    {
+        ActivityLogger::log(
+            action:      'workspace.deleted',
+            subject:     $workspace,
+            workspaceId: $workspace->id,
+            before:      $workspace->toLogArray(),
+        );
+    }
+}
+```
+
+---
+
+## ActivityLogger helper
+
+```php
+// app/Domain/ActivityLogs/Services/ActivityLogger.php
+
+class ActivityLogger
+{
+    public static function log(
+        string $action,
+        Model  $subject,
+        ?int   $workspaceId  = null,
+        ?int   $enterpriseId = null,
+        ?int   $roomId       = null,
+        mixed  $before       = null,
+        mixed  $after        = null,
+        mixed  $context      = null,
+        ?string $reason      = null,
+    ): void {
+        ActivityLog::create([
+            'actor_user_id'  => Auth::id(),
+            'action'         => $action,
+            'subject_type'   => class_basename($subject),
+            'subject_id'     => $subject->getKey(),
+            'workspace_id'   => $workspaceId,
+            'enterprise_id'  => $enterpriseId,
+            'room_id'        => $roomId,
+            'metadata_json'  => compact('before', 'after', 'context', 'reason'),
+            'ip_address'     => request()->ip(),
+            'user_agent'     => request()->userAgent(),
+        ]);
+    }
+}
+```
+
+Se puede registrar de forma asíncrona con `dispatch()` si el volumen es alto.
+
+---
+
+## Endpoints
+
+```
+# Activity logs  [auth.jwt + enterprise]
+GET    /api/v1/activity-logs                                              ListActivityLogsController     cursor
+```
+
+Query params opcionales: `workspace_id`, `enterprise_id`, `room_id`, `action`.
+
+---
+
+## Checklist
+
+- [ ] `ActivityLogger` helper implementado
+- [ ] Observers registrados para: User, Enterprise, Workspace, Asset, Room, RoomParticipant, Stream
+- [ ] Índices de activity_logs creados (ver etapa 03)
+- [ ] Registro asíncrono via queue para alto volumen
+- [ ] `GET /api/v1/activity-logs` con filtros por workspace, enterprise, room, action
+- [ ] Paginación cursor-based
+- [ ] Policy `viewLogs` solo para admin/owner del contexto
+- [ ] Tests: registro de eventos, filtros, autorización
