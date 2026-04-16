@@ -32,6 +32,8 @@ listos para que el backend y los servicios adicionales se conecten.
 | `redis-insight` | redis/redisinsight | `REDIS_INSIGHT_PORT` (5540) | |
 | `mediamtx` | bluenviron/mediamtx | 8554 / 1935 / 8888 / 8889 | RTSP / RTMP / HLS / WebRTC |
 | `meilisearch` | getmeili/meilisearch:v1.8 | `MEILISEARCH_PORT` (7700) | |
+| `opensearch` | opensearchproject/opensearch:2.13.0 | `OPENSEARCH_PORT` (9200) | single-node, security disabled, healthcheck curl /_cluster/health |
+| `opensearch-dashboards` | opensearchproject/opensearch-dashboards:2.13.0 | `OPENSEARCH_DASHBOARDS_PORT` (5601) | depends on opensearch healthy |
 
 > Traefik fue evaluado y descartado para desarrollo local.
 > El routing lo hace nginx directamente con puerto configurable.
@@ -48,7 +50,7 @@ No hay red `frontend` — nginx expone el puerto directamente al host.
 
 ## Volúmenes persistentes
 
-`postgres_data`, `redis_data`, `minio_data`, `pgadmin_data`, `meilisearch_data`.
+`postgres_data`, `redis_data`, `minio_data`, `pgadmin_data`, `meilisearch_data`, `opensearch_data`.
 
 ---
 
@@ -164,3 +166,6 @@ Ver `Makefile` y `make/dev.mk`. Targets principales: `prepare` (primera vez), `d
 - [x] Mailpit accesible en `localhost:${MAILPIT_UI_PORT}`
 - [x] RedisInsight accesible en `localhost:${REDIS_INSIGHT_PORT}`
 - [x] Meilisearch responde en `localhost:${MEILISEARCH_PORT}/health`
+- [x] `opensearch` service en `docker-compose.yml` con single-node, security disabled, ulimits
+- [x] `opensearch-dashboards` service en `docker-compose.yml`
+- [x] Volumen `opensearch_data` declarado

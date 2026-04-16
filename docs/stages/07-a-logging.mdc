@@ -2,7 +2,7 @@
 description: Etapa 07-a — OpenSearch como destino de logs de Laravel y SocketIO
 type: stage
 stage: 07-a
-status: pendiente
+status: completado
 depends_on: 05
 ---
 
@@ -281,27 +281,27 @@ Dashboards  → http://localhost:5601
 
 ## Checklist
 
-- [ ] `opensearch` service en `docker-compose.yml` con single-node, security disabled, ulimits
-- [ ] `opensearch-dashboards` service en `docker-compose.yml`
-- [ ] Volumen `opensearch_data` declarado
-- [ ] `composer require opensearch-project/opensearch-php:^2.0` ejecutado
-- [ ] `backend/app/Infrastructure/Logging/OpenSearchHandler.php` creado
-- [ ] `backend/app/Infrastructure/Logging/OpenSearchChannel.php` creado
-- [ ] Canal `opensearch` añadido a `backend/config/logging.php`
-- [ ] `LOG_CHANNEL=opensearch` como default en `backend/config/logging.php`
-- [ ] Variables `OPENSEARCH_HOST`, `OPENSEARCH_INDEX`, `OPENSEARCH_PORT`, `OPENSEARCH_DASHBOARDS_PORT` en `backend/.env.example`
-- [ ] `LOG_CHANNEL=opensearch` en `backend/.env.example`
-- [ ] URLs de OpenSearch y Dashboards en `make prepare`
-- [ ] `docs/stages/01-infra.mdc` actualizado
+- [x] `opensearch` service en `docker-compose.yml` con single-node, security disabled, ulimits
+- [x] `opensearch-dashboards` service en `docker-compose.yml`
+- [x] Volumen `opensearch_data` declarado
+- [x] `composer require opensearch-project/opensearch-php:^2.0` ejecutado
+- [x] `backend/app/Infrastructure/Logging/OpenSearchHandler.php` creado
+- [x] `backend/app/Infrastructure/Logging/OpenSearchChannel.php` creado
+- [x] Canal `opensearch` añadido a `backend/config/logging.php`
+- [x] `LOG_CHANNEL=opensearch` como default en `backend/config/logging.php`
+- [x] Variables `OPENSEARCH_HOST`, `OPENSEARCH_INDEX`, `OPENSEARCH_PORT`, `OPENSEARCH_DASHBOARDS_PORT` en `backend/.env.example`
+- [x] `LOG_CHANNEL=opensearch` en `backend/.env.example`
+- [x] URLs de OpenSearch y Dashboards en `make prepare`
+- [x] `docs/stages/01-infra.mdc` actualizado
 - [ ] OpenSearch responde en `localhost:9200/_cluster/health`
 - [ ] OpenSearch Dashboards accesible en `localhost:5601`
 - [ ] `Log::info('test')` aparece en el índice `streamer-logs-*` de Dashboards
 - [ ] `request_id` presente en el campo `extra` de cada documento de Laravel
 - [ ] Campo `service: "laravel"` presente en documentos de Laravel
 - [ ] Si OpenSearch está caído, la app Laravel responde con normalidad (silent fail verificado)
-- [ ] `@opensearch-project/opensearch` añadido a `services/socketio/package.json`
-- [ ] `OpenSearchTransport` class añadida a `services/socketio/src/logger.ts`
-- [ ] Transport se activa condicionalmente si `OPENSEARCH_HOST` está definido
+- [x] `@opensearch-project/opensearch` añadido a `services/socketio/package.json`
+- [x] `OpenSearchTransport` class añadida a `services/socketio/src/logger.ts`
+- [x] Transport se activa condicionalmente si `OPENSEARCH_HOST` está definido
 - [ ] Campo `service: "socketio"` presente en documentos de SocketIO
 - [ ] Logs de SocketIO visibles en el mismo índice `streamer-logs-*` en Dashboards
 - [ ] Si OpenSearch está caído, SocketIO sigue funcionando (silent fail verificado)

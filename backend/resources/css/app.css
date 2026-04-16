@@ -4,8 +4,68 @@
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
 @source '../**/*.js';
+@source '../**/*.ts';
+@source '../**/*.vue';
 
+/* ─── Dark mode via .dark class ──────────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Design tokens ──────────────────────────────────────────────────────────── */
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Brand — sky */
+    --color-brand-50:  #f0f9ff;
+    --color-brand-100: #e0f2fe;
+    --color-brand-200: #bae6fd;
+    --color-brand-300: #7dd3fc;
+    --color-brand-400: #38bdf8;
+    --color-brand-500: #0ea5e9;
+    --color-brand-600: #0284c7;
+    --color-brand-700: #0369a1;
+    --color-brand-800: #075985;
+    --color-brand-900: #0c4a6e;
+    --color-brand-950: #082f49;
+
+    /* Canvas — page backgrounds */
+    --color-canvas:      #f8fafc;
+    --color-canvas-dark: #080d1c;
+
+    /* Live / accent — cyan */
+    --color-live-50:  #ecfeff;
+    --color-live-100: #cffafe;
+    --color-live-200: #a5f3fc;
+    --color-live-300: #67e8f9;
+    --color-live-400: #22d3ee;
+    --color-live-500: #06b6d4;
+    --color-live-600: #0891b2;
+    --color-live-700: #0e7490;
+    --color-live-800: #155e75;
+    --color-live-900: #164e63;
+    --color-live-950: #083344;
+
+    /* Shadows */
+    --shadow-glass:       0 8px 32px rgb(0 0 0 / 0.30);
+    --shadow-glass-light: 0 8px 32px rgb(0 0 0 / 0.08);
+    --shadow-glass-brand: 0 8px 32px rgb(3 105 161 / 0.20);
+}
+
+/* ─── Glass utilities ────────────────────────────────────────────────────────── */
+@utility glass {
+    @apply bg-white/6 backdrop-blur-2xl backdrop-saturate-200;
+    @apply border border-white/10;
+    @apply shadow-glass;
+}
+
+@utility glass-light {
+    @apply bg-white/50 backdrop-blur-2xl backdrop-saturate-200;
+    @apply border border-white/65;
+    @apply shadow-glass-light;
+}
+
+@utility glass-brand {
+    @apply bg-brand-500/12 backdrop-blur-2xl backdrop-saturate-200;
+    @apply border border-brand-300/20;
+    @apply shadow-glass-brand;
 }

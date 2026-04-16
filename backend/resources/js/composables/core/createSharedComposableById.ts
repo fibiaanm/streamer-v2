@@ -1,4 +1,4 @@
-import { effectScope, onUnmounted } from 'vue'
+import { effectScope, onScopeDispose } from 'vue'
 import type { EffectScope } from 'vue'
 
 interface RegistryEntry<T> {
@@ -19,13 +19,13 @@ function createSharedComposableById<T>(id: string, factory: () => T): T {
   const entry = _registry.get(id) as RegistryEntry<T>
   entry.count++
 
-  onUnmounted(() => {
+  onScopeDispose(() => {
     entry.count--
     if (entry.count === 0) {
       entry.scope.stop()
       _registry.delete(id)
     }
-  })
+  }, true)
 
   return entry.instance
 }

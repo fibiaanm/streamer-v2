@@ -18,6 +18,8 @@ prepare: ## Primera vez: copia .env, construye imágenes y levanta servicios
 	@echo "    pgAdmin      → http://localhost:5050"
 	@echo "    RedisInsight → http://localhost:5540"
 	@echo "    Meilisearch  → http://localhost:7700"
+	@echo "    OpenSearch   → http://localhost:9200"
+	@echo "    Dashboards   → http://localhost:5601"
 
 # ─── Ciclo de vida ────────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@
 description: Etapa 07 — Sistema de diseño glass morphism, tokens de color, componentes base
 type: stage
 stage: 07
-status: pendiente
+status: completada
 depends_on: 06
 ---
 
@@ -11,213 +11,179 @@ depends_on: 06
 ## Objetivo
 Definir y documentar el sistema visual completo **antes** de construir cualquier vista.
 Todas las etapas de frontend posteriores siguen este estándar sin excepción.
-Esta etapa produce: configuración de Tailwind, componentes base reutilizables
-y una ruta `/dev/components` como galería visual de referencia.
 
 ---
 
 ## Estética general
 
-**Glass morphism** sobre fondo oscuro:
-- Superficies semi-transparentes con `backdrop-blur`
-- Bordes sutiles en blanco con baja opacidad
-- Profundidad de capas vía opacidad (no sombras duras)
-- Acentos en violeta/brand sobre fondos neutros oscuros
+**Glass morphism** sobre fondo oscuro (Navy `#080d1c`):
+- Superficies semi-transparentes con `backdrop-blur-2xl backdrop-saturate-200`
+- Bordes en `white/10` (dark) / `white/65` (light)
+- Profundidad de capas vía opacidad, sin sombras duras
+- Color primario: **Sky** (`#0ea5e9`) — brand tokens
+- Color acento: **Cyan** (`#06b6d4`) — live tokens
+
+Dark mode mediante clase `.dark` en el ancestro (`@custom-variant dark (&:where(.dark, .dark *))`).
 
 ---
 
-## Fondo base de la aplicación
+## Tokens — `resources/css/app.css`
+
+Tailwind v4 con `@theme`. No hay `tailwind.config.js`.
 
 ```css
-/* resources/css/app.css */
-.bg-app {
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a0f2e 50%, #0f1a1a 100%);
-  min-height: 100vh;
-}
-```
+@theme {
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
 
-Siempre hay un fondo oscuro fijo detrás de todos los paneles.
+  /* Brand — sky */
+  --color-brand-50 … --color-brand-950   /* #f0f9ff … #082f49 */
 
----
+  /* Canvas — fondos de página */
+  --color-canvas:      #f8fafc;
+  --color-canvas-dark: #080d1c;
 
-## Tokens Tailwind
+  /* Live / acento — cyan */
+  --color-live-50 … --color-live-950     /* #ecfeff … #083344 */
 
-```js
-// tailwind.config.js
-module.exports = {
-  theme: {
-    extend: {
-      colors: {
-        glass: {
-          DEFAULT: 'rgba(255, 255, 255, 0.06)',
-          hover:   'rgba(255, 255, 255, 0.10)',
-          active:  'rgba(255, 255, 255, 0.15)',
-          border:  'rgba(255, 255, 255, 0.12)',
-        },
-        brand: {
-          DEFAULT: '#7c3aed',   // violet-600
-          light:   '#a78bfa',
-          dark:    '#5b21b6',
-        },
-        surface: {
-          base:   'rgba(255, 255, 255, 0.04)',
-          raised: 'rgba(255, 255, 255, 0.08)',
-          modal:  'rgba(10, 10, 20, 0.85)',
-        },
-      },
-      backdropBlur: {
-        glass: '16px',
-        modal: '24px',
-        bar:   '20px',
-      },
-    },
-  },
+  /* Sombras glass */
+  --shadow-glass:       0 8px 32px rgb(0 0 0 / 0.30);
+  --shadow-glass-light: 0 8px 32px rgb(0 0 0 / 0.08);
+  --shadow-glass-brand: 0 8px 32px rgb(3 105 161 / 0.20);
 }
 ```
 
 ---
 
-## Clases de superficie
+## Utilidades glass
 
-### Card glass
+Definidas con `@utility` + `@apply` (sin CSS plano):
 
-```html
-<div class="bg-glass backdrop-blur-glass border border-glass-border rounded-2xl p-6">
+| Clase | Uso |
+|---|---|
+| `glass` | Superficies sobre fondo oscuro — `bg-white/6 backdrop-blur-2xl backdrop-saturate-200 border border-white/10 shadow-glass` |
+| `glass-light` | Superficies sobre fondo claro — `bg-white/50 backdrop-blur-2xl backdrop-saturate-200 border border-white/65 shadow-glass-light` |
+| `glass-brand` | Tinte de brand — `bg-brand-500/12 backdrop-blur-2xl backdrop-saturate-200 border border-brand-300/20 shadow-glass-brand` |
+
+Uso en template: `class="glass-light dark:glass rounded-2xl p-6"`.
+
+---
+
+## Fondo de página — `PageBackground.vue`
+
+Componente envolvente que ocupa `h-screen w-screen overflow-hidden`. Nunca hace scroll por sí mismo; el scroll lo gestiona el contenido interno.
+
+- Tres blobs animados con `setInterval` + CSS `transition: transform Ns ease-in-out`
+- Posiciones aleatorias cada N segundos (`createBlob(intervalMs, delayMs)`)
+- Limpieza via `onScopeDispose` (no `onUnmounted` para evitar problemas con HMR)
+
+```vue
+<PageBackground>
+  <div class="h-screen overflow-y-auto">
+    <!-- contenido scrolleable -->
+  </div>
+</PageBackground>
 ```
 
-### Panel elevado (dropdown, tooltip)
+---
 
-```html
-<div class="bg-surface-raised backdrop-blur-modal border border-glass-border rounded-xl p-4 shadow-xl shadow-black/40">
+## Header flotante — `AppHeader.vue`
+
+Island glass anclado al top de la página. Tres slots nombrados.
+
+```vue
+<AppHeader>
+  <template #left>  <!-- logo, breadcrumb --> </template>
+  <template #center><!-- nav principal -->    </template>
+  <template #right> <!-- acciones, avatar --> </template>
+</AppHeader>
 ```
 
-### Modal / Drawer
-
-```html
-<!-- Overlay -->
-<div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" />
-
-<!-- Panel -->
-<div class="fixed inset-0 flex items-center justify-center z-50 p-4">
-  <div class="bg-surface-modal backdrop-blur-modal border border-glass-border
-              rounded-3xl w-full max-w-lg p-8 shadow-2xl shadow-black/50">
-```
+Estructura: `w-full px-4 pt-3 sticky top-0 z-50` → island `glass-light dark:glass rounded-2xl px-5 h-14`.
 
 ---
 
 ## Componentes base
 
-### `BaseButton.vue` — tres variantes
+### `AppButton.vue`
 
-```html
-<!-- Primary -->
-<button class="bg-brand hover:bg-brand-light text-white font-medium
-               px-6 py-3 rounded-xl transition-all duration-200 active:scale-95">
+| Prop | Tipo | Default |
+|---|---|---|
+| `variant` | `primary \| secondary \| ghost \| danger \| live` | `primary` |
+| `size` | `xs \| sm \| md \| lg \| xl` | `md` |
+| `type` | `button \| submit \| reset` | `button` |
+| `disabled` | `boolean` | `false` |
+| `loading` | `boolean` | `false` — spinner + slot al 60% opacidad, deshabilita el botón |
+| `icon` | `string` | — nombre del icono (ej. `"ui/check"`) |
+| `iconPosition` | `left \| right` | `left` |
 
-<!-- Ghost -->
-<button class="bg-transparent hover:bg-glass-hover border border-glass-border
-               hover:border-white/20 text-white/80 hover:text-white
-               px-6 py-3 rounded-xl transition-all duration-200">
+El spinner reemplaza al icono izquierdo (y al dot del variante `live`) durante `loading`.
 
-<!-- Destructive -->
-<button class="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30
-               text-red-400 hover:text-red-300 px-6 py-3 rounded-xl
-               transition-all duration-200">
-```
+---
 
-### `BaseInput.vue`
+### `AppBadge.vue`
 
-```html
-<div>
-  <label class="text-xs font-medium text-white/60 uppercase tracking-wide mb-2 block">
-    {{ label }}
-  </label>
-  <input class="w-full bg-glass backdrop-blur-sm border border-glass-border rounded-xl
-                px-4 py-3 text-white placeholder-white/30
-                focus:outline-none focus:border-brand/60 focus:bg-glass-hover
-                transition-all duration-200" />
-  <p v-if="error" class="text-red-400 text-xs mt-1">{{ error }}</p>
-</div>
-```
+Pastilla redondeada (`rounded-full`). Props: `variant`, `size` (`sm \| md`).
+Variantes: `brand | live | success | warning | danger | neutral`.
+El variante `live` incluye un dot pulsante automáticamente.
 
-### `BaseModal.vue`
+---
+
+### `AppTag.vue`
+
+Etiqueta rectangular (`rounded-md`). Mismas variantes que Badge.
+Prop extra `removable` — muestra botón × que emite `@remove`.
+
+---
+
+### `AppInput.vue`
+
+Input con floating label basado en estado reactivo (`isFocused`).
+
+| Prop | Tipo | Default |
+|---|---|---|
+| `modelValue` | `string \| number` | `''` |
+| `label` | `string` | — |
+| `placeholder` | `string` | — |
+| `hint` | `string` | — texto de ayuda debajo |
+| `error` | `string` | — activa variante error + mensaje |
+| `variant` | `default \| error \| success` | `default` |
+| `size` | `sm \| md \| lg` | `md` |
+| `type` | `string` | `text` |
+| `disabled` | `boolean` | `false` |
+| `readonly` | `boolean` | `false` |
+
+Slots: `#leading`, `#trailing` — para íconos dentro del box.
+`defineExpose({ input })` — acceso al elemento nativo desde el padre.
+`inheritAttrs: false` + `v-bind="$attrs"` en el `<input>` nativo.
+
+---
+
+### `AppIcon.vue`
+
+Renderiza SVGs desde `resources/js/icons/**/*.svg` vía `v-html`.
 
 ```vue
-<template>
-  <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="modelValue" class="fixed inset-0 z-40 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="$emit('update:modelValue', false)" />
-        <div class="relative bg-surface-modal backdrop-blur-modal border border-glass-border
-                    rounded-3xl w-full max-w-lg p-8 shadow-2xl shadow-black/50 z-50">
-          <slot />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
-</template>
+<AppIcon name="ui/check" size="sm" />
 ```
 
-### `GlassCard.vue`
+Sizes: `xs(12px) | sm(16px) | md(20px) | lg(24px) | xl(32px)`.
+Los SVGs deben usar `stroke="currentColor"` para heredar el color del padre.
 
-```vue
-<template>
-  <div class="bg-glass backdrop-blur-glass border border-glass-border rounded-2xl" :class="padding">
-    <slot />
-  </div>
-</template>
-
-<script setup>
-defineProps({ padding: { type: String, default: 'p-6' } })
-</script>
-```
+**Importante**: el glob usa ruta relativa (`../icons/**/*.svg`), no el alias `@/` — Vite no resuelve aliases en `import.meta.glob` de forma confiable.
 
 ---
 
 ## Tipografía
 
-```js
-// tailwind.config.js
-fontFamily: {
-  sans: ['Inter', 'system-ui', 'sans-serif'],
-  mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-}
-```
+Font: **Instrument Sans** (definida en `--font-sans`).
 
-| Uso | Tailwind |
+| Uso | Clases |
 |---|---|
-| Heading grande | `text-2xl font-bold text-white` |
-| Heading sección | `text-lg font-semibold text-white` |
-| Body | `text-sm text-white/80` |
-| Secundario | `text-sm text-white/50` |
-| Label input | `text-xs font-medium text-white/60 uppercase tracking-wide` |
-| Código | `text-sm font-mono text-brand-light` |
-
----
-
-## Interacción y movimiento
-
-```css
-/* Transición estándar — hover, focus */
-transition-all duration-200
-
-/* Transición de layout — panels, drawers */
-transition-all duration-300
-
-/* Feedback táctil */
-active:scale-95
-
-/* Hover en filas de lista */
-hover:bg-glass-hover rounded-xl transition-all duration-150 cursor-pointer px-3 py-2
-```
-
-Animaciones de entrada para modals/drawers via `<Transition>`:
-```css
-.modal-enter-from { opacity: 0; transform: scale(0.95); }
-.modal-enter-active { transition: all 0.2s ease-out; }
-.modal-leave-to { opacity: 0; transform: scale(0.95); }
-.modal-leave-active { transition: all 0.15s ease-in; }
-```
+| Display | `text-5xl font-bold tracking-tight` |
+| H1–H4 | `text-4xl … text-xl font-bold/semibold/medium` |
+| Body | `text-base text-slate-700 dark:text-white/70` |
+| Small | `text-sm text-slate-500 dark:text-white/40` |
+| Mono | `text-sm font-mono text-live-600 dark:text-live-400` |
 
 ---
 
@@ -226,32 +192,32 @@ Animaciones de entrada para modals/drawers via `<Transition>`:
 | Capa | z | Uso |
 |---|---|---|
 | Base | 0 | Contenido |
-| Sticky | 10 | TopBar |
-| Dropdown | 20 | Menús |
-| Drawer | 30 | Side panels |
-| Overlay | 40 | Fondos oscuros |
-| Modal | 50 | Paneles modales |
-| Toast | 60 | Notificaciones |
+| Header | 50 | `AppHeader` sticky |
+| Dropdown | 100 | Menús flotantes |
+| Modal | 200 | Paneles modales |
+| Toast | 300 | Notificaciones |
 
 ---
 
-## Galería de componentes (`/dev/components`)
+## Galería de componentes (`/design-test`)
 
-Ruta solo activa en `APP_ENV=local`. Muestra todos los componentes base en sus
-variantes y estados. Sirve como referencia visual durante el desarrollo.
+Ruta activa solo en `APP_ENV=local` (guard en `web.php` + entrada en Vue Router solo en `import.meta.env.DEV`).
+Muestra paleta de colores, tipografía y todos los componentes base en sus variantes y estados.
 
 ---
 
 ## Checklist
 
-- [ ] `tailwind.config.js` con tokens glass, brand, surface, backdropBlur
-- [ ] Inter + JetBrains Mono configuradas (Vite + Google Fonts o local)
-- [ ] Clase `bg-app` con gradiente en `app.css`
-- [ ] `GlassCard.vue` con prop `padding`
-- [ ] `BaseButton.vue` con variantes: primary, ghost, destructive + prop `loading`
-- [ ] `BaseInput.vue` con label, error y slot de icono
-- [ ] `BaseModal.vue` con Teleport, Transition y cierre al hacer clic en overlay
-- [ ] `BaseDrawer.vue` (slide desde la derecha, mismo glass)
-- [ ] `BaseBadge.vue` para estados (active, pending, orphaned, etc.)
-- [ ] Animaciones de entrada/salida para modal y drawer
-- [ ] Ruta `/dev/components` con galería visual (solo en local)
+- [x] `app.css` con tokens `@theme` (brand sky, live cyan, canvas, shadows)
+- [x] Utilidades `glass`, `glass-light`, `glass-brand` con `@apply`
+- [x] Dark mode via `.dark` class (`@custom-variant`)
+- [x] `PageBackground.vue` — fondo con blobs animados, slot scrolleable interno
+- [x] `AppHeader.vue` — island flotante, slots `#left #center #right`
+- [x] `AppButton.vue` — 5 variantes × 5 tamaños + `loading` + `icon`
+- [x] `AppBadge.vue` — 6 variantes, dot pulsante en `live`
+- [x] `AppTag.vue` — 6 variantes, prop `removable`
+- [x] `AppInput.vue` — floating label, 3 variantes, slots leading/trailing
+- [x] `AppIcon.vue` — glob de SVGs por nombre, 5 tamaños
+- [x] Ruta `/design-test` con galería visual (solo en local)
+- [ ] `AppModal.vue` — Teleport + Transition + cierre en overlay *(etapa posterior)*
+- [ ] `AppDrawer.vue` — slide desde la derecha *(etapa posterior)*

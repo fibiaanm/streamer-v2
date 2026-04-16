@@ -1,6 +1,6 @@
 import type { RouteRecordRaw } from 'vue-router'
 
-export const routes: RouteRecordRaw[] = [
+const routes: RouteRecordRaw[] = [
   {
     path: '/app',
     component: () => import('@/views/WorkspacesView.vue'),
@@ -10,4 +10,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SettingsView.vue'),
   },
   // Workspaces, rooms y streams se añaden en sus etapas respectivas
+  {
+    path: '/design-test',
+    component: () => import('@/views/DesignTest.vue'),
+  },
 ]
+
+export { routes }

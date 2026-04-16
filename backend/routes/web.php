@@ -10,3 +10,8 @@ Route::get('/register', fn () => Inertia::render('Auth/Register'))->name('regist
 Route::get('/app/{any?}', fn () => Inertia::render('App'))
     ->where('any', '.*')
     ->name('app');
+
+// Design system — solo local
+if (app()->isLocal()) {
+    Route::get('/design-test', fn () => Inertia::render('DesignTest'))->name('design-test');
+}

@@ -18,7 +18,7 @@ return [
     |
     */
 
-    'default' => env('LOG_CHANNEL', 'stack'),
+    'default' => env('LOG_CHANNEL', 'opensearch'),
 
     /*
     |--------------------------------------------------------------------------
@@ -125,6 +125,14 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
+        ],
+
+        'opensearch' => [
+            'driver' => 'custom',
+            'via'    => \App\Infrastructure\Logging\OpenSearchChannel::class,
+            'level'  => env('LOG_LEVEL', 'debug'),
+            'host'   => env('OPENSEARCH_HOST', 'http://opensearch:9200'),
+            'index'  => env('OPENSEARCH_INDEX', 'streamer-logs'),
         ],
 
     ],
