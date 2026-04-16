@@ -2,7 +2,7 @@
 description: Etapa 06 — Frontend base con Vue 3 + Inertia + Vue Router + Pinia + composables core
 type: stage
 stage: 06
-status: pendiente
+status: completado
 depends_on: 05
 ---
 
@@ -10,474 +10,177 @@ depends_on: 05
 
 ## Objetivo
 Setup del frontend dentro de Laravel via Inertia, con Vue Router manejando
-toda la navegación cliente, Pinia para estado global, VueUse para utilidades,
-y los composables core (sesión, socket, scope effects) operativos.
+toda la navegación cliente, Pinia para estado global, y los composables core
+(sesión, socket, scope effects, shared-by-id) operativos.
 
 No se usa `<Link>` de Inertia para navegar dentro de la app — Vue Router toma el control
-desde el primer montaje, lo que simplifica la iteración.
+desde el primer montaje.
 
 ---
 
 ## Paquetes
 
-```bash
-npm install @inertiajs/vue3 vue-router pinia @vueuse/core socket.io-client axios
-npm install @vitejs/plugin-vue --save-dev
-```
+Ver `backend/package.json`. Frontend: `@inertiajs/vue3`, `vue-router`, `pinia`,
+`@vueuse/core`, `socket.io-client`, `axios`.
+Dev: `@vitejs/plugin-vue`, `laravel-vite-plugin`, `typescript`, `vue-tsc`.
 
----
-
-## Bootstrap (`app.js`)
-
-Inertia monta el Vue app una sola vez. Vue Router gestiona toda la navegación
-interna. Las páginas de auth (login, register) son Inertia pages independientes.
-
-```js
-// resources/js/app.js
-import { createApp, h } from 'vue'
-import { createInertiaApp } from '@inertiajs/vue3'
-import { createRouter, createWebHistory } from 'vue-router'
-import { createPinia } from 'pinia'
-import { routes } from './router/routes'
-import { authGuard } from './router/guards'
-
-createInertiaApp({
-  resolve: name => {
-    const pages = import.meta.glob('./Pages/**/*.vue', { eager: true })
-    return pages[`./Pages/${name}.vue`]
-  },
-  setup({ el, App, props, plugin }) {
-    const router = createRouter({
-      history: createWebHistory(),
-      routes,
-    })
-
-    router.beforeEach(authGuard)
-
-    createApp({ render: () => h(App, props) })
-      .use(plugin)
-      .use(router)
-      .use(createPinia())
-      .mount(el)
-  },
-})
-```
-
----
-
-## Rutas Vue Router
-
-```js
-// resources/js/router/routes.js
-export const routes = [
-  {
-    path: '/app',
-    component: () => import('../views/WorkspacesView.vue'),
-  },
-  {
-    path: '/app/workspaces/:id',
-    component: () => import('../views/WorkspaceView.vue'),
-    props: true,
-  },
-  {
-    path: '/app/workspaces/:id/settings',
-    component: () => import('../views/WorkspaceSettingsView.vue'),
-    props: true,
-  },
-  {
-    path: '/app/settings',
-    component: () => import('../views/SettingsView.vue'),
-  },
-  // Rooms, streams, etc. se añaden en etapas posteriores
-]
-```
-
----
-
-## Rutas Laravel (Inertia entry points)
-
-```php
-// routes/web.php
-Route::get('/login',    fn () => Inertia::render('Auth/Login'))->name('login');
-Route::get('/register', fn () => Inertia::render('Auth/Register'))->name('register');
-
-// App shell — Vue Router maneja todo lo interno
-Route::middleware('auth.jwt')
-    ->get('/app/{any?}', fn () => Inertia::render('App'))
-    ->where('any', '.*')
-    ->name('app');
-```
+Backend: `inertiajs/inertia-laravel` vía Composer.
 
 ---
 
 ## Estructura de carpetas
 
 ```
-resources/js/
-├── app.js
-├── router/
-│   ├── routes.js
-│   └── guards.js           # beforeEach — auth guard
-│
-├── lib/
-│   └── api.js              # Axios instance con interceptors
-│
-├── composables/
-│   ├── core/
-│   │   ├── useSession.js       # Singleton — usuario autenticado
-│   │   ├── useSocket.js        # Singleton — conexión Socket.io transversal
-│   │   └── useScopeEffect.js   # Registro de handlers por scope
-│   ├── useCapabilities.js      # Permisos del usuario en el contexto activo
-│   ├── useWorkspace.js         # Shared by workspaceId (registry singleton)
-│   ├── useWorkspaceMembers.js  # Shared by workspaceId
-│   ├── useTeamMembers.js       # Miembros de la empresa activa
-│   └── useSearch.js            # Búsqueda global (Meilisearch via API)
-│
-├── stores/
-│   └── enterpriseStore.js      # Pinia — enterprise activa + lista de enterprises
-│
-├── Pages/
-│   ├── App.vue                 # App shell (Inertia page única del SPA)
-│   └── Auth/
-│       ├── Login.vue
-│       └── Register.vue
-│
-├── views/
-│   ├── WorkspacesView.vue          # Explorador raíz
-│   ├── WorkspaceView.vue           # Contenido de un workspace
-│   ├── WorkspaceSettingsView.vue   # Configuración de workspace
-│   └── SettingsView.vue            # Configuración global (usuario, empresa)
-│
-└── components/
-    ├── layout/
-    │   ├── TopBar.vue
-    │   └── ConfigPanel.vue
-    └── workspace/
-        ├── WorkspaceCard.vue
-        └── FileExplorer.vue
+backend/
+├── package.json
+├── vite.config.ts
+├── tsconfig.json
+└── resources/js/
+    ├── app.ts                              # bootstrap — Inertia + Router + Pinia
+    ├── types/
+    │   └── index.ts                        # SessionUser, Enterprise, Plan, ApiError
+    ├── router/
+    │   ├── routes.ts                       # rutas Vue Router
+    │   └── guards.ts                       # authGuard beforeEach
+    ├── lib/
+    │   └── api.ts                          # Axios con interceptors
+    ├── composables/
+    │   └── core/
+    │       ├── createSharedComposableById.ts
+    │       ├── useSession.ts
+    │       ├── useSocket.ts
+    │       └── useScopeEffect.ts
+    ├── stores/
+    │   └── enterpriseStore.ts              # Pinia — empresa activa
+    ├── Pages/
+    │   ├── App.vue                         # shell del SPA
+    │   └── Auth/
+    │       ├── Login.vue                   # placeholder (etapa 08)
+    │       └── Register.vue                # placeholder (etapa 08)
+    └── views/
+        ├── WorkspacesView.vue              # placeholder (etapa 13)
+        └── SettingsView.vue                # placeholder (etapa 11)
 ```
 
 ---
 
-## `useSession` — singleton
+## Bootstrap (`app.ts`)
 
-Los tokens JWT se almacenan en `localStorage` para sobrevivir recarga de página.
-En el primer montaje de la app, se leen de `localStorage`; en cada login se actualizan.
-
-```js
-// composables/core/useSession.js
-import { ref, computed } from 'vue'
-
-const ACCESS_TOKEN_KEY  = 'access_token'
-const REFRESH_TOKEN_KEY = 'refresh_token'
-const USER_KEY          = 'auth_user'
-
-let _session = null
-
-export function useSession() {
-  if (_session) return _session
-
-  const accessToken  = ref(localStorage.getItem(ACCESS_TOKEN_KEY) ?? null)
-  const refreshToken = ref(localStorage.getItem(REFRESH_TOKEN_KEY) ?? null)
-  const user         = ref(JSON.parse(localStorage.getItem(USER_KEY) ?? 'null'))
-
-  const authenticated = computed(() => !!accessToken.value)
-
-  function setTokens(access, refresh, userData = null) {
-    accessToken.value  = access
-    refreshToken.value = refresh
-    localStorage.setItem(ACCESS_TOKEN_KEY,  access)
-    localStorage.setItem(REFRESH_TOKEN_KEY, refresh)
-    if (userData) {
-      user.value = userData
-      localStorage.setItem(USER_KEY, JSON.stringify(userData))
-    }
-  }
-
-  function clear() {
-    accessToken.value  = null
-    refreshToken.value = null
-    user.value         = null
-    localStorage.removeItem(ACCESS_TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
-  }
-
-  _session = { user, accessToken, refreshToken, authenticated, setTokens, clear }
-  return _session
-}
-```
-
-Los tokens se leen de `localStorage` — no se exponen vía Inertia props.
-`HandleInertiaRequests` solo comparte datos de usuario (no el token):
-
-```php
-// app/Http/Middleware/HandleInertiaRequests.php
-public function share(Request $request): array
-{
-    return [
-        // Sin access_token — useSession lo lee de localStorage
-        'flash' => fn () => [
-            'success' => $request->session()->pull('success'),
-            'error'   => $request->session()->pull('error'),
-        ],
-    ];
-}
-```
+Inertia monta el Vue app una vez. Vue Router gestiona toda la navegación interna.
+`import.meta.glob` con `{ eager: true }` resuelve las páginas de Inertia con tipos correctos.
+Ver `resources/js/app.ts`.
 
 ---
 
-## `useSocket` — singleton transversal
+## Convenciones del frontend
 
-El socket se instancia una vez al montar `App.vue` y vive durante toda la sesión.
-No está ligado a ningún componente específico.
-
-```js
-// composables/core/useSocket.js
-import { io } from 'socket.io-client'
-import { ref } from 'vue'
-import { dispatchScopeEffect } from './useScopeEffect'
-
-let _instance = null
-
-export function useSocket() {
-  if (_instance) return _instance
-
-  const connected = ref(false)
-
-  function connect(accessToken) {
-    if (_instance?.socket) return
-
-    const socket = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: { token: `Bearer ${accessToken}` },
-      reconnectionAttempts: 5,
-    })
-
-    socket.on('connect',    () => { connected.value = true })
-    socket.on('disconnect', () => { connected.value = false })
-
-    // Todos los eventos con scope se despachan al registro de effectos
-    socket.onAny((event, data) => {
-      if (data?.scope) dispatchScopeEffect(data.scope, { event, data })
-    })
-
-    function joinScope(scope)  { socket.emit('subscribe',   { scope }) }
-    function leaveScope(scope) { socket.emit('unsubscribe', { scope }) }
-
-    _instance = { socket, connected, joinScope, leaveScope }
-  }
-
-  return { connect, connected: ref(false), joinScope: () => {}, leaveScope: () => {} }
-}
-```
+- Todo TypeScript — sin `.js` en `resources/js/`
+- Composables exportados como arrow functions: `export const useSession = () => ({...})`
+- Sin `function` declarations para exports públicos
 
 ---
 
-## `useScopeEffect` — socket → composables
+## `createSharedComposableById`
 
-Permite que componentes/composables registren handlers para un scope específico.
-El socket los invoca cuando llega un evento para ese scope.
-Se limpia automáticamente al desmontar el componente.
+Utility en `composables/core/createSharedComposableById.ts`.
+Un único mecanismo para todos los composables compartidos, sean singleton o por ID.
 
-```js
-// composables/core/useScopeEffect.js
-import { onUnmounted } from 'vue'
+- Internamente: `Map<id, { instance, scope: EffectScope, count }>`
+- `effectScope(true)` aísla los efectos reactivos del scope global
+- `count` sube al llamar, baja en `onUnmounted` del consumidor
+- Al llegar a 0: `scope.stop()` + `registry.delete(id)`
+- `.dispose(id)` para limpieza manual forzada
 
-const handlers = new Map() // scope → Set<handler>
+Los singletons usan un id fijo: `'session'`, `'socket'`, `'api'`.
+Los composables por entidad usan id compuesto: `` `workspace.${id}` ``, `` `room.${id}` ``, etc.
 
-export function useScopeEffect(scope, handler) {
-  if (!handlers.has(scope)) handlers.set(scope, new Set())
-  handlers.get(scope).add(handler)
-
-  onUnmounted(() => {
-    handlers.get(scope)?.delete(handler)
-    if (handlers.get(scope)?.size === 0) handlers.delete(scope)
-  })
-}
-
-// Llamado internamente por useSocket
-export function dispatchScopeEffect(scope, payload) {
-  handlers.get(scope)?.forEach(h => h(payload))
-}
-```
-
-**Patrón de uso en un componente:**
-```js
-// WorkspaceView.vue
-const ws = useWorkspace(workspaceId)
-const { joinScope, leaveScope } = useSocket()
-
-onMounted(() => {
-  ws.load()
-  joinScope(`workspace:${workspaceId}`)
-})
-
-onUnmounted(() => leaveScope(`workspace:${workspaceId}`))
-
-useScopeEffect(`workspace:${workspaceId}`, ({ event, data }) => {
-  if (event === 'workspace.asset_created') ws.assets.value.unshift(data)
-  if (event === 'workspace.member_added')  useWorkspaceMembers(workspaceId).members.value.push(data)
-})
-```
+Uso esperado:
+- `export const useSession = () => createSharedComposableById('session', () => { ... })`
+- `export const useWorkspace = (id: string) => createSharedComposableById(`workspace.${id}`, () => { ... })`
 
 ---
 
-## `App.vue` — shell del SPA
+## `useSession`
 
-```vue
-<!-- Pages/App.vue -->
-<template>
-  <TopBar @open-config="configOpen = true" />
-  <RouterView />
-  <ConfigPanel v-if="configOpen" @close="configOpen = false" />
-</template>
+`composables/core/useSession.ts` — todo el estado dentro del factory de `createSharedComposableById('session', ...)`.
+Tokens en `localStorage`. Expone: `accessToken`, `refreshToken`, `user`,
+`authenticated`, `setTokens`, `setUser`, `clear`.
 
-<script setup>
-import { ref } from 'vue'
-import { RouterView } from 'vue-router'
-import TopBar from '../components/layout/TopBar.vue'
-import ConfigPanel from '../components/layout/ConfigPanel.vue'
-import { useSession } from '../composables/core/useSession'
-import { useSocket } from '../composables/core/useSocket'
-
-const session    = useSession()
-const { connect } = useSocket()
-const configOpen  = ref(false)
-
-connect(session.accessToken.value)
-</script>
-```
+Sin Inertia props para los tokens — `useSession` lee de `localStorage` directamente.
 
 ---
 
-## `lib/api.js` — cliente HTTP
+## `useSocket`
 
-Instancia de Axios configurada con base URL, inyección automática del JWT y del
-header `X-Enterprise-ID`, y refresh de token transparente ante 401.
+`composables/core/useSocket.ts` — `socket` como `shallowRef<Socket | null>` y
+`connected` como `shallowRef<boolean>`, ambos dentro del factory de `createSharedComposableById('socket', ...)`.
 
-```js
-// resources/js/lib/api.js
-import axios from 'axios'
-import { useSession } from '../composables/core/useSession'
-import { useEnterpriseStore } from '../stores/enterpriseStore'
+`App.vue` llama `connect(token)` en setup. Para cuando los hijos montan,
+`socket.value` ya existe. Expone: `connected`, `connect`, `disconnect`, `emit`, `on`, `off`.
 
-const client = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
-  headers: { 'Content-Type': 'application/json' },
-})
-
-// ── Request: inyectar Authorization + X-Enterprise-ID ──────────────────────
-client.interceptors.request.use((config) => {
-  const { accessToken }  = useSession()
-  const enterpriseStore  = useEnterpriseStore()
-
-  if (accessToken.value) {
-    config.headers['Authorization'] = `Bearer ${accessToken.value}`
-  }
-  if (enterpriseStore.activeEnterpriseId) {
-    config.headers['X-Enterprise-ID'] = enterpriseStore.activeEnterpriseId
-  }
-  return config
-})
-
-// ── Response: refresh automático en 401 ────────────────────────────────────
-let isRefreshing  = false
-let pendingQueue  = []   // requests en espera del nuevo token
-
-function processQueue(newToken, error = null) {
-  pendingQueue.forEach(({ resolve, reject }) =>
-    error ? reject(error) : resolve(newToken)
-  )
-  pendingQueue = []
-}
-
-client.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const original = error.config
-
-    if (error.response?.status !== 401 || original._retry) {
-      return Promise.reject(error)
-    }
-
-    const session = useSession()
-
-    if (!session.refreshToken.value) {
-      session.clear()
-      window.location.href = '/login'
-      return Promise.reject(error)
-    }
-
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        pendingQueue.push({ resolve, reject })
-      }).then((token) => {
-        original.headers['Authorization'] = `Bearer ${token}`
-        return client(original)
-      })
-    }
-
-    original._retry = true
-    isRefreshing    = true
-
-    try {
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/refresh`,
-        { refresh_token: session.refreshToken.value }
-      )
-      const { access_token, refresh_token } = res.data.data
-      session.setTokens(access_token, refresh_token)
-      processQueue(access_token)
-      original.headers['Authorization'] = `Bearer ${access_token}`
-      return client(original)
-    } catch (refreshError) {
-      processQueue(null, refreshError)
-      session.clear()
-      window.location.href = '/login'
-      return Promise.reject(refreshError)
-    } finally {
-      isRefreshing = false
-    }
-  }
-)
-
-export const api = client
-```
-
-**Uso en componentes y composables:**
-```js
-import { api } from '../lib/api'
-
-const res = await api.get('/workspaces')           // GET con token + enterprise
-const ws  = await api.post('/workspaces', { name }) // POST
-```
-
-Los errores de negocio (4xx) lanzan un axios error con `err.response.data.error.code`.
-Los errores de red/5xx también lanzan. Cada vista maneja sus propios errores.
+La conexión al enterprise room es responsabilidad del servidor (ver etapa 05 + posteriores).
+La suscripción a workspace rooms se emite cuando el usuario entra a un workspace (etapa 13).
 
 ---
 
-## Variables de entorno (frontend)
+## `useScopeEffect`
 
-```env
-VITE_SOCKET_URL=http://localhost:3000
-VITE_API_URL=http://localhost/api/v1
-```
+`composables/core/useScopeEffect.ts` — registra un listener de socket scoped
+al ciclo de vida del componente: `on` en `onMounted`, `off` en `onUnmounted`.
+Los eventos llegan filtrados por Socket.io rooms; no hay dispatch propio.
+
+---
+
+## `useApi`
+
+`lib/api.ts` — mismo patrón que el resto: `createSharedComposableById('api', () => { ... })`.
+Retorna una instancia Axios configurada con `baseURL: VITE_API_URL`. Interceptors:
+- Request: inyecta `Authorization: Bearer {token}` y `X-Enterprise-ID`
+- Response: refresh automático en 401 con cola de requests pendientes
+
+---
+
+## `enterpriseStore` — Pinia
+
+`stores/enterpriseStore.ts` — derivado de `useSession().user`. Expone:
+`activeEnterprise`, `activeEnterpriseId`, `activeRole`, `activePermissions`, `can(permission)`.
+
+---
+
+## Rutas Laravel (Inertia entry points)
+
+Ver `routes/web.php`. Tres rutas: `/login`, `/register`, `/app/{any?}`.
+El middleware `HandleInertiaRequests` vive en `app/Http/Middleware/` y comparte
+solo `flash` (success/error). Los tokens **no** se comparten por Inertia props.
+
+---
+
+## Variables de entorno
+
+Ver `backend/.env.example` sección `Frontend (Vite)`:
+`VITE_API_URL`, `VITE_SOCKET_URL`.
 
 ---
 
 ## Checklist
 
-- [ ] `@inertiajs/vue3`, `vue-router`, `pinia`, `@vueuse/core`, `socket.io-client`, `axios` instalados
-- [ ] `app.js` bootstrap con Vue Router y Pinia integrados en Inertia
-- [ ] `router/guards.js` con `authGuard` — `beforeEach` registrado en `app.js`
-- [ ] Rutas Vue Router: `/app`, `/app/workspaces/:id`, `/app/settings`
-- [ ] Rutas Laravel: `/login`, `/register`, `/app/{any}`
-- [ ] `HandleInertiaRequests` compartiendo `auth.user` (el guard de Vue Router maneja la redirección)
-- [ ] `useSession` singleton con `setTokens`, `clear` y lectura desde `localStorage`
-- [ ] `lib/api.js` con Axios, interceptors de Authorization + X-Enterprise-ID, y refresh automático de token
-- [ ] `useSocket` singleton conectando al montar `App.vue`
-- [ ] `useScopeEffect` con registro/limpieza automática en `onUnmounted`
-- [ ] `enterpriseStore` (Pinia) con enterprise activa y cabecera `X-Enterprise-ID`
-- [ ] `App.vue` montando `TopBar` + `RouterView` + `ConfigPanel`
-- [ ] `VITE_SOCKET_URL` y `VITE_API_URL` en `.env.example`
+- [x] `@inertiajs/vue3`, `vue-router`, `pinia`, `@vueuse/core`, `socket.io-client`, `axios` instalados
+- [x] `inertiajs/inertia-laravel` instalado (Composer)
+- [x] `vite.config.ts` con `laravel-vite-plugin` y `@vitejs/plugin-vue`
+- [x] `tsconfig.json` extendiendo `@vue/tsconfig/tsconfig.dom.json`; alias `@/` → `resources/js/`
+- [x] `app.ts` bootstrap con Vue Router y Pinia integrados en Inertia
+- [x] `resources/views/app.blade.php` con `@inertia` y `@vite`
+- [x] `HandleInertiaRequests.php` compartiendo solo `flash`
+- [x] Rutas Laravel: `/login`, `/register`, `/app/{any?}`
+- [x] `routes.ts` con `/app` y `/app/settings`
+- [x] `guards.ts` con `authGuard` — redirige a `/login` si no autenticado
+- [x] `types/index.ts` con `SessionUser`, `Enterprise`, `Plan`, `PlanLimits`, `ApiError`
+- [x] `createSharedComposableById` con `effectScope`, ref-count y `.dispose`
+- [x] `useSession` singleton con refs de módulo, `setTokens`, `setUser`, `clear`
+- [x] `useSocket` singleton con `shallowRef`, `connect`, `emit`, `on`, `off`
+- [x] `useScopeEffect` con auto-cleanup en `onMounted`/`onUnmounted`
+- [x] `lib/api.ts` con Axios, interceptors JWT + X-Enterprise-ID, refresh automático
+- [x] `enterpriseStore` con `can(permission)` helper
+- [x] `App.vue` conecta socket en setup
+- [x] `VITE_API_URL` y `VITE_SOCKET_URL` en `.env.example`
+- [x] `vue-tsc --noEmit` sin errores

@@ -28,6 +28,13 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
+# ─── Permisos de storage ──────────────────────────────────────────────────────
+# www-data (php-fpm) necesita escribir en storage y bootstrap/cache.
+# Se ejecuta en build time; el volumen montado en runtime hereda el ownership.
+RUN mkdir -p storage/framework/{sessions,views,cache} storage/logs bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
+
 EXPOSE 9000
 
 CMD ["php-fpm"]

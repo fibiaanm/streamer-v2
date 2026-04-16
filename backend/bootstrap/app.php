@@ -2,6 +2,7 @@
 
 use App\Exceptions\AppException;
 use App\Exceptions\ErrorCode;
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequestId;
 use App\Http\Middleware\AuthenticateJWT;
 use App\Http\Middleware\SetActiveEnterprise;
@@ -13,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
+        web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         apiPrefix: 'api',
         commands: __DIR__.'/../routes/console.php',
@@ -21,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // RequestId en todas las requests (primero en la cadena)
         $middleware->prepend(RequestId::class);
+
+        // Inertia en el grupo web
+        $middleware->web(append: [HandleInertiaRequests::class]);
 
         // Aliases para usar en rutas
         $middleware->alias([

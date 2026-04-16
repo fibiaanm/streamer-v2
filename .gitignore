@@ -19,8 +19,12 @@ coverage/
 
 # ─── Node / socketio ──────────────────────────────────────────────────────────
 node_modules/
+backend/node_modules/
 services/socketio/node_modules/
 services/socketio/dist/
+
+# ─── Frontend build ───────────────────────────────────────────────────────────
+backend/public/build/
 
 # ─── IDE ──────────────────────────────────────────────────────────────────────
 .idea/
