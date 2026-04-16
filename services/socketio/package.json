@@ -1,17 +1,26 @@
 {
   "name": "socketio-service",
   "version": "0.1.0",
-  "description": "Socket.io real-time service — placeholder hasta etapa 05",
+  "description": "Socket.io real-time service",
   "scripts": {
     "start": "tsx src/server.ts",
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "socket.io": "^4.7.4"
+    "@socket.io/redis-adapter": "^8.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "redis": "^4.6.13",
+    "socket.io": "^4.7.4",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.11.0",
+    "socket.io-client": "^4.7.4",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^1.4.0"
   }
 }

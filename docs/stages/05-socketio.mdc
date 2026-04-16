@@ -2,7 +2,7 @@
 description: Etapa 05 — Servicio Socket.io con Node.js, JWT auth y Redis pub/sub
 type: stage
 stage: 05
-status: pendiente
+status: completado
 depends_on: 04
 ---
 
@@ -27,129 +27,82 @@ cuando el dominio Rooms existe, pero el servicio ya corre y consume Redis.
 services/socketio/
 ├── package.json
 ├── tsconfig.json
+├── vitest.config.ts
 ├── Dockerfile
-└── src/
-    ├── server.ts              # entrypoint — reemplaza el placeholder de etapa 01
-    ├── logger.ts              # logger centralizado (Winston → stdout) — nuevo en esta etapa
-    ├── config.ts              # variables de entorno tipadas
-    ├── middleware/
-    │   └── auth.ts            # JWT verification
-    ├── handlers/
-    │   ├── roomHandler.ts     # join/leave — completo en etapa 16
-    │   └── presenceHandler.ts
-    └── redis/
-        ├── subscriber.ts      # consume eventos de Laravel via Redis
-        └── channels.ts        # mapeo canal Redis → room Socket.io
+├── src/
+│   ├── server.ts              # entrypoint
+│   ├── logger.ts              # logger centralizado (Winston → stdout)
+│   ├── config.ts              # variables de entorno tipadas
+│   ├── middleware/
+│   │   └── auth.ts            # JWT verification
+│   ├── handlers/
+│   │   ├── roomHandler.ts     # join/leave — skeleton (lógica en etapa 10)
+│   │   └── presenceHandler.ts # skeleton (lógica en etapa 10)
+│   └── redis/
+│       ├── subscriber.ts      # consume eventos de Laravel via Redis
+│       └── channels.ts        # mapeo canal Redis → room Socket.io
+└── tests/
+    ├── auth.test.ts
+    └── connection.test.ts
 ```
 
 ---
 
 ## Autenticación JWT
 
-El cliente envía el JWT en el handshake. Socket.io verifica la firma
-con el mismo `JWT_SECRET` que Laravel — sin consultar la DB.
+El cliente envía el JWT en el handshake de Socket.io (`socket.handshake.auth.token`).
+El middleware `src/middleware/auth.ts` corre antes de establecer la conexión:
+verifica la firma con `jwt.verify` usando el mismo `JWT_SECRET` que Laravel,
+adjunta el payload a `socket.data.user` y llama `next()`.
 
-```js
-io.use((socket, next) => {
-    const token = socket.handshake.auth?.token?.replace('Bearer ', '');
-    if (!token) return next(new Error('authentication_required'));
+Si el token falta → error `authentication_required`.
+Si el token es inválido o expirado → error `invalid_token`.
 
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        socket.user = decoded;   // { sub, name, email }
-        next();
-    } catch (err) {
-        next(new Error('invalid_token'));
-    }
-});
-```
+Socket.io **no** consulta la DB — basta con verificar la firma. El token expira en 15 min
+por sí solo; el control de acceso fino lo hace Laravel antes de publicar en Redis.
+
+El enterprise context no pasa por Socket.io — Laravel ya valida permisos antes de publicar.
 
 ---
 
 ## Redis pub/sub — consumidor genérico
 
-Se suscribe a todos los canales que Laravel publicará desde etapa 06 en adelante.
-No necesita saber qué dominio publica — solo reemite al room correspondiente.
+`src/redis/subscriber.ts` se suscribe con `pSubscribe` a los patrones:
+`user.*`, `room.*`, `workspace.*`, `enterprise.*`.
 
-```js
-// redis/subscriber.js
-await redisSubscriber.pSubscribe('room.*', (payload, channel) => {
-    const { event, data } = JSON.parse(payload);
-    io.to(channel).emit(event, data);
-});
+Al recibir un mensaje parsea el JSON `{ event, data }` y reemite al room Socket.io
+correspondiente vía `io.to(channel).emit(event, data)`. El mapeo canal → room
+está centralizado en `src/redis/channels.ts` (actualmente 1:1).
 
-// Canal del compositor (etapa 14)
-await redisSubscriber.pSubscribe('compositor.*', (payload, channel) => {
-    const { event, data } = JSON.parse(payload);
-    io.emit(event, data); // broadcast global o a room específica según evento
-});
-```
+Al conectar, el servidor hace `socket.join('user.' + socket.data.user.sub)` automáticamente.
+Cualquier servicio de Laravel puede publicar en `user.{id}` para enviar un evento
+a ese usuario específico sin saber en qué instancia está conectado.
 
-**Canales que se irán usando en etapas posteriores:**
+**Canales por etapa:**
 
-| Canal | Publicado desde | Desde etapa |
+| Canal | Publicado desde | Disponible desde etapa |
 |---|---|---|
+| `user.{id}` | invitaciones, notificaciones in-app | 09, posteriores |
 | `room.{id}` | mensajes, participantes, streams | 10, 11, 13 |
 | `workspace.{id}` | assets, roles, miembros | 08, 09 |
-| `enterprise.{id}` | roles, permisos | 06 |
-| `compositor.*` | layout, stream events | 14 |
-
----
-
-## Presencia (completo en etapa 10)
-
-El código de presencia se define aquí pero se activa cuando rooms existe.
-
-```js
-// Skeleton — se completa en etapa 10
-socket.on('join_room', async ({ roomId }) => {
-    // Valida acceso via Laravel HTTP interno (endpoint creado en etapa 10)
-    // socket.join('room.' + roomId)
-    // Gestiona presencia en Redis
-});
-
-socket.on('disconnect', async () => {
-    // Limpia presencia de Redis
-    // Notifica al room
-});
-```
+| `enterprise.{id}` | roles, permisos | 09 |
 
 ---
 
 ## Logger centralizado
 
-Todo el servicio usa un logger único en lugar de `console.log`.
-En etapa 07-a se le añade el transport de OpenSearch sin tocar ningún otro archivo.
+`src/logger.ts` — singleton Winston con Console transport, JSON estructurado a stdout.
+Campo `service: "socketio"` presente en todos los logs vía `defaultMeta`.
+Nivel configurable via `LOG_LEVEL` (default `info`). Ningún archivo usa `console.log`.
 
-### Paquete
-
-```bash
-npm install winston
-```
-
-### `src/logger.ts`
-
-Logger singleton con Winston. Transport: Console (stdout, JSON estructurado).
-
-```ts
-import winston from 'winston';
-
-export const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL ?? 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'socketio' },
-  transports: [new winston.transports.Console()],
-});
-```
-
-El campo `service: "socketio"` viene de `defaultMeta` — presente en todos los logs.
-
-### Puntos de log por archivo
+**Puntos de log:**
 
 | Archivo | Mensaje | Nivel |
-|---------|---------|-------|
+|---|---|---|
 | `server.ts` | `socket.connected` `{ socket_id }` | info |
 | `server.ts` | `socket.disconnected` `{ socket_id, reason }` | info |
+| `server.ts` | `server.started` `{ port }` | info |
+| `server.ts` | `server.fatal` `{ error }` | error |
 | `middleware/auth.ts` | `auth.token_missing` | warn |
 | `middleware/auth.ts` | `auth.token_invalid` `{ error }` | warn |
 | `redis/subscriber.ts` | `redis.subscribed` `{ channel }` | info |
@@ -157,21 +110,20 @@ El campo `service: "socketio"` viene de `defaultMeta` — presente en todos los 
 | `handlers/roomHandler.ts` | `room.joined` `{ socket_id, room_id }` | info |
 | `handlers/roomHandler.ts` | `room.left` `{ socket_id, room_id }` | info |
 
-Ningún archivo usa `console.log` — todos importan `logger` desde `src/logger.ts`.
-
 ---
 
 ## Escalado horizontal
 
-```js
-import { createAdapter } from '@socket.io/redis-adapter';
+`src/server.ts` configura el Redis adapter de `@socket.io/redis-adapter` con dos clientes
+dedicados (`pubClient` y `subClient` duplicado). Esto permite correr múltiples instancias
+del servicio sin que los eventos se pierdan entre nodos.
 
-const pubClient = createClient({ url: process.env.REDIS_URL });
-const subClient = pubClient.duplicate();
-await Promise.all([pubClient.connect(), subClient.connect()]);
+---
 
-io.adapter(createAdapter(pubClient, subClient));
-```
+## Variables de entorno
+
+El servicio hereda el `env_file: ./backend/.env` desde `docker-compose.yml`.
+Variables que consume: `JWT_SECRET`, `REDIS_HOST`, `REDIS_PORT`, `PORT`, `LOG_LEVEL`.
 
 ---
 
@@ -179,7 +131,7 @@ io.adapter(createAdapter(pubClient, subClient));
 
 | Evento | Payload | Disponible desde |
 |---|---|---|
-| `enterprise.role_updated` | `{ userId, roleId }` | etapa 06 |
+| `enterprise.role_updated` | `{ userId, roleId }` | etapa 09 |
 | `workspace.member_added` | member object | etapa 08 |
 | `workspace.asset_created` | asset object | etapa 09 |
 | `room.participant_joined` | participant object | etapa 10 |
@@ -196,27 +148,25 @@ io.adapter(createAdapter(pubClient, subClient));
 
 ## Reservado — fases posteriores
 
-- **Rate limiting de conexiones (gaps.mdc → Rate limiting):** en v1 no hay límite
-  de conexiones por usuario ni por IP. En producción: throttling en el handshake
-  via Traefik o middleware propio.
-- **Notificaciones push (gaps.mdc → Notificaciones):** Socket.io solo entrega
-  eventos a clientes conectados. Web Push / FCM para usuarios desconectados
-  es fase posterior.
+- **Rate limiting de conexiones:** en v1 no hay límite de conexiones por usuario ni por IP.
+  En producción: throttling en el handshake via Traefik o middleware propio.
+- **Notificaciones push:** Socket.io solo entrega eventos a clientes conectados.
+  Web Push / FCM para usuarios desconectados es fase posterior. Ver `docs/gaps.mdc`.
 
 ---
 
 ## Checklist
 
-- [ ] Proyecto TypeScript con Socket.io 4.x — reemplaza placeholder de etapa 01
-- [ ] `src/logger.ts` con Winston → Console transport (stdout, JSON)
-- [ ] Ningún `console.log` en el servicio — todos los archivos usan `logger.*`
-- [ ] `src/config.ts` con variables de entorno tipadas
-- [ ] `src/middleware/auth.ts` — JWT verification con `JWT_SECRET` compartido
-- [ ] `src/redis/subscriber.ts` — consumidor `room.*`, `workspace.*`, `enterprise.*`
-- [ ] `src/redis/channels.ts` — mapeo canal Redis → room Socket.io
-- [ ] `src/handlers/roomHandler.ts` — skeleton `join_room` / `disconnect` (sin lógica de rooms aún)
-- [ ] `src/handlers/presenceHandler.ts` — skeleton
-- [ ] Redis adapter para escalado horizontal configurado
-- [ ] Variables de entorno: `JWT_SECRET`, `REDIS_URL`
-- [ ] Servicio levanta y conecta sin errores
-- [ ] Tests: autenticación JWT válido e inválido, conexión/desconexión
+- [x] Proyecto TypeScript con Socket.io 4.x — reemplaza placeholder de etapa 01
+- [x] `src/logger.ts` con Winston → Console transport (stdout, JSON)
+- [x] Ningún `console.log` en el servicio — todos los archivos usan `logger.*`
+- [x] `src/config.ts` con variables de entorno tipadas
+- [x] `src/middleware/auth.ts` — JWT verification con `JWT_SECRET` compartido
+- [x] `src/redis/subscriber.ts` — consumidor `room.*`, `workspace.*`, `enterprise.*`
+- [x] `src/redis/channels.ts` — mapeo canal Redis → room Socket.io
+- [x] `src/handlers/roomHandler.ts` — skeleton `join_room` / `leave_room` / `disconnect`
+- [x] `src/handlers/presenceHandler.ts` — skeleton
+- [x] Redis adapter para escalado horizontal configurado
+- [x] Variables de entorno: `JWT_SECRET`, `REDIS_HOST`, `REDIS_PORT`
+- [x] Servicio levanta y conecta sin errores
+- [x] Tests: autenticación JWT válido e inválido, conexión/desconexión (10 tests)
