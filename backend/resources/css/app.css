@@ -69,3 +69,9 @@
     @apply border border-brand-300/20;
     @apply shadow-glass-brand;
 }
+
+@utility glass-auth {
+    @apply bg-white/10 backdrop-blur-2xl backdrop-saturate-200;
+    @apply border border-white/10;
+    @apply shadow-glass;
+}

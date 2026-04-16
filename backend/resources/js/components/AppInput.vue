@@ -89,9 +89,15 @@ defineExpose({ input: inputRef })
 // ─── Size maps ────────────────────────────────────────────────────────────────
 
 const fontSizes: Record<Size, string> = {
-  sm: 'text-xs',
+  sm: 'text-sm',
   md: 'text-sm',
   lg: 'text-base',
+}
+
+const labelFloatedSizes: Record<Size, string> = {
+  sm: 'text-[10px]',
+  md: 'text-xs',
+  lg: 'text-xs',
 }
 
 const inputPadding = computed(() => {
@@ -153,7 +159,7 @@ const labelClasses = computed(() => {
   return [
     'absolute left-4 pointer-events-none transition-all duration-150 leading-none',
     isFloated
-      ? `${floated} translate-y-0 text-xs font-medium`
+      ? `${floated} translate-y-0 ${labelFloatedSizes[props.size]} font-medium`
       : `${center} -translate-y-1/2 text-sm font-normal text-slate-400 dark:text-white/30`,
     isFloated
       ? (isFocused.value ? labelFocusColor[props.variant] : 'text-slate-500 dark:text-white/40')
@@ -168,3 +174,19 @@ const messageClasses = computed(() => [
     : 'text-slate-400 dark:text-white/30',
 ])
 </script>
+
+<style scoped>
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  -webkit-text-fill-color: #0f172a;
+}
+
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0d1424 inset;
+  -webkit-text-fill-color: #ffffff;
+}
+</style>

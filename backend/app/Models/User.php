@@ -40,4 +40,27 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(EnterpriseMember::class);
     }
+
+    public function createEnterprise(string $name, string $type = 'personal'): Enterprise
+    {
+        return Enterprise::create([
+            'name'     => $name,
+            'type'     => $type,
+            'owner_id' => $this->id,
+        ]);
+    }
+
+    public function assignOwnerRole(Enterprise $enterprise): EnterpriseMember
+    {
+        $ownerRole = EnterpriseRole::where('name', 'owner')
+            ->whereNull('enterprise_id')
+            ->firstOrFail();
+
+        return EnterpriseMember::create([
+            'user_id'       => $this->id,
+            'enterprise_id' => $enterprise->id,
+            'role_id'       => $ownerRole->id,
+            'status'        => 'active',
+        ]);
+    }
 }

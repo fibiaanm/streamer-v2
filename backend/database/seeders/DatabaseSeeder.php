@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             EnterpriseRolePermissionSeeder::class,
             WorkspacePermissionSeeder::class,
             PlanSeeder::class,
+            UserSeeder::class,
         ]);
     }
 }

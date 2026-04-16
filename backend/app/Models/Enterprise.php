@@ -29,4 +29,14 @@ class Enterprise extends Model
     {
         return $this->hasMany(Subscription::class);
     }
+
+    public function createSubscription(Plan $plan): Subscription
+    {
+        return Subscription::create([
+            'enterprise_id' => $this->id,
+            'plan_id'       => $plan->id,
+            'status'        => 'active',
+            'starts_at'     => now(),
+        ]);
+    }
 }

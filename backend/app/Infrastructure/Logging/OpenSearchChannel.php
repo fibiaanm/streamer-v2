@@ -17,7 +17,7 @@ class OpenSearchChannel
         $handler = new OpenSearchHandler(
             client: $client,
             index: $config['index'],
-            level: Level::from(strtolower($config['level'])),
+            level: Level::fromName(strtolower($config['level'])),
         );
 
         return new Logger('opensearch', [$handler]);

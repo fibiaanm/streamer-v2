@@ -16,4 +16,9 @@ class Plan extends Model
         'limits_json' => 'array',
         'is_free'     => 'boolean',
     ];
+
+    public static function free(): self
+    {
+        return static::where('is_free', true)->where('type', 'individual')->firstOrFail();
+    }
 }

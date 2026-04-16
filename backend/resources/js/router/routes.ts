@@ -2,6 +2,10 @@ import type { RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/login',
+    component: () => import('@/Pages/Auth/Login.vue'),
+  },
+  {
     path: '/app',
     component: () => import('@/views/WorkspacesView.vue'),
   },
@@ -12,7 +16,7 @@ const routes: RouteRecordRaw[] = [
   // Workspaces, rooms y streams se añaden en sus etapas respectivas
   {
     path: '/design-test',
-    component: () => import('@/views/DesignTest.vue'),
+    component: () => import('@/Pages/DesignTest.vue'),
   },
 ]
 

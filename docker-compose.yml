@@ -6,6 +6,7 @@ services:
     volumes:
       - ./backend:/var/www/html:ro
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_logs:/var/log/nginx
     ports:
       - "${APP_PORT:-8000}:80"
     depends_on:
@@ -13,6 +14,20 @@ services:
         condition: service_healthy
     networks:
       - backend
+
+  # ─── Fluent Bit (nginx log shipper → OpenSearch) ──────────────────────────────
+  fluentbit:
+    image: fluent/fluent-bit:3
+    volumes:
+      - ./docker/fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./docker/fluentbit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - nginx_logs:/var/log/nginx:ro
+    depends_on:
+      - nginx
+      - opensearch
+    networks:
+      - backend
+    restart: unless-stopped
 
   php:
     build:
@@ -84,6 +99,8 @@ services:
       context: .
       dockerfile: services/socketio/Dockerfile
     env_file: ./backend/.env
+    environment:
+      OPENSEARCH_INDEX: socketio-logs
     ports:
       - "${SOCKETIO_PORT:-3000}:3000"
     depends_on:
@@ -269,3 +286,4 @@ volumes:
   meilisearch_data:
   opensearch_data:
   vite_node_modules:
+  nginx_logs:

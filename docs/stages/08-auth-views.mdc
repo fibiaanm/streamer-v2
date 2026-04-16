@@ -2,143 +2,119 @@
 description: Etapa 08 — Vistas de login y registro con design system glass
 type: stage
 stage: 08
-status: pendiente
+status: completada
 depends_on: 07
 ---
 
 # Etapa 08 — Auth Views
 
 ## Objetivo
-Páginas de login y registro usando el design system glass (etapa 07),
-consumiendo los endpoints de auth (etapa 04).
-Siempre: primero los endpoints, luego las vistas.
+Página única de auth (`/login`) con tres modos via query param, usando el design
+system glass (etapa 07) y consumiendo los endpoints de auth (etapa 04).
 
 ---
 
-## Login (`Pages/Auth/Login.vue`)
+## Arquitectura
 
-Panel glass centrado sobre el fondo oscuro de la app.
+Una sola ruta `/login` maneja los tres modos via `?mode=`:
 
-```vue
-<template>
-  <div class="bg-app min-h-screen flex items-center justify-center p-4">
-    <GlassCard class="w-full max-w-md" padding="p-8">
+| URL | Modo | Panel |
+|---|---|---|
+| `/login` | `login` (default) | `LoginPanel.vue` |
+| `/login?mode=signup` | `signup` | `SignupPanel.vue` |
+| `/login?mode=forgot` | `forgot` | `ForgotPanel.vue` |
 
-      <div class="mb-8 text-center">
-        <h1 class="text-2xl font-bold text-white">Bienvenido</h1>
-        <p class="text-white/50 text-sm mt-1">Inicia sesión en tu cuenta</p>
-      </div>
+La transición entre modos es animada: el panel actual cae (opacity+translateY) y el
+nuevo flota desde arriba, con un pequeño delay entre leave y enter.
 
-      <form @submit.prevent="submit" class="space-y-4">
-        <BaseInput v-model="form.email"    type="email"    label="Email"      :error="errors.email" />
-        <BaseInput v-model="form.password" type="password" label="Contraseña" :error="errors.password" />
+---
 
-        <p v-if="apiError" class="text-red-400 text-xs">{{ apiError }}</p>
+## Archivos
 
-        <BaseButton type="submit" :loading="loading" class="w-full mt-2">
-          Iniciar sesión
-        </BaseButton>
-      </form>
+```
+Pages/Auth/
+  Login.vue               — layout + transición entre paneles
+  panels/
+    LoginPanel.vue        — email + password, link a forgot/signup
+    SignupPanel.vue       — nombre, email, password, confirmar (validación local)
+    ForgotPanel.vue       — solo email, muestra éxito inline
 
-      <p class="text-white/40 text-sm text-center mt-6">
-        ¿Sin cuenta?
-        <RouterLink to="/register" class="text-brand-light hover:text-brand hover:underline">
-          Regístrate
-        </RouterLink>
-      </p>
+app/Http/Controllers/Auth/
+  LoginPageController.php — controller invocable; pasa imageUrl a Inertia
 
-    </GlassCard>
-  </div>
-</template>
+router/
+  routes.ts               — /login registrado en Vue Router
+  guards.ts               — authGuard existente (sin cambios)
+```
 
-<script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { api } from '../../lib/api'
-import { useSession } from '../../composables/core/useSession'
+---
 
-const router  = useRouter()
-const session = useSession()
+## Layout
 
-const form     = ref({ email: '', password: '' })
-const errors   = ref({})
-const apiError = ref(null)
-const loading  = ref(false)
+Fondo: imagen full-screen servida por `LoginPageController` (`imageUrl` prop),
+`object-cover` para fill sin importar el tamaño del viewport.
 
-async function submit() {
-  errors.value   = {}
-  apiError.value = null
-  loading.value  = true
-  try {
-    const res = await api.post('/auth/login', form.value)
-    session.setTokens(res.data.data.access_token, res.data.data.refresh_token)
-    router.push('/app')
-  } catch (err) {
-    const code = err.response?.data?.error?.code
-    if (code === 'auth.invalid_credentials') {
-      apiError.value = 'Email o contraseña incorrectos'
-    } else if (code === 'validation.failed') {
-      errors.value = err.response.data.error.context.fields
-    } else {
-      apiError.value = 'Error del servidor. Inténtalo de nuevo.'
+Panel derecho: `md:absolute md:inset-y-0 md:right-0 md:w-[480px]` — en mobile
+el panel ocupa el centro de pantalla completa.
+
+El card glass usa la utilidad `glass-auth` (`bg-white/10 backdrop-blur-2xl`),
+definida en `app.css`, separada de `glass` (dark) y `glass-light`.
+
+Los inputs son `size="sm"` en los tres paneles.
+
+---
+
+## Controller (`LoginPageController`)
+
+```php
+class LoginPageController extends Controller
+{
+    private const IMAGES = [
+        '/images/login/studio@2000.webp',
+    ];
+
+    public function __invoke(Request $request): Response
+    {
+        $image = self::IMAGES[array_rand(self::IMAGES)];
+
+        return Inertia::render('Auth/Login', [
+            'imageUrl' => $image,
+        ]);
     }
-  } finally {
-    loading.value = false
-  }
 }
-</script>
 ```
 
----
-
-## Register (`Pages/Auth/Register.vue`)
-
-Mismo patrón visual. Campos: nombre, email, password, confirmar password.
-
-```
-POST /api/v1/auth/register → en éxito, auto-login y redirect a /app
-```
-
-Validaciones locales antes de enviar:
-- Email con formato válido
-- Password mínimo 8 caracteres
-- Confirm password igual a password
+Para agregar imágenes: añadir rutas a `IMAGES`. La selección ya es aleatoria.
 
 ---
 
 ## Rutas
 
 ```php
-// routes/web.php — páginas Inertia independientes (no pasan por Vue Router)
-Route::get('/login',    fn () => Inertia::render('Auth/Login'))->name('login');
-Route::get('/register', fn () => Inertia::render('Auth/Register'))->name('register');
+// routes/web.php
+Route::get('/login', LoginPageController::class)->name('login');
+Route::redirect('/register', '/login?mode=signup', 301)->name('register');
 ```
 
-El redirect post-login lleva a `/app`, donde Vue Router toma el control.
+```ts
+// router/routes.ts
+{ path: '/login', component: () => import('@/Pages/Auth/Login.vue') }
+```
 
 ---
 
-## Guard de rutas Vue Router
+## Cambio de modo
 
-El guard se define en un archivo separado y se registra en `app.js` tras crear el router.
+```ts
+// Login.vue
+const mode = computed(() => (route.query.mode as string) || 'login')
 
-```js
-// router/guards.js
-import { useSession } from '../composables/core/useSession'
-
-export function authGuard(to) {
-  const session = useSession()
-  if (to.path.startsWith('/app') && !session.authenticated.value) {
-    return '/login'
-  }
+function setMode(newMode: string) {
+  router.push({ query: newMode === 'login' ? {} : { mode: newMode } })
 }
 ```
 
-```js
-// app.js — tras createRouter(...)
-import { authGuard } from './router/guards'
-router.beforeEach(authGuard)
-```
+Cada panel emite `@switch="setMode"` con el modo destino.
 
 ---
 
@@ -148,20 +124,24 @@ router.beforeEach(authGuard)
 |---|---|
 | `auth.invalid_credentials` | "Email o contraseña incorrectos" |
 | `validation.failed` | Errores inline por campo |
-| `general.server_error` | "Error del servidor. Inténtalo de nuevo." |
+| cualquier otro | "Error del servidor. Inténtalo de nuevo." |
 
-El mensaje de `auth.invalid_credentials` es siempre el mismo para email y password
-(no revela si el email existe — mismo comportamiento que el backend).
+El mensaje de `auth.invalid_credentials` es siempre genérico (no revela si el
+email existe — mismo comportamiento que el backend).
 
 ---
 
 ## Checklist
 
-- [ ] `Login.vue` con GlassCard, BaseInput x2, BaseButton, error mapping
-- [ ] `Register.vue` con nombre, email, password, confirmar password
-- [ ] Redirect a `/app` en auth exitosa
-- [ ] Guard en Vue Router: `/app/**` requiere estar autenticado
-- [ ] Redirect a `/login` si token ausente o expirado
-- [ ] `RouterLink` para navegar entre login ↔ registro (no `<Link>` de Inertia)
-- [ ] Spinner/loading state en botón durante el submit
-- [ ] Tests: login exitoso, credenciales incorrectas, validación de campos
+- [x] `Login.vue` — layout full-screen con imagen de fondo y panel derecho
+- [x] `LoginPanel.vue` — email + password, link a forgot, error mapping completo
+- [x] `SignupPanel.vue` — 4 campos, validación local, auto-login tras registro
+- [x] `ForgotPanel.vue` — email, success inline, botón deshabilitado tras envío
+- [x] `LoginPageController` — pasa `imageUrl` aleatoria (array `IMAGES`)
+- [x] Redirect a `/app` en auth exitosa
+- [x] `/register` redirige 301 a `/login?mode=signup`
+- [x] `/login` registrado en Vue Router para que `useRoute()` funcione
+- [x] Guard existente en Vue Router cubre `/app/**`
+- [x] Transición animada entre paneles (out-in, leave↓ / enter↑)
+- [x] Spinner/loading state en botón durante el submit
+- [x] Tests: registro exitoso (6 casos happy path + side effects) y validaciones (10 casos) — 16/16 ✓

@@ -1,5 +1,8 @@
+export type LimitType      = 'permanent' | 'concurrent' | 'monthly'
+export type EnterpriseType = 'personal' | 'enterprise'
+
 export interface LimitValue {
-  type: 'permanent' | 'concurrent' | 'monthly'
+  type: LimitType
   max: number
 }
 
@@ -23,7 +26,7 @@ export interface Plan {
 export interface Enterprise {
   id: string
   name: string
-  type: 'personal' | 'enterprise'
+  type: EnterpriseType
   role: string
   permissions: string[]
   plan: Plan

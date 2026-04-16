@@ -17,8 +17,8 @@ class LoginController
         try {
             $tokens = $useCase->execute($request->email, $request->password);
 
+            Log::info('auth.login_success', ['email' => $request->email]);
             return ResponseFormatter::success($tokens);
-
         } catch (InvalidCredentialsException $e) {
             Log::warning('auth.login_failed', ['email' => $request->email]);
             return ResponseFormatter::error($e);
