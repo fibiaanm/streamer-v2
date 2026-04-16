@@ -3,9 +3,9 @@ DC = docker compose
 # ─── Primera vez ──────────────────────────────────────────────────────────────
 
 prepare: ## Primera vez: copia .env, construye imágenes y levanta servicios
-	@if [ ! -f .env ]; then \
-		cp .env.example .env; \
-		echo "  .env creado desde .env.example — revisa las variables antes de continuar"; \
+	@if [ ! -f backend/.env ]; then \
+		cp backend/.env.example backend/.env; \
+		echo "  backend/.env creado desde backend/.env.example — revisa las variables antes de continuar"; \
 	fi
 	$(DC) build
 	$(DC) up -d

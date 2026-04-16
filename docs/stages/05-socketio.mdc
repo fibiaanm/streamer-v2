@@ -24,21 +24,22 @@ cuando el dominio Rooms existe, pero el servicio ya corre y consume Redis.
 ## Estructura del proyecto
 
 ```
-/socketio/
+services/socketio/
 ├── package.json
-├── src/
-│   ├── index.js
-│   ├── middleware/
-│   │   └── auth.js           # JWT verification
-│   ├── handlers/
-│   │   ├── roomHandler.js    # join/leave — completo en etapa 10
-│   │   └── presenceHandler.js
-│   ├── redis/
-│   │   ├── subscriber.js     # consume eventos de Laravel via Redis
-│   │   └── channels.js       # mapeo canal Redis → room Socket.io
-│   └── config.js
+├── tsconfig.json
 ├── Dockerfile
-└── .env.example
+└── src/
+    ├── server.ts              # entrypoint — reemplaza el placeholder de etapa 01
+    ├── logger.ts              # logger centralizado (Winston → stdout) — nuevo en esta etapa
+    ├── config.ts              # variables de entorno tipadas
+    ├── middleware/
+    │   └── auth.ts            # JWT verification
+    ├── handlers/
+    │   ├── roomHandler.ts     # join/leave — completo en etapa 16
+    │   └── presenceHandler.ts
+    └── redis/
+        ├── subscriber.ts      # consume eventos de Laravel via Redis
+        └── channels.ts        # mapeo canal Redis → room Socket.io
 ```
 
 ---
@@ -115,6 +116,51 @@ socket.on('disconnect', async () => {
 
 ---
 
+## Logger centralizado
+
+Todo el servicio usa un logger único en lugar de `console.log`.
+En etapa 07-a se le añade el transport de OpenSearch sin tocar ningún otro archivo.
+
+### Paquete
+
+```bash
+npm install winston
+```
+
+### `src/logger.ts`
+
+Logger singleton con Winston. Transport: Console (stdout, JSON estructurado).
+
+```ts
+import winston from 'winston';
+
+export const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL ?? 'info',
+  format: winston.format.json(),
+  defaultMeta: { service: 'socketio' },
+  transports: [new winston.transports.Console()],
+});
+```
+
+El campo `service: "socketio"` viene de `defaultMeta` — presente en todos los logs.
+
+### Puntos de log por archivo
+
+| Archivo | Mensaje | Nivel |
+|---------|---------|-------|
+| `server.ts` | `socket.connected` `{ socket_id }` | info |
+| `server.ts` | `socket.disconnected` `{ socket_id, reason }` | info |
+| `middleware/auth.ts` | `auth.token_missing` | warn |
+| `middleware/auth.ts` | `auth.token_invalid` `{ error }` | warn |
+| `redis/subscriber.ts` | `redis.subscribed` `{ channel }` | info |
+| `redis/subscriber.ts` | `redis.parse_error` `{ channel, error }` | error |
+| `handlers/roomHandler.ts` | `room.joined` `{ socket_id, room_id }` | info |
+| `handlers/roomHandler.ts` | `room.left` `{ socket_id, room_id }` | info |
+
+Ningún archivo usa `console.log` — todos importan `logger` desde `src/logger.ts`.
+
+---
+
 ## Escalado horizontal
 
 ```js
@@ -161,14 +207,16 @@ io.adapter(createAdapter(pubClient, subClient));
 
 ## Checklist
 
-- [ ] Proyecto Node.js con Socket.io 4.x
-- [ ] Dockerfile para el pod `socketio`
-- [ ] Middleware JWT verificando con `JWT_SECRET` compartido
-- [ ] Consumidor Redis `room.*` reemitiendo eventos a clientes
-- [ ] Consumidor Redis `workspace.*` reemitiendo eventos
-- [ ] Consumidor Redis `enterprise.*` reemitiendo eventos
+- [ ] Proyecto TypeScript con Socket.io 4.x — reemplaza placeholder de etapa 01
+- [ ] `src/logger.ts` con Winston → Console transport (stdout, JSON)
+- [ ] Ningún `console.log` en el servicio — todos los archivos usan `logger.*`
+- [ ] `src/config.ts` con variables de entorno tipadas
+- [ ] `src/middleware/auth.ts` — JWT verification con `JWT_SECRET` compartido
+- [ ] `src/redis/subscriber.ts` — consumidor `room.*`, `workspace.*`, `enterprise.*`
+- [ ] `src/redis/channels.ts` — mapeo canal Redis → room Socket.io
+- [ ] `src/handlers/roomHandler.ts` — skeleton `join_room` / `disconnect` (sin lógica de rooms aún)
+- [ ] `src/handlers/presenceHandler.ts` — skeleton
 - [ ] Redis adapter para escalado horizontal configurado
-- [ ] Skeleton de `join_room` y `disconnect` listo (sin lógica de rooms aún)
-- [ ] Variables de entorno: `JWT_SECRET`, `REDIS_URL`, `LARAVEL_INTERNAL_URL`
+- [ ] Variables de entorno: `JWT_SECRET`, `REDIS_URL`
 - [ ] Servicio levanta y conecta sin errores
 - [ ] Tests: autenticación JWT válido e inválido, conexión/desconexión

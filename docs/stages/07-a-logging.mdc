@@ -1,0 +1,307 @@
+---
+description: Etapa 07-a — OpenSearch como destino de logs de Laravel y SocketIO
+type: stage
+stage: 07-a
+status: pendiente
+depends_on: 05
+---
+
+# Etapa 07-a — Logging con OpenSearch
+
+## Objetivo
+
+Conectar los sistemas de log de Laravel y SocketIO a OpenSearch.
+Laravel no escribe en `storage/logs/` — el único destino es el índice OpenSearch.
+SocketIO ya tiene un logger centralizado (Winston, etapa 05) — aquí se le añade el transport de OpenSearch.
+
+---
+
+## Flujo
+
+```
+Request → PHP
+  └── Log::warning('auth.login_failed', [...])
+            │
+       Monolog Logger
+            │
+       OpenSearchHandler (HTTP POST)
+            │
+     opensearch:9200
+     índice: streamer-logs-YYYY.MM.DD
+            │
+     OpenSearch Dashboards :5601
+```
+
+El `request_id` generado por `RequestId` middleware se inyecta automáticamente en cada
+log record vía `Illuminate\Log\Context\Processor` (built-in Laravel 11+).
+No se necesita ningún processor manual.
+
+---
+
+## Índice compartido — todos los servicios
+
+Laravel y SocketIO escriben al **mismo índice** `streamer-logs-YYYY.MM.DD`.
+El campo `service` diferencia el origen en Dashboards.
+
+```
+streamer-logs-2026.04.15/
+  ├── { service: "laravel",  message: "auth.login_failed", ... }
+  ├── { service: "socketio", message: "socket.connected",  ... }
+  └── ...
+```
+
+### Documento Laravel
+
+```json
+{
+  "@timestamp": "2026-04-15T10:30:00+00:00",
+  "service":    "laravel",
+  "level":      "warning",
+  "channel":    "local",
+  "message":    "auth.login_failed",
+  "context":    { "email": "user@example.com" },
+  "extra":      { "request_id": "uuid-v4-..." }
+}
+```
+
+### Documento SocketIO
+
+```json
+{
+  "@timestamp": "2026-04-15T10:30:01+00:00",
+  "service":    "socketio",
+  "level":      "info",
+  "message":    "socket.connected",
+  "context":    { "socket_id": "abc123", "user_id": "He3bqD" }
+}
+```
+
+Índice diario: `streamer-logs-YYYY.MM.DD`
+Dynamic mapping habilitado (sin schema explícito — local dev).
+
+---
+
+## Infraestructura Docker
+
+Dos servicios nuevos en `docker-compose.yml`:
+
+### `opensearch`
+
+| Parámetro | Valor |
+|-----------|-------|
+| Imagen | `opensearchproject/opensearch:2.13.0` |
+| Modo | `single-node` |
+| Seguridad | `plugins.security.disabled=true` |
+| JVM heap | `-Xms512m -Xmx512m` |
+| Puerto externo | `${OPENSEARCH_PORT:-9200}:9200` |
+| Volumen | `opensearch_data:/usr/share/opensearch/data` |
+| Healthcheck | `curl -f http://localhost:9200/_cluster/health` |
+| start_period | 60s (OpenSearch tarda en iniciar) |
+| ulimits | `memlock: -1/-1`, `nofile: 65536/65536` |
+
+### `opensearch-dashboards`
+
+| Parámetro | Valor |
+|-----------|-------|
+| Imagen | `opensearchproject/opensearch-dashboards:2.13.0` |
+| Puerto externo | `${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601` |
+| Env | `OPENSEARCH_HOSTS=http://opensearch:9200` |
+| Env | `DISABLE_SECURITY_DASHBOARDS_PLUGIN=true` |
+| depends_on | `opensearch (service_healthy)` |
+
+Volumen nuevo: `opensearch_data:`
+
+---
+
+## Paquete PHP
+
+```bash
+composer require opensearch-project/opensearch-php:^2.0
+```
+
+Cliente HTTP oficial de OpenSearch para PHP. Maneja conexión, serialización y reintentos.
+Se instala dentro del contenedor `php` o directamente en `backend/`.
+
+---
+
+## Archivos nuevos en backend/
+
+```
+backend/app/Infrastructure/
+└── Logging/
+    ├── OpenSearchHandler.php    ← Monolog handler
+    └── OpenSearchChannel.php   ← Factory invokable (driver custom de Laravel)
+```
+
+### `OpenSearchHandler.php`
+
+- Extiende `Monolog\Handler\AbstractProcessingHandler`
+- Método `write(LogRecord $record)`:
+  - `POST` a `{index}-YYYY.MM.DD` vía `$client->index([...])`
+  - Documento incluye campo `"service": "laravel"`
+  - Todo el body dentro de `try/catch (Throwable)` — silent fail si OpenSearch está caído
+- `use Throwable;` al inicio del archivo (convención del proyecto)
+
+### `OpenSearchChannel.php`
+
+- Clase invokable: `__invoke(array $config): Monolog\Logger`
+- Construye `OpenSearch\Client` con `ClientBuilder::create()->setHosts([$config['host']])->build()`
+- Instancia `OpenSearchHandler` con el cliente, índice y nivel
+- Devuelve `new Logger('opensearch', [$handler])`
+
+---
+
+## SocketIO — añadir transport OpenSearch al logger existente
+
+En etapa 05 se creó `src/logger.ts` con Winston y un Console transport (stdout).
+En esta etapa se le añade el transport de OpenSearch — la interfaz del logger no cambia.
+
+### Paquete nuevo
+
+```bash
+npm install @opensearch-project/opensearch
+```
+
+El paquete `winston` ya fue instalado en etapa 05.
+
+### Modificación: `services/socketio/src/logger.ts`
+
+Se añade una clase `OpenSearchTransport` (extiende `winston.Transport`) al archivo existente.
+El transport se añade condicionalmente: si `OPENSEARCH_HOST` está definido, se activa.
+
+```ts
+// Nuevo transport — añadir al logger.ts existente
+class OpenSearchTransport extends Transport {
+  log(info: any, callback: () => void): void {
+    try {
+      client.index({
+        index: `${process.env.OPENSEARCH_INDEX ?? 'streamer-logs'}-${today()}`,
+        body: {
+          '@timestamp': new Date().toISOString(),
+          service:      'socketio',
+          level:        info.level,
+          message:      info.message,
+          context:      info.context ?? {},
+        },
+      });
+    } catch { /* silent fail */ }
+    callback();
+  }
+}
+
+// Añadir al logger existente si OPENSEARCH_HOST está disponible
+if (process.env.OPENSEARCH_HOST) {
+  logger.add(new OpenSearchTransport());
+}
+```
+
+Ningún otro archivo del servicio necesita cambios — ya usan `logger.*` desde etapa 05.
+
+### Variables de entorno
+
+`OPENSEARCH_HOST` y `OPENSEARCH_INDEX` ya existen en `backend/.env` y el servicio
+SocketIO usa `env_file: ./backend/.env` — no se requieren cambios de entorno.
+
+---
+
+## Archivos modificados
+
+### `backend/config/logging.php`
+
+Canal nuevo:
+
+```php
+'opensearch' => [
+    'driver' => 'custom',
+    'via'    => \App\Infrastructure\Logging\OpenSearchChannel::class,
+    'level'  => env('LOG_LEVEL', 'debug'),
+    'host'   => env('OPENSEARCH_HOST', 'http://opensearch:9200'),
+    'index'  => env('OPENSEARCH_INDEX', 'streamer-logs'),
+],
+```
+
+Default actualizado:
+
+```php
+'default' => env('LOG_CHANNEL', 'opensearch'),
+```
+
+> El canal `emergency` sigue apuntando a `storage/logs/laravel.log`.
+> Es el fallback interno de Laravel antes de que el sistema de logs esté disponible.
+> No se modifica.
+
+### `backend/.env.example`
+
+```env
+# ─── Logging ──────────────────────────────────────────────────────────────────
+LOG_CHANNEL=opensearch
+LOG_LEVEL=debug
+
+# ─── OpenSearch ───────────────────────────────────────────────────────────────
+OPENSEARCH_HOST=http://opensearch:9200
+OPENSEARCH_INDEX=streamer-logs
+```
+
+En la sección de puertos:
+
+```env
+OPENSEARCH_PORT=9200
+OPENSEARCH_DASHBOARDS_PORT=5601
+```
+
+### `make/dev.mk`
+
+Añadir al output de `make prepare`:
+
+```
+OpenSearch  → http://localhost:9200
+Dashboards  → http://localhost:5601
+```
+
+### `docs/stages/01-infra.mdc`
+
+- Añadir `opensearch` y `opensearch-dashboards` a la tabla de servicios
+- Añadir `opensearch_data` a la sección de volúmenes
+- Añadir los 2 ítems al checklist
+
+---
+
+## Orden de implementación
+
+1. `docker-compose.yml` — infraestructura primero
+2. `composer require opensearch-project/opensearch-php:^2.0` (Laravel)
+3. `OpenSearchHandler.php` + `OpenSearchChannel.php` (Laravel)
+4. `config/logging.php` — registrar canal y cambiar default
+5. `backend/.env.example` — variables de entorno
+6. `npm install @opensearch-project/opensearch` en `services/socketio/`
+7. Modificar `services/socketio/src/logger.ts` — añadir `OpenSearchTransport`
+8. `make/dev.mk` + `docs/stages/01-infra.mdc` — DX y documentación
+
+---
+
+## Checklist
+
+- [ ] `opensearch` service en `docker-compose.yml` con single-node, security disabled, ulimits
+- [ ] `opensearch-dashboards` service en `docker-compose.yml`
+- [ ] Volumen `opensearch_data` declarado
+- [ ] `composer require opensearch-project/opensearch-php:^2.0` ejecutado
+- [ ] `backend/app/Infrastructure/Logging/OpenSearchHandler.php` creado
+- [ ] `backend/app/Infrastructure/Logging/OpenSearchChannel.php` creado
+- [ ] Canal `opensearch` añadido a `backend/config/logging.php`
+- [ ] `LOG_CHANNEL=opensearch` como default en `backend/config/logging.php`
+- [ ] Variables `OPENSEARCH_HOST`, `OPENSEARCH_INDEX`, `OPENSEARCH_PORT`, `OPENSEARCH_DASHBOARDS_PORT` en `backend/.env.example`
+- [ ] `LOG_CHANNEL=opensearch` en `backend/.env.example`
+- [ ] URLs de OpenSearch y Dashboards en `make prepare`
+- [ ] `docs/stages/01-infra.mdc` actualizado
+- [ ] OpenSearch responde en `localhost:9200/_cluster/health`
+- [ ] OpenSearch Dashboards accesible en `localhost:5601`
+- [ ] `Log::info('test')` aparece en el índice `streamer-logs-*` de Dashboards
+- [ ] `request_id` presente en el campo `extra` de cada documento de Laravel
+- [ ] Campo `service: "laravel"` presente en documentos de Laravel
+- [ ] Si OpenSearch está caído, la app Laravel responde con normalidad (silent fail verificado)
+- [ ] `@opensearch-project/opensearch` añadido a `services/socketio/package.json`
+- [ ] `OpenSearchTransport` class añadida a `services/socketio/src/logger.ts`
+- [ ] Transport se activa condicionalmente si `OPENSEARCH_HOST` está definido
+- [ ] Campo `service: "socketio"` presente en documentos de SocketIO
+- [ ] Logs de SocketIO visibles en el mismo índice `streamer-logs-*` en Dashboards
+- [ ] Si OpenSearch está caído, SocketIO sigue funcionando (silent fail verificado)

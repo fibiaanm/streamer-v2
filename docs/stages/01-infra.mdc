@@ -44,23 +44,11 @@ listos para que el backend y los servicios adicionales se conecten.
 Una sola red `backend`. Todos los servicios se comunican por nombre de contenedor.
 No hay red `frontend` — nginx expone el puerto directamente al host.
 
-```yaml
-networks:
-  backend:
-```
-
 ---
 
 ## Volúmenes persistentes
 
-```yaml
-volumes:
-  postgres_data:
-  redis_data:
-  minio_data:
-  pgadmin_data:
-  meilisearch_data:
-```
+`postgres_data`, `redis_data`, `minio_data`, `pgadmin_data`, `meilisearch_data`.
 
 ---
 
@@ -96,79 +84,22 @@ volumes:
 
 ---
 
-## Variables de entorno (`.env.example`)
+## Variables de entorno
 
-```env
-# App
-APP_NAME=streamer-v2
-APP_ENV=local
-APP_KEY=
-APP_DEBUG=true
-APP_URL=http://localhost
+Ver `backend/.env.example` para la lista completa. Grupos:
 
-# DB
-DB_CONNECTION=pgsql
-DB_HOST=postgres
-DB_PORT=5432
-DB_DATABASE=streamer
-DB_USERNAME=streamer
-DB_PASSWORD=secret
-
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-
-# Session, caché y colas
-SESSION_DRIVER=redis
-CACHE_DRIVER=redis
-QUEUE_CONNECTION=redis
-
-# JWT
-JWT_SECRET=
-JWT_ACCESS_TTL=15
-JWT_REFRESH_TTL=43200
-
-# S3 / MinIO
-AWS_ACCESS_KEY_ID=minioadmin
-AWS_SECRET_ACCESS_KEY=minioadmin
-AWS_DEFAULT_REGION=us-east-1
-AWS_BUCKET=streamer
-AWS_ENDPOINT=http://minio:9000
-AWS_USE_PATH_STYLE_ENDPOINT=true
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=minioadmin
-
-# Mail
-MAIL_MAILER=smtp
-MAIL_HOST=mailpit
-MAIL_PORT=1025
-
-# Socket.io
-SOCKETIO_URL=http://socketio:3000
-SOCKETIO_SECRET=
-
-# Enterprise header
-ENTERPRISE_HEADER=X-Enterprise-ID
-
-# Meilisearch
-MEILISEARCH_HOST=http://meilisearch:7700
-MEILISEARCH_KEY=localdevkey1234567890
-SCOUT_DRIVER=meilisearch
-
-# pgAdmin
-PGADMIN_EMAIL=admin@streamer.dev
-PGADMIN_PASSWORD=admin
-
-# Puertos expuestos — cambiar si hay conflictos con otros proyectos
-APP_PORT=8000
-SOCKETIO_PORT=3000
-MINIO_CONSOLE_PORT=9001
-MAILPIT_UI_PORT=8025
-MAILPIT_SMTP_PORT=1025
-PGADMIN_PORT=5050
-REDIS_INSIGHT_PORT=5540
-MEILISEARCH_PORT=7700
-```
+| Grupo | Variables clave |
+|---|---|
+| App | `APP_NAME`, `APP_ENV`, `APP_KEY`, `APP_URL` |
+| Base de datos | `DB_*` apuntando al contenedor `postgres` |
+| Redis | `REDIS_HOST=redis`; session, caché y colas en redis |
+| JWT | `JWT_SECRET`, `JWT_ACCESS_TTL` (15 min), `JWT_REFRESH_TTL` (30 días) |
+| S3 / MinIO | `AWS_*` + `MINIO_ROOT_*`; `AWS_ENDPOINT=http://minio:9000` |
+| Mail | `MAIL_HOST=mailpit`, `MAIL_PORT=1025` |
+| Socket.io | `SOCKETIO_URL`, `SOCKETIO_SECRET` |
+| Enterprise | `ENTERPRISE_HEADER=X-Enterprise-ID` |
+| Meilisearch | `MEILISEARCH_HOST`, `MEILISEARCH_KEY`, `SCOUT_DRIVER` |
+| Puertos expuestos | `APP_PORT`, `SOCKETIO_PORT`, `MINIO_CONSOLE_PORT`, `MAILPIT_*_PORT`, `PGADMIN_PORT`, `REDIS_INSIGHT_PORT`, `MEILISEARCH_PORT` |
 
 ---
 
@@ -198,26 +129,13 @@ El archivo `docker/nginx/default.conf` configura el `fastcgi_pass php:9000`.
 ## Puertos configurables
 
 Todos los puertos expuestos al host son variables de entorno con defaults.
-Si un puerto está ocupado por otro proyecto, añadir el override en `.env`:
-
-```env
-APP_PORT=8010          # si 8000 está ocupado
-MINIO_CONSOLE_PORT=9011  # si 9001 está ocupado
-MAILPIT_UI_PORT=8026   # si 8025 está ocupado
-```
+Si un puerto está ocupado, se sobreescribe en `.env` sin tocar el `docker-compose.yml`.
 
 ---
 
 ## Comandos
 
-```bash
-make prepare   # primera vez: crea .env, build, up
-make dev       # arrancar contenedores
-make down      # parar contenedores
-make logs      # seguir logs de todos los servicios
-make logs-php  # logs de un servicio específico
-make ps        # estado de los contenedores
-```
+Ver `Makefile` y `make/dev.mk`. Targets principales: `prepare` (primera vez), `dev`, `down`, `logs`, `shell`, `test`, `ps`.
 
 ---
 

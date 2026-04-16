@@ -12,12 +12,18 @@ Antes de cerrar cualquier tarea, verifica que el repositorio quede limpio:
 ## Dónde va cada cosa
 
 ```
+backend/         Aplicación Laravel completa (app/, config/, routes/, tests/…)
 docker/          Dockerfiles e configs de cada servicio de infraestructura
 make/            Archivos .mk incluidos por el Makefile raíz
 services/        Código fuente de servicios independientes (socketio, compositor…)
 docs/            Documentación del proyecto (no tocar sin motivo)
-app/             Código Laravel — solo existe desde etapa 02
 ```
+
+## Convenciones de código
+
+- **`use Throwable;` siempre** — nunca `\Throwable` inline en catch blocks ni en type hints.
+  Lo mismo aplica a cualquier clase del namespace global que uses en un archivo con namespace propio
+  (`RuntimeException`, `Exception`, `Throwable`, `Closure`, etc.).
 
 ## Referencia rápida
 

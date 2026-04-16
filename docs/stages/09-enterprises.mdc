@@ -108,6 +108,20 @@ POST   /api/v1/invitations/{token}/accept               AcceptInvitationControll
 - Los roles base no pueden editarse ni eliminarse
 - Un rol custom no puede eliminarse si hay usuarios asignados a él
 
+### Regla de inmutabilidad del rol `owner`
+
+El rol global `owner` (`enterprise_id = null`, `name = 'owner'`) tiene **todos los permisos
+y no puede perderlos**. Cualquier endpoint que gestione permisos de roles debe validarlo:
+
+```php
+if ($role->isOwner()) {
+    throw new EnterpriseRoleBaseImmutableException(); // ErrorCode::EnterpriseRoleBaseImmutable
+}
+```
+
+`EnterpriseRole::isOwner()` devuelve `true` si `name === 'owner'` y `enterprise_id === null`.
+Aplica tanto a `PATCH /roles/{id}` (actualizar permisos) como a cualquier operación de sync/detach.
+
 ---
 
 ## Reservado — fases posteriores

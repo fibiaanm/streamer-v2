@@ -2,7 +2,7 @@
 description: Etapa 04 — Dominio de autenticación, JWT y refresh tokens
 type: stage
 stage: 04
-status: pendiente
+status: completado
 depends_on: 03
 ---
 
@@ -23,8 +23,7 @@ POST /api/v1/auth/login  { email, password }
 Verifica credenciales en DB
         │
         ▼
-Genera access token (JWT, 15min)
-Genera refresh token (aleatorio, hashed en DB, 30 días)
+Genera access token (JWT, 15min) + refresh token (aleatorio, hashed en DB, 30 días)
         │
         ▼
 Retorna { access_token, refresh_token, expires_in }
@@ -37,9 +36,7 @@ POST /api/v1/auth/refresh  { refresh_token }
 Busca refresh_token en DB (no revocado, no expirado)
         │
         ▼
-Revoca el refresh token actual (rotación)
-Genera nuevo access token
-Genera nuevo refresh token
+Revoca el token actual (rotación) → genera nuevo access + nuevo refresh
         │
         ▼
 Retorna { access_token, refresh_token, expires_in }
@@ -49,83 +46,124 @@ Retorna { access_token, refresh_token, expires_in }
 
 ## JWT Payload
 
-```json
-{
-  "sub": "user_id",
-  "name": "John Doe",
-  "email": "john@example.com",
-  "iat": 1234567890,
-  "exp": 1234568790
-}
-```
-
-El JWT no lleva `enterprise_id` — eso va en el header `X-Enterprise-ID` por request.
+`sub`, `name`, `email`, `iat`, `exp`. El JWT no lleva `enterprise_id` — eso va en el
+header `X-Enterprise-ID` por request.
 
 ---
 
 ## Endpoints
 
 ```
-POST   /api/v1/auth/register        RegisterController
-POST   /api/v1/auth/login           LoginController
-POST   /api/v1/auth/refresh         RefreshController
-POST   /api/v1/auth/logout          LogoutController        [auth.jwt]
-GET    /api/v1/auth/me              MeController            [auth.jwt]
+POST   /api/v1/auth/register        RegisterController              [público]
+POST   /api/v1/auth/login           LoginController                 [público]
+POST   /api/v1/auth/refresh         RefreshController               [público]
+POST   /api/v1/auth/logout          LogoutController                [auth.jwt]
+GET    /api/v1/auth/me              MeController                    [auth.jwt + enterprise]
 ```
+
+`/me` requiere ambos middlewares — devuelve al usuario en el contexto de una empresa.
+Sin empresa no hay contexto válido de sesión.
+
+### Respuesta de `/me`
+
+```
+{
+  "data": {
+    "id":    "<hash>",
+    "name":  "...",
+    "email": "...",
+    "enterprise": {
+      "id":          "<hash>",
+      "name":        "...",
+      "type":        "personal | enterprise",
+      "role":        "owner | admin | member | billing",
+      "permissions": ["enterprise.settings.view", ...],
+      "plan": {
+        "name": "Personal Free",
+        "limits": {
+          "members":            { "type": "permanent",  "max": 1 },
+          "workspaces":         { "type": "permanent",  "max": 3 },
+          "workspace_depth":    { "type": "permanent",  "max": 1 },
+          "storage_gb":         { "type": "permanent",  "max": 1 },
+          "streams_concurrent": { "type": "concurrent", "max": 0 },
+          "stream_minutes":     { "type": "monthly",    "max": 0 },
+          "rooms_concurrent":   { "type": "concurrent", "max": 1 },
+          "room_participants":  { "type": "concurrent", "max": 4 },
+          "room_guests":        { "type": "concurrent", "max": 0 }
+        }
+      }
+    }
+  }
+}
+```
+
+- `permissions` — array plano de strings; permisos del rol activo en esa empresa.
+- `plan.limits` — resueltos por `app/Services/LimitsResolver.php`: plan base + `override_json` de la suscripción.
+- Tipos de límite: `permanent` = techo absoluto, `concurrent` = máximo simultáneo, `monthly` = se resetea por ciclo. `-1` = sin límite.
+- `role` viene de `enterprise_members.role_id → enterprise_roles.name`.
+- IDs siempre en hash — nunca el ID numérico.
 
 ---
 
-## Servicio de tokens
+## TokenService — `app/Domain/Auth/Application/TokenService.php`
 
-```php
-// app/Domain/Auth/Services/TokenService.php
+| Método | Qué hace |
+|---|---|
+| `issueTokens(User)` | Genera access JWT + refresh token; guarda refresh en DB. Retorna `[access_token, refresh_token, expires_in]` |
+| `refresh(string)` | Busca el token en DB, valida, rota, emite nuevos. Lanza `RefreshTokenInvalidException` si inválido/revocado/expirado |
+| `revoke(string)` | Marca `refresh_tokens.revoked_at = now()` |
+| `revokeAll(User)` | Revoca todos los refresh tokens del usuario (logout de todos los dispositivos) |
 
-class TokenService
-{
-    public function issueTokens(User $user): array
-    // Genera access JWT + refresh token, guarda refresh en DB
-    // Retorna ['access_token', 'refresh_token', 'expires_in']
+---
 
-    public function refresh(string $rawToken): array
-    // Encuentra refresh token en DB, valida, rota, emite nuevos
+## Tests
 
-    public function revoke(string $rawToken): void
-    // Marca refresh_token.revoked_at = now()
+Ver `tests/Feature/Auth/`. El endpoint `/me` es el smoke test de la fundación completa:
+ejercita JWT → DB lookup → empresa requerida → membresía activa → permisos → plan.limits → hash_id.
 
-    public function revokeAll(User $user): void
-    // Revoca todos los refresh tokens del usuario (logout de todos los dispositivos)
-}
-```
+Todos los `error.code` se asertan con `ErrorCode::X->value` — nunca strings literales.
+
+### Casos cubiertos
+
+**MeTest**: autenticado con empresa (200 — verifica permissions array y plan.limits tipados),
+sin token (401), token malformado (401), user_id inexistente (401),
+sin header empresa (422), hash inválido (404), no miembro (403).
+
+**LoginTest**: credenciales válidas (200 con tokens), credenciales incorrectas (401),
+campos faltantes (422).
+
+**RefreshTest**: rotación exitosa (200 con nuevos tokens), token ya usado (401).
 
 ---
 
 ## Reservado — sin lógica en v1
 
-### Social accounts
-- Tabla `social_accounts` creada en etapa 03
-- No hay endpoints de OAuth en v1
-- Endpoints reservados (fase posterior, ver `docs/gaps.mdc`):
-  - `POST /api/v1/auth/social/{provider}` — login con token de proveedor
-
-### 2FA
-- Campos `two_factor_secret` y `two_factor_confirmed_at` en `users` (etapa 03)
-- Sin endpoints de 2FA en v1
-- Endpoints reservados (fase posterior, ver `docs/gaps.mdc`):
-  - `POST /api/v1/auth/two-factor/enable`
-  - `POST /api/v1/auth/two-factor/confirm`
-  - `DELETE /api/v1/auth/two-factor`
+- **Social login**: tabla `social_accounts` creada. Sin endpoints OAuth. Ver `docs/gaps.mdc`.
+- **2FA**: campos en `users`. Sin endpoints. Ver `docs/gaps.mdc`.
 
 ---
 
 ## Checklist
 
-- [ ] `POST /auth/register` con validación y hash de password
-- [ ] `POST /auth/login` emitiendo access + refresh token
-- [ ] `POST /auth/refresh` con rotación de refresh token
-- [ ] `POST /auth/logout` revocando refresh token actual
-- [ ] `GET /auth/me` retornando usuario autenticado
-- [ ] Middleware `AuthenticateJWT` funcional y registrado
-- [ ] `RefreshToken` model con scope `active()` (no revocado, no expirado)
-- [ ] `TokenService` encapsulando toda la lógica de tokens
-- [ ] Placeholders de social login y 2FA documentados como endpoints futuros
-- [ ] Tests: login correcto, login fallido, refresh válido, refresh revocado
+- [x] `POST /auth/register` — validación, hash de password, empresa silenciosa + owner role + suscripción Personal Free
+- [x] `POST /auth/login` — access + refresh token
+- [x] `POST /auth/refresh` — rotación de refresh token
+- [x] `POST /auth/logout` — revoca refresh token actual
+- [x] `GET /auth/me` — devuelve user + enterprise + role + permissions + plan.limits
+- [x] Middleware `AuthenticateJWT` con DB lookup registrado
+- [x] Middleware `SetActiveEnterprise` cargando enterprise, member (role.permissions) y subscription activa
+- [x] `RefreshToken` model con `const UPDATED_AT = null` y scope `active()`
+- [x] `TokenService` en `Application/` encapsulando toda la lógica de tokens
+- [x] `LimitsResolver` en `app/Services/` — merge de plan base + override de suscripción
+- [x] Error codes en tests via `ErrorCode::X->value` — nunca strings literales
+- [x] Test: `GET /me` — 200 con user + enterprise + role + permissions + plan.name + plan.limits tipados + header `X-Request-ID`
+- [x] Test: `GET /me` — 401 sin token
+- [x] Test: `GET /me` — 401 con token malformado
+- [x] Test: `GET /me` — 401 con token firmado pero user_id inexistente en DB
+- [x] Test: `GET /me` — 422 sin header `X-Enterprise-ID`
+- [x] Test: `GET /me` — 404 con hash de empresa inválido
+- [x] Test: `GET /me` — 403 usuario no miembro de la empresa
+- [x] Test: login correcto emite tokens
+- [x] Test: login con credenciales incorrectas → 401
+- [x] Test: refresh rota el token
+- [x] Test: refresh con token ya usado → 401

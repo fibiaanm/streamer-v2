@@ -2,7 +2,7 @@
 description: Etapa 03 — Migraciones completas y modelos Eloquent
 type: stage
 stage: 03
-status: pendiente
+status: completado
 depends_on: 02
 ---
 
@@ -14,194 +14,100 @@ con extensiones, índices y modelos Eloquent base.
 
 ---
 
-## Extensiones PostgreSQL (primera migración)
+## Extensiones PostgreSQL
 
-```sql
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "ltree";
-```
+Primera migración habilita `uuid-ossp` y `ltree`.
 
 ---
 
 ## Orden de migraciones (respeta FKs)
 
 ```
-001_create_users_table
-002_create_social_accounts_table          -- reservado, sin lógica
-003_create_refresh_tokens_table
-004_create_enterprises_table
-005_create_enterprise_permissions_table
-006_create_enterprise_roles_table
-007_create_enterprise_role_permissions_table
-008_create_enterprise_user_table
-009_create_invitations_table
-010_create_plans_table
-011_create_subscriptions_table
-012_create_subscription_usage_table
-013_create_workspaces_table               -- incluye path ltree
-014_create_workspace_permissions_table
-015_create_workspace_roles_table
-016_create_workspace_role_permissions_table
-017_create_workspace_user_table
-018_create_assets_table
-019_create_asset_references_table
-020_create_rooms_table
-021_create_streams_table
-022_create_room_participants_table
-023_create_conversations_table
-024_create_conversation_participants_table
-025_create_messages_table
-026_create_message_attachments_table
-027_create_activity_logs_table
+0001_create_users_table
+0002_create_social_accounts_table          -- reservado, sin lógica
+0003_create_refresh_tokens_table
+0004_create_enterprises_table              -- owner_id FK nullable a users
+0005_create_enterprise_permissions_table
+0006_create_enterprise_roles_table
+0007_create_enterprise_role_permissions_table
+0008_create_enterprise_members_table
+0009_create_invitations_table
+0010_create_plans_table                    -- limits_json tipado, price_monthly/yearly_cents
+0011_create_subscriptions_table            -- override_json, amount_paid_cents, currency, discount_pct
+0012_create_subscription_usage_table
+0013_create_workspaces_table               -- incluye path ltree
+0014_create_workspace_permissions_table
+0015_create_workspace_roles_table
+0016_create_workspace_role_permissions_table
+0017_create_workspace_members_table
+0018_create_assets_table
+0019_create_asset_references_table
+0020_create_rooms_table
+0021_create_streams_table
+0022_create_room_participants_table
+0023_create_conversations_table
+0024_create_conversation_participants_table
+0025_create_messages_table
+0026_create_message_attachments_table
+0027_create_activity_logs_table
+0028_create_activity_logs_table
 ```
+
+Archivos reales en `backend/database/migrations/`.
 
 ---
 
 ## Campos y tipos clave
 
-### `workspaces` — ltree
-```php
-$table->unsignedBigInteger('id')->autoIncrement();
-$table->string('path')->virtualAs(null); // columna ltree nativa
-// Usar DB::statement para ltree:
-DB::statement('ALTER TABLE workspaces ADD COLUMN path ltree NOT NULL');
-DB::statement('CREATE INDEX workspaces_path_gist ON workspaces USING GIST (path)');
-```
+### `enterprises`
+- `owner_id` — FK nullable a `users`, `nullOnDelete`. Identifica al propietario fundador.
+  Nullable en DB para evitar dependencia circular en factories de test.
 
-### `invitations` — polimórfica
-```php
-$table->string('invitable_type');    // 'enterprise' | 'workspace'
-$table->unsignedBigInteger('invitable_id');
-$table->index(['invitable_type', 'invitable_id']);
-```
+### `plans`
+- `limits_json` — objeto con 9 dimensiones, cada una `{ type, max }`.
+  Tipos: `permanent` (techo absoluto), `concurrent` (máximo simultáneo), `monthly` (se resetea por ciclo).
+  `-1` = sin límite.
+- `price_monthly_cents` / `price_yearly_cents` — nullable; null en planes gratuitos y Enterprise custom.
+- `is_free` — boolean.
 
-### `activity_logs` — índices compuestos
-```php
-$table->index(['subject_type', 'subject_id']);
-$table->index(['actor_user_id']);
-$table->index(['enterprise_id', 'created_at']);
-$table->index(['workspace_id', 'created_at']);
-$table->index(['room_id', 'created_at']);
-```
+### `subscriptions`
+- `override_json` — mismo esquema que `limits_json` pero parcial; sobreescribe el plan base.
+  Vive en la suscripción (no en la empresa) para trazabilidad: si un mes se amplía, queda registro.
+- `amount_paid_cents`, `currency`, `discount_pct` — trazabilidad de pago.
 
----
+### `workspaces`
+- `path` — columna `ltree` nativa creada con `DB::statement`. Índice GiST.
 
-## Enums (definir como enum de PHP o constantes)
+### `invitations`
+- Polimórfica: `invitable_type` + `invitable_id` con índice compuesto.
 
-```php
-// rooms.status
-enum RoomStatus: string {
-    case Pending  = 'pending';
-    case Active   = 'active';
-    case Ended    = 'ended';
-    case Archived = 'archived';
-}
-
-// streams.status
-enum StreamStatus: string {
-    case Draft     = 'draft';
-    case Scheduled = 'scheduled';
-    case Live      = 'live';
-    case Ended     = 'ended';
-    case Archived  = 'archived';
-}
-
-// room_participants.participant_type
-enum ParticipantType: string {
-    case Internal  = 'internal';
-    case External  = 'external';
-    case Anonymous = 'anonymous';
-}
-
-// room_participants.role
-enum ParticipantRole: string {
-    case Host        = 'host';
-    case Moderator   = 'moderator';
-    case Participant = 'participant';
-    case Viewer      = 'viewer';
-}
-
-// room_participants.status
-enum ParticipantStatus: string {
-    case Invited = 'invited';
-    case Joined  = 'joined';
-    case Left    = 'left';
-    case Kicked  = 'kicked';
-}
-
-// messages.message_type
-enum MessageType: string {
-    case Text       = 'text';
-    case System     = 'system';
-    case Attachment = 'attachment';
-}
-
-// assets.type
-enum AssetType: string {
-    case Image    = 'image';
-    case Video    = 'video';
-    case Audio    = 'audio';
-    case Document = 'document';
-    case Other    = 'other';
-}
-
-// asset_references.reference_type
-enum AssetReferenceType: string {
-    case Shortcut   = 'shortcut';
-    case Embed      = 'embed';
-    case Attachment = 'attachment';
-}
-
-// workspaces.status
-enum WorkspaceStatus: string {
-    case Active   = 'active';
-    case Archived = 'archived';
-    case Orphaned = 'orphaned';
-}
-
-// invitations.status
-enum InvitationStatus: string {
-    case Pending  = 'pending';
-    case Accepted = 'accepted';
-    case Expired  = 'expired';
-    case Revoked  = 'revoked';
-}
-```
+### `activity_logs`
+- Índices compuestos en `(subject_type, subject_id)`, `(enterprise_id, created_at)`,
+  `(workspace_id, created_at)`, `(room_id, created_at)`.
 
 ---
 
 ## Modelos Eloquent — configuración base
 
-Cada modelo debe tener:
-- `$fillable` o `$guarded`
-- Casts para enums, timestamps y JSON
-- Trait `SoftDeletes` donde aplique
-- Relaciones definidas
+Cada modelo tiene `$fillable`, casts, `SoftDeletes` donde aplique y relaciones definidas.
+Ver `backend/app/Models/`.
 
 ### Modelos con SoftDeletes
 `User`, `Enterprise`, `Subscription`, `Workspace`, `WorkspaceRole`,
 `Asset`, `AssetReference`, `Room`, `Conversation`, `Message`, `ActivityLog`
 
-### Casts JSON
-```php
-// Plan
-protected $casts = [
-    'limits_json' => 'array',
-];
+### Casts relevantes
+- `Plan`: `limits_json → array`, `is_free → boolean`
+- `Subscription`: `override_json → array`, timestamps `starts_at`, `ends_at`, `trial_ends_at`
+- `Stream`: `destinations_json → array`
 
-// Subscription
-protected $casts = [
-    'override_json' => 'array',
-    'starts_at'     => 'datetime',
-    'ends_at'       => 'datetime',
-    'trial_ends_at' => 'datetime',
-];
+---
 
-// Stream
-protected $casts = [
-    'destinations_json' => 'array',
-];
-```
+## Enums PHP
+
+Definidos por dominio (no en la DB, solo en PHP). Los principales:
+`RoomStatus`, `StreamStatus`, `ParticipantType`, `ParticipantRole`, `ParticipantStatus`,
+`MessageType`, `AssetType`, `AssetReferenceType`, `WorkspaceStatus`, `InvitationStatus`.
 
 ---
 
@@ -209,25 +115,76 @@ protected $casts = [
 
 ```
 DatabaseSeeder
-├── EnterprisePermissionSeeder    -- permisos enterprise base
-├── EnterpriseRoleSeeder          -- owner, admin, member, billing (enterprise_id null)
-├── WorkspacePermissionSeeder     -- permisos workspace base
-├── PlanSeeder                    -- free, pro, enterprise
-└── AdminUserSeeder               -- usuario admin para dev
+├── EnterprisePermissionSeeder        -- 11 permisos enterprise base
+├── EnterpriseRoleSeeder              -- owner, admin, member, billing (enterprise_id null)
+├── EnterpriseRolePermissionSeeder    -- asigna permisos a roles globales; owner tiene todos
+├── WorkspacePermissionSeeder         -- permisos workspace base
+├── PlanSeeder                        -- Personal Free, Personal Pro, Enterprise Free, Enterprise Pro, Enterprise
+└── AdminUserSeeder                   -- solo entorno dev (excluido de tests)
 ```
+
+Los primeros cinco son **seeders de catálogo** — datos que el código asume que siempre existen.
+Se ejecutan antes de cada suite en `tests/Pest.php`.
+
+### Permisos enterprise
+
+11 permisos definidos en `EnterprisePermissionSeeder`:
+`enterprise.settings.view/edit`, `enterprise.members.view/invite/remove`,
+`enterprise.roles.manage`, `enterprise.billing.view/manage`,
+`workspace.create/delete`, `workspace.members.invite_external`
+
+### Asignación rol → permisos (`EnterpriseRolePermissionSeeder`)
+
+| Rol | Permisos |
+|---|---|
+| `owner` | todos (11) |
+| `admin` | settings.view/edit, members.view/invite/remove, billing.view, workspace.create/delete, workspace.members.invite_external |
+| `member` | settings.view, members.view, workspace.create |
+| `billing` | settings.view, billing.view, billing.manage |
+
+El rol `owner` es inmutable — ver regla en `docs/stages/09-enterprises.mdc`.
+
+---
+
+## Factories
+
+### `UserFactory` — `database/factories/UserFactory.php`
+
+`afterCreating` replica el estado de un usuario recién registrado:
+1. `Enterprise` personal con `owner_id = $user->id`
+2. `EnterpriseMember` con rol global `owner`
+3. `Subscription` activa en plan `Personal Free`
+
+Cualquier test que llame `User::factory()->create()` recibe un usuario en estado válido.
+
+> **Regla de evolución**: cuando etapas posteriores añadan estado obligatorio, se actualiza
+> `afterCreating` aquí. Los tests no cambian.
+
+### `EnterpriseFactory` — `database/factories/EnterpriseFactory.php`
+
+Estado `personal()` disponible. `owner_id` nullable para que `Enterprise::factory()->create()`
+en tests sin usuario no genere dependencias circulares. A nivel de aplicación, siempre se asigna.
 
 ---
 
 ## Checklist
 
-- [ ] Extensiones `uuid-ossp` y `ltree` habilitadas
-- [ ] 27 migraciones ejecutadas sin errores (`php artisan migrate`)
-- [ ] Columna `path ltree` en `workspaces` con índice GiST
-- [ ] Índices compuestos en `activity_logs`
-- [ ] Índice polimórfico en `invitations`
-- [ ] Enums PHP definidos por dominio
-- [ ] Todos los modelos Eloquent con relaciones base
-- [ ] SoftDeletes en las tablas que corresponde
-- [ ] Casts de JSON y enums configurados
-- [ ] Seeders base ejecutados
-- [ ] `php artisan migrate:fresh --seed` sin errores
+- [x] Extensiones `uuid-ossp` y `ltree` habilitadas
+- [x] 28 migraciones ejecutadas sin errores
+- [x] Columna `path ltree` en `workspaces` con índice GiST
+- [x] Índices compuestos en `activity_logs`
+- [x] Índice polimórfico en `invitations`
+- [x] `enterprises.owner_id` FK nullable a `users`
+- [x] `plans.limits_json` con estructura tipada `{ type, max }` en 9 dimensiones
+- [x] `plans.price_monthly_cents` / `price_yearly_cents` / `is_free`
+- [x] `subscriptions.override_json`, `amount_paid_cents`, `currency`, `discount_pct`
+- [x] Enums PHP definidos por dominio
+- [x] Todos los modelos con `HasHashId` y relaciones base
+- [x] SoftDeletes en las tablas que corresponde
+- [x] Casts de JSON y booleans configurados
+- [x] Seeders de catálogo: `EnterprisePermissionSeeder`, `EnterpriseRoleSeeder`, `EnterpriseRolePermissionSeeder`, `WorkspacePermissionSeeder`, `PlanSeeder`
+- [x] `AdminUserSeeder` solo para entorno dev
+- [x] `UserFactory` con `afterCreating` — empresa + `owner_id` + miembro owner + suscripción Personal Free
+- [x] `EnterpriseFactory` con estado `personal()`; `owner_id` nullable
+- [x] `pest.php` con `beforeEach` ejecutando los cinco seeders de catálogo antes de Feature/E2E
+- [x] `php artisan migrate:fresh --seed` sin errores
