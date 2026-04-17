@@ -7,6 +7,7 @@ services:
       - ./backend:/var/www/html:ro
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - nginx_logs:/var/log/nginx
+    command: sh -c "rm -f /var/log/nginx/access.log /var/log/nginx/error.log && nginx -g 'daemon off;'"
     ports:
       - "${APP_PORT:-8000}:80"
     depends_on:
@@ -17,7 +18,7 @@ services:
 
   # ─── Fluent Bit (nginx log shipper → OpenSearch) ──────────────────────────────
   fluentbit:
-    image: fluent/fluent-bit:3
+    image: fluent/fluent-bit:latest
     volumes:
       - ./docker/fluentbit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./docker/fluentbit/parsers.conf:/fluent-bit/etc/parsers.conf:ro

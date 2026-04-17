@@ -120,6 +120,7 @@
                     type="range" min="-100" max="100"
                     class="w-full h-1 rounded-full cursor-pointer appearance-none bg-white/10"
                     :style="{ accentColor: '#0ea5e9' }"
+                    @change="pushFilters"
                   />
                 </div>
               </div>
@@ -140,15 +141,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
-import type { ImageItem } from '@/types/imageStudio'
+import { ref, reactive, computed, watch } from 'vue'
+import type { FilterState } from '@/types/imageStudio'
+import { useImageStore } from '@/composables/imageStudio/useImageStore'
 import AppButton from '@/components/AppButton.vue'
 import AppIcon   from '@/components/AppIcon.vue'
 
 type ToolId = 'select' | 'crop'
 
-const props = defineProps<{ isOpen: boolean; item: ImageItem | null }>()
+const props = defineProps<{ isOpen: boolean }>()
 const emit  = defineEmits<{ close: [] }>()
+
+const store = useImageStore()
+const item  = store.activeItem
 
 const activeTool = ref<ToolId>('select')
 
@@ -172,8 +177,8 @@ const GRADIENTS: [string, string][] = [
 ]
 
 const colors = computed((): [string, string] => {
-  if (!props.item) return GRADIENTS[0]
-  const sum = [...props.item.id].reduce((a, c) => a + c.charCodeAt(0), 0)
+  if (!item.value) return GRADIENTS[0]
+  const sum = [...item.value.id].reduce((a, c) => a + c.charCodeAt(0), 0)
   return GRADIENTS[sum % GRADIENTS.length]
 })
 
@@ -186,7 +191,7 @@ const TOOLS: { id: ToolId; label: string; icon: string }[] = [
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 
-const FILTERS = [
+const FILTERS: { id: keyof FilterState; label: string }[] = [
   { id: 'brightness',  label: 'Brillo' },
   { id: 'contrast',    label: 'Contraste' },
   { id: 'saturation',  label: 'Saturación' },
@@ -195,12 +200,24 @@ const FILTERS = [
   { id: 'temperature', label: 'Temperatura' },
 ]
 
-const filterValues = reactive<Record<string, number>>(
-  Object.fromEntries(FILTERS.map(f => [f.id, 0]))
+const filterValues = reactive<FilterState>(
+  item.value ? { ...item.value.filters } : { brightness: 0, contrast: 0, saturation: 0, shadows: 0, sharpness: 0, temperature: 0 }
 )
 
+watch(() => item.value?.id, () => {
+  if (!item.value) return
+  Object.assign(filterValues, item.value.filters)
+})
+
+function pushFilters() {
+  if (!item.value) return
+  store.setFilters(item.value.id, { ...filterValues })
+}
+
 function resetFilters() {
-  FILTERS.forEach(f => { filterValues[f.id] = 0 })
+  const zero: FilterState = { brightness: 0, contrast: 0, saturation: 0, shadows: 0, sharpness: 0, temperature: 0 }
+  Object.assign(filterValues, zero)
+  if (item.value) store.setFilters(item.value.id, zero)
 }
 </script>
 

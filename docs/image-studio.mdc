@@ -20,69 +20,87 @@ en una o más configuraciones de formato, tamaño y compresión, descargando tod
 
 ## Layout — Split panel
 
-Cada vista es un split en dos columnas que conviven en pantalla al mismo tiempo.
-
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  AppHeader: [●  Image Studio]           [Gallery] [Export]   │
+│  AppHeader: [●  Image Studio]     [Galería] [Exportar]       │
 ├──────────────────┬───────────────────────────────────────────┤
 │                  │                                           │
 │  Image Grid      │  Panel derecho                            │
-│  (lado izquierdo)│  Gallery → detalle / editor               │
-│                  │  Export  → configs de la imagen activa    │
+│  w-72, scrollable│  Gallery → ImageInfoPanel                 │
+│                  │  Export  → ExportConfigPanel              │
 │  thumbnails con  │                                           │
-│  nombre editable │                                           │
+│  brand-grid bg   │                                           │
 │  badge de status │                                           │
 │                  │                                           │
-└──────────────────┴───────────────────────────────────────────┘
+├──────────────────┴───────────────────────────────────────────┤
+│  Export footer: [ZIP: nombre.zip] · N imgs · M outputs  [↓]  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-- El **drop zone** abarca toda la página (siempre activo, en ambas vistas).
-- La **imagen activa** se resalta en el grid izquierdo; el panel derecho responde a ella.
-- `EditModal` se abre sobre el layout cuando el usuario entra al canvas completo.
+- **Drop zone** abarca toda la página (siempre activo en ambas vistas), con `DropOverlay` visual.
+- **Imagen activa** resaltada en el grid; panel derecho reactivo a ella.
+- **`?view=gallery|export`** en la URL — persiste al recargar.
+- `EditModal` se abre en overlay z-200 al hacer hover+click en el preview.
 
 ---
 
 ## Vistas
 
-### Gallery view (`/image-studio`)
-- **Izquierda:** grid de `ImageCard` — thumbnail + nombre editable + badge de status.
-- **Derecha:** cuando hay imagen activa muestra `ImageInfoPanel` (dims, peso, crop aplicado)
-  y el botón para abrir `EditModal`.
-- Sin imagen activa: placeholder con instrucción de drop o click.
+### Gallery view (`/image-studio?view=gallery`)
+- **Izquierda:** grid 2-col de `ImageCard` — brand-grid bg + gradiente placeholder + badge de status.
+  Click para seleccionar. Sin rename inline.
+- **Derecha:** `ImageInfoPanel` — preview 16:9 (hover abre editor con icono + texto), nombre
+  editable con AppIcon `ui/pencil`, grid de metadata (dims, peso, ratio, crop si existe).
+- Sin imagen activa: empty state con instrucción.
 
-### Export view (`/image-studio/export`)
-- **Izquierda:** mismo grid de `ImageCard` (misma selección, mismo estado).
-- **Derecha:** lista de `ExportConfigCard` de la imagen activa + botón "+ Añadir config".
-  Footer fijo: botón **Descargar ZIP** (activo solo si hay ≥1 imagen con ≥1 config).
+### Export view (`/image-studio?view=export`)
+- **Izquierda:** mismo `ImageGrid`.
+- **Derecha:** `ExportConfigPanel` — botón compacto "+ Nueva configuración" arriba, luego
+  grid `xl:grid-cols-2` de `ExportConfigCard` con `TransitionGroup` (nueva aparece arriba, resto anima).
+- **Footer fijo:** input nombre del ZIP + resumen "N imágenes · M outputs" + botón Descargar ZIP.
 
 ### EditModal (overlay z-200)
-- Canvas Fabric.js centrado con controles: crop, rotar, filtros (brillo, sombras, saturación).
-- Header del modal: nombre de la imagen + botón "Guardar y cerrar".
-- Guardar persiste el `CropState` y el estado de filtros en el `ImageItem`.
+- **Toolbar izquierdo:** Select (`ui/cursor`), Crop (`ui/crop`), Rotar L/R (`ui/rotate-ccw/cw`).
+- **Canvas central:** brand-grid bg + gradiente placeholder. Overlay de recorte con reglas de
+  tercio cuando herramienta crop está activa.
+- **Panel derecho:** 6 sliders de ajuste (brillo, contraste, saturación, sombras, nitidez, temperatura)
+  + botón "Restablecer".
 
 ---
 
-## Flujo de datos
+## Componentes — estado actual
 
 ```
-Drop / file picker
-  └─ useImageUpload    →  File[] → ImageSource[]
-       └─ useImageQueue    →  añade ImageItem[] con status 'idle'
+Pages/
+  ImageStudio.vue             ✅ orquestador: vista activa, ImageItem[], drop, zipName
+  ImageStudio/
+    StudioNav.vue             ✅ AppHeader, lee store directo (sin tabs)
+    DropOverlay.vue           ✅ Teleport overlay con brand-grid y mensaje
+    ImageGrid.vue             ✅ panel w-72, grid 2-col, empty state
+    ImageCard.vue             ✅ brand-grid bg, gradiente 82% opacity, badge status
+    ImageInfoPanel.vue        ✅ nombre editable + metadata compacta en una línea
+    EditModal.vue             ✅ toolbar AppIcon, canvas placeholder, 6 filtros reactivos
+    ExportConfigPanel.vue     ✅ botón compacto arriba, xl:grid-cols-2, TransitionGroup
+    ExportConfigCard.vue      ✅ label editable, formato+resize en 1 fila, sin spinners
 
-Click imagen (Gallery)
-  └─ useImageQueue.setActive(id)
-       └─ ImageInfoPanel reactivo al activeItem
+icons/ui/ (nuevos)
+    open-editor.svg           ✅ marco + lápiz
+    gallery.svg               ✅ cuatro cuadrados
+    download.svg              ✅ flecha + línea
+    pencil.svg                ✅ lápiz diagonal
+    cursor.svg                ✅ cursor puntero
+    crop.svg                  ✅ marco de recorte
+    rotate-ccw.svg            ✅ flecha circular izquierda
+    rotate-cw.svg             ✅ flecha circular derecha
 
-Abrir editor
-  └─ EditModal monta useImageCanvas(activeItem)
-       └─ Fabric.js carga dataUrl, expone crop/rotate/filtros
-       └─ Al guardar: persiste CropState en ImageItem via callback
+types/
+  imageStudio.ts              ✅ StudioView, SessionStage, ImageItemStatus,
+                                 ExportFormat, ResizeMode, ImageSource,
+                                 CropState, FilterState, DropPayload, RawImageData,
+                                 ImageItem (name+filters+exportConfigs), ExportConfig
 
-Export view
-  └─ useExportConfigs(itemId)   →  CRUD de ExportConfig[] por imagen
-  └─ Descargar ZIP
-       └─ useImageExport(items, configs)  →  canvas offscreen por config  →  JSZip  →  .zip
+composables/imageStudio/
+    useImageStore.ts            ✅ singleton module-level: items[], activeItemId, mutations CRUD
 ```
 
 ---
@@ -90,6 +108,7 @@ Export view
 ## Tipos — `types/imageStudio.ts`
 
 ```typescript
+export type StudioView      = 'gallery' | 'export'
 export type SessionStage    = 'upload' | 'edit' | 'export'
 export type ImageItemStatus = 'idle' | 'editing' | 'exporting' | 'done' | 'error'
 export type ExportFormat    = 'jpeg' | 'webp' | 'png'
@@ -107,61 +126,48 @@ export interface CropState {
   x: number; y: number; width: number; height: number
 }
 
+export interface ResizeOptions {
+  mode: ResizeMode
+  width: number
+  height: number
+  lockAR: boolean
+}
+
 export interface ImageItem {
   id: string
   source: ImageSource
-  name: string             // editable, default = file.name sin extensión
+  name: string               // editable, default = file.name sin extensión
   status: ImageItemStatus
   crop?: CropState
-  exportConfigs: ExportConfig[]  // mínimo 1 al entrar a Export view
+  exportConfigs: ExportConfig[]
 }
 
 export interface ExportConfig {
   id: string
+  label: string              // nombre editable de la config → base del filename
   format: ExportFormat
-  quality: number          // 0–100
+  quality: number            // 0–100
   resize: {
     mode: ResizeMode
-    value?: number         // px — solo si mode !== 'original'
+    value?: number           // px — solo si mode !== 'original'
   }
 }
-// Filename al descargar: {name}@{width}x{height}.{ext}
-// Ejemplo: hero@1920x1080.webp · avatar@400x400.jpeg
+```
+
+**Convención de filename al exportar:**
+```
+{config.label || item.name}@{valor}{w|h}.{formato}
+{config.label || item.name}@original.{formato}
+
+# Ejemplos
+web-optimizado@original.webp
+miniatura@200w.jpeg
+alto-600px@600h.jpeg
 ```
 
 ---
 
-## Árbol de archivos
-
-```
-Pages/
-  ImageStudio.vue                  ← orquestador: vista activa, ImageItem[], drop global
-  ImageStudio/
-    StudioNav.vue                  ← header con tabs Gallery / Export
-    DropOverlay.vue                ← feedback visual al arrastrar sobre la página
-    GalleryView.vue                ← split: ImageGrid + panel derecho (info / empty state)
-    ExportView.vue                 ← split: ImageGrid + ExportConfigPanel
-    ImageGrid.vue                  ← grid de ImageCard (compartido entre vistas)
-    ImageCard.vue                  ← thumbnail + nombre editable + badge
-    ImageInfoPanel.vue             ← dims, peso, crop dims, botón abrir editor
-    EditModal.vue                  ← overlay con canvas Fabric.js + controles
-    ExportConfigPanel.vue          ← lista de configs + botón añadir + ZIP download
-    ExportConfigCard.vue           ← una config: format, resize mode/value, quality slider
-
-composables/imageStudio/
-  useImageQueue.ts                 ← ImageItem[] reactivo — add, remove, rename, setActive
-  useImageUpload.ts                ← File[] → ImageSource[] (FileReader, validación mime)
-  useImageCanvas.ts                ← Fabric.js: load, crop, rotate, filtros, get state
-  useExportConfigs.ts              ← ExportConfig[] por item — add, remove, update
-  useImageExport.ts                ← (ImageItem[], configs) → JSZip → descarga
-
-types/
-  imageStudio.ts                   ← todos los tipos e interfaces del studio
-```
-
----
-
-## Dependencias a instalar
+## Dependencias pendientes de instalar
 
 ```bash
 npm install fabric jszip
@@ -170,59 +176,61 @@ npm install --save-dev @types/fabric
 
 ---
 
-## Convención de nombres en el ZIP
-
-```
-{nombre-imagen}@{ancho}x{alto}.{formato}
-
-# Ejemplos
-hero-banner@1920x1080.webp
-avatar@400x400.jpeg
-thumbnail@320x180.webp
-product@original.png      ← cuando mode = 'original', se usa la palabra "original"
-```
-
----
-
 ## Fases de implementación
 
-### Fase 1 — Vistas con dummies ← COMPLETADA
-Construir todas las vistas y componentes con data estática.
-El objetivo es que el layout, la navegación y el diseño queden definidos antes
-de introducir cualquier lógica real.
+### Fase 1 — Vistas y diseño ✅ COMPLETADA
 
 - [x] Ruta `/image-studio` en `routes.ts` y `web.php`
-- [x] `ImageStudio.vue` con estructura base y drop overlay visual
-- [x] `StudioNav.vue` con tabs Gallery / Export
-- [x] `GalleryView.vue` — split con grid dummy + panel de info dummy
-- [x] `ExportView.vue` — split con grid dummy + configs dummy
-- [x] `ImageGrid.vue` + `ImageCard.vue` con thumbnails estáticos
-- [x] `ImageInfoPanel.vue` con datos hardcodeados
-- [x] `ExportConfigPanel.vue` + `ExportConfigCard.vue` con configs hardcodeadas
-- [x] `EditModal.vue` con canvas placeholder + toolbar + filtros
+- [x] `ImageStudio.vue` — orquestador, drop global, query param `?view=`
+- [x] `StudioNav.vue` + `StudioTabs.vue` — tabs con sliding pill animado + AppIcon
+- [x] `DropOverlay.vue` — feedback visual al arrastrar
+- [x] `GalleryView.vue` — split panel, empty state
+- [x] `ExportView.vue` — split panel + footer con nombre ZIP
+- [x] `ImageGrid.vue` + `ImageCard.vue` — brand-grid, gradientes, badges
+- [x] `ImageInfoPanel.vue` — preview clickeable con hover overlay, nombre editable, metadata
+- [x] `ExportConfigPanel.vue` — TransitionGroup, grid xl:2-col, botón compacto arriba
+- [x] `ExportConfigCard.vue` — label editable, layout compacto, sin spinners en input
+- [x] `EditModal.vue` — canvas placeholder, toolbar con AppIcon, 6 filtros, crop overlay
+- [x] 8 iconos SVG en `icons/ui/`
+- [x] Tipos completos en `types/imageStudio.ts`
 
-### Fase 2 — Upload y queue
-- [ ] `useImageUpload.ts` — FileReader + validación + ImageSource
-- [ ] `useImageQueue.ts` — ImageItem[] reactivo, setActive, rename
-- [ ] Drop zone funcional (drag events sobre `ImageStudio.vue`)
-- [ ] `GalleryView` reactiva al queue real
+### Fase 2 — Upload y queue ⏳ PENDIENTE
 
-### Fase 3 — Editor (Fabric.js)
-- [ ] `useImageCanvas.ts` — load imagen, crop interactivo, rotate
-- [ ] Filtros: brillo, contraste, saturación, sombras
-- [ ] Persistir CropState en ImageItem al cerrar modal
+- [x] `useImageStore.ts` — singleton module-level, dummy data en DEV, todos los métodos de mutación
+- [x] Componentes usan store directamente (sin prop-drilling para mutaciones)
+- [x] `FilterState` y DTOs `DropPayload` / `RawImageData` en tipos
+- [ ] Instalar dependencias: `fabric`, `jszip`, `@types/fabric`
+- [ ] `useImageUpload.ts` — `File[]` → `RawImageData[]` (FileReader, validación mime, dims)
+- [ ] Drop zone funcional — conectar drag events de `ImageStudio.vue` a `useImageUpload` + `store.add()`
+- [ ] File picker como alternativa al drag (input `type="file"` oculto)
+- [ ] Reemplazar dummy data en DEV por drop/picker real
 
-### Fase 4 — Export
-- [ ] `useExportConfigs.ts` — CRUD por imagen, default config al entrar a Export
-- [ ] `useImageExport.ts` — canvas offscreen + toBlob por config
-- [ ] JSZip + descarga del archivo comprimido
-- [ ] Naming convention `@{w}x{h}.{ext}`
+### Fase 3 — Editor Fabric.js ⏳ PENDIENTE
+
+- [ ] `useImageCanvas.ts` — instanciar Fabric.js en `EditModal`, cargar imagen activa
+- [ ] Herramienta Select: mover/escalar objetos en canvas
+- [ ] Herramienta Crop: rect interactivo con handles, aplicar recorte
+- [ ] Rotación: 90° izquierda / derecha
+- [ ] Filtros: conectar sliders del panel a `fabric.Image.filters.*`
+  (Brightness, Contrast, Saturation, Shadows, Convolute para nitidez, temperatura custom)
+- [ ] Persistir `CropState` + estado de filtros en `ImageItem` al guardar
+
+### Fase 4 — Export y ZIP ⏳ PENDIENTE
+
+- [ ] `useExportConfigs.ts` — CRUD de `ExportConfig[]` por item (extraer de orquestador)
+- [ ] `useImageExport.ts` — canvas offscreen + `toBlob()` por cada config
+  - Resize via canvas 2D API (respetar `ResizeMode`: width / height / original)
+  - Compresión via parámetro `quality` en `toBlob`
+- [ ] JSZip — empaquetar todos los blobs con naming convention
+- [ ] Trigger descarga del ZIP con nombre configurable
+- [ ] Feedback de progreso durante exportación (status `exporting` en cada item)
 
 ---
 
 ## Reglas de capas
 
-- Composables no importan componentes Vue.
-- Componentes no se llaman entre sí directamente — todo sube al orquestador.
-- `useImageCanvas` solo conoce al `activeItem`, nunca al array completo.
-- `useImageExport` no toca el DOM — trabaja con canvas offscreen.
+- Composables **no** importan componentes Vue.
+- Componentes **no** se llaman entre sí — todo sube al orquestador.
+- `useImageCanvas` solo conoce el `activeItem`, nunca el array completo.
+- `useImageExport` **no** toca el DOM — trabaja con canvas offscreen (`OffscreenCanvas` o `document.createElement('canvas')`).
+- Lógica de negocio (validación, cálculo de dims, ZIP) vive en composables, nunca en componentes.

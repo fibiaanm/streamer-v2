@@ -9,8 +9,10 @@
   },
   "dependencies": {
     "@inertiajs/vue3": "^2.0.0",
+    "@types/jszip": "^3.4.0",
     "@vueuse/core": "^10.9.0",
     "axios": "^1.6.8",
+    "jszip": "^3.10.1",
     "pinia": "^2.1.7",
     "socket.io-client": "^4.7.4",
     "vue": "^3.4.21",

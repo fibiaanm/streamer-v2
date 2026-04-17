@@ -10,136 +10,100 @@
       >
         <DropOverlay v-if="isDragging" />
 
-        <StudioNav
-          :active-view="activeView"
-          :item-count="items.length"
-          @change="setView"
-        />
+        <StudioNav />
 
-        <div class="flex-1 overflow-hidden">
-          <GalleryView
-            v-if="activeView === 'gallery'"
-            :items="items"
-            :active-item-id="activeItemId"
-            @select="activeItemId = $event"
-            @rename="handleRename"
-            @open-editor="editorOpen = true"
-          />
-          <ExportView
-            v-else
-            :items="items"
-            :active-item-id="activeItemId"
-            :zip-name="zipName"
-            @select="activeItemId = $event"
-            @rename="handleRename"
-            @add-config="handleAddConfig"
-            @remove-config="handleRemoveConfig"
-            @update-config="handleUpdateConfig"
-            @download-zip="handleDownloadZip"
-            @update:zip-name="zipName = $event"
-          />
+        <!-- Main area -->
+        <div class="flex flex-1 overflow-hidden">
+          <ImageGrid />
+
+          <!-- Right panel -->
+          <div class="flex-1 flex flex-col overflow-hidden">
+            <template v-if="store.activeItem.value">
+              <ImageHero @open-editor="editorOpen = true" />
+              <ExportConfigPanel />
+            </template>
+
+            <div
+              v-else
+              class="h-full flex flex-col items-center justify-center gap-4 p-10 text-center"
+            >
+              <div class="w-16 h-16 rounded-2xl bg-white/4 border border-white/6 flex items-center justify-center">
+                <AppIcon name="ui/image" size="lg" class="text-white/15" />
+              </div>
+              <div class="space-y-1.5 max-w-[220px]">
+                <p class="text-sm font-medium text-white/25">Ninguna imagen seleccionada</p>
+                <p class="text-xs text-white/15 leading-relaxed">
+                  Arrastra imágenes o selecciónalas desde el panel izquierdo
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <EditModal
-          :is-open="editorOpen"
-          :item="activeItem"
-          @close="editorOpen = false"
-        />
+        <!-- Full-width export footer -->
+        <div class="shrink-0 border-t border-white/8 px-5 py-3 flex items-center gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-[11px] text-white/30 shrink-0">ZIP</span>
+            <div class="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5">
+              <input
+                v-model="zipName"
+                class="text-xs text-white/70 bg-transparent outline-none w-32"
+                placeholder="mis-imagenes"
+              />
+              <span class="text-xs text-white/25 shrink-0">.zip</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-white/25 flex-1 min-w-0 truncate">
+            <span class="text-white/50 font-medium">{{ store.items.value.length }}</span>
+            {{ store.items.value.length === 1 ? 'imagen' : 'imágenes' }}
+            <span class="mx-1.5 text-white/15">·</span>
+            <span class="text-white/50 font-medium">{{ store.totalOutputs.value }}</span>
+            outputs
+          </p>
+
+          <AppButton
+            variant="primary"
+            size="sm"
+            :disabled="store.totalOutputs.value === 0 || isExporting"
+            icon="ui/download"
+            @click="handleDownloadZip"
+          >
+            <template v-if="isExporting">
+              {{ progress.done }}/{{ progress.total }}
+            </template>
+            <template v-else>Descargar ZIP</template>
+          </AppButton>
+        </div>
+
+        <EditModal :is-open="editorOpen" @close="editorOpen = false" />
       </div>
     </PageBackground>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import type { ImageItem, ExportConfig, StudioView } from '@/types/imageStudio'
-import PageBackground from '@/components/PageBackground.vue'
-import StudioNav      from './ImageStudio/StudioNav.vue'
-import DropOverlay    from './ImageStudio/DropOverlay.vue'
-import GalleryView    from './ImageStudio/GalleryView.vue'
-import ExportView     from './ImageStudio/ExportView.vue'
-import EditModal      from './ImageStudio/EditModal.vue'
+import { ref } from 'vue'
+import { useImageStore } from '@/composables/imageStudio/useImageStore'
+import { readImageFiles } from '@/composables/imageStudio/useImageUpload'
+import { useImageExport } from '@/composables/imageStudio/useImageExport'
+import PageBackground    from '@/components/PageBackground.vue'
+import AppButton         from '@/components/AppButton.vue'
+import AppIcon           from '@/components/AppIcon.vue'
+import StudioNav         from './ImageStudio/StudioNav.vue'
+import DropOverlay       from './ImageStudio/DropOverlay.vue'
+import ImageGrid         from './ImageStudio/ImageGrid.vue'
+import ImageHero         from './ImageStudio/ImageHero.vue'
+import ExportConfigPanel from './ImageStudio/ExportConfigPanel.vue'
+import EditModal         from './ImageStudio/EditModal.vue'
 
-// ─── Router ───────────────────────────────────────────────────────────────────
-
-const router = useRouter()
-const route  = useRoute()
-
-// ─── State ────────────────────────────────────────────────────────────────────
-
-const activeView   = ref<StudioView>('gallery')
-const activeItemId = ref<string | null>('1')
-const editorOpen   = ref(false)
-const isDragging   = ref(false)
-const zipName      = ref('mis-imagenes')
+const store              = useImageStore()
+const { exportAll, isExporting, progress } = useImageExport()
+const editorOpen = ref(false)
+const zipName    = ref('mis-imagenes')
+const isDragging = ref(false)
 
 let dragDepth = 0
-
-// Restore view from query param on mount
-onMounted(() => {
-  const qv = route.query.view as string
-  if (qv === 'export' || qv === 'gallery') activeView.value = qv
-})
-
-function setView(view: StudioView) {
-  activeView.value = view
-  router.replace({ query: { ...route.query, view } })
-}
-
-// ─── Dummy data — Phase 1 ─────────────────────────────────────────────────────
-
-const items = ref<ImageItem[]>([
-  {
-    id: '1', name: 'hero-banner', status: 'idle',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 1920, naturalHeight: 1080, sizeBytes: 2_450_000 },
-    exportConfigs: [
-      { id: 'c1-1', label: 'Web optimizado', format: 'webp', quality: 80, resize: { mode: 'original' } },
-    ],
-  },
-  {
-    id: '2', name: 'avatar-profile', status: 'done',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 800, naturalHeight: 800, sizeBytes: 124_000 },
-    exportConfigs: [
-      { id: 'c2-1', label: 'Original WebP',  format: 'webp', quality: 90, resize: { mode: 'original' } },
-      { id: 'c2-2', label: 'Miniatura 200px', format: 'jpeg', quality: 85, resize: { mode: 'width', value: 200 } },
-    ],
-  },
-  {
-    id: '3', name: 'product-shot', status: 'editing',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 2400, naturalHeight: 1600, sizeBytes: 3_800_000 },
-    exportConfigs: [
-      { id: 'c3-1', label: 'Calidad completa', format: 'jpeg', quality: 90, resize: { mode: 'original' } },
-    ],
-  },
-  {
-    id: '4', name: 'thumbnail-video', status: 'idle',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 1280, naturalHeight: 720, sizeBytes: 890_000 },
-    exportConfigs: [
-      { id: 'c4-1', label: 'Thumbnail 640w', format: 'webp', quality: 75, resize: { mode: 'width', value: 640 } },
-    ],
-  },
-  {
-    id: '5', name: 'background-dark', status: 'error',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 3840, naturalHeight: 2160, sizeBytes: 9_200_000 },
-    exportConfigs: [
-      { id: 'c5-1', label: 'Comprimido', format: 'webp', quality: 70, resize: { mode: 'original' } },
-    ],
-  },
-  {
-    id: '6', name: 'banner-mobile', status: 'idle',
-    source: { file: null as unknown as File, dataUrl: '', naturalWidth: 750, naturalHeight: 1334, sizeBytes: 560_000 },
-    exportConfigs: [
-      { id: 'c6-1', label: 'Alto 600px', format: 'jpeg', quality: 80, resize: { mode: 'height', value: 600 } },
-    ],
-  },
-])
-
-const activeItem = computed(() =>
-  items.value.find(i => i.id === activeItemId.value) ?? null
-)
-
-// ─── Drag & drop ──────────────────────────────────────────────────────────────
 
 function onDragEnter(e: DragEvent) {
   if (!e.dataTransfer?.types.includes('Files')) return
@@ -152,45 +116,16 @@ function onDragLeave() {
   if (dragDepth <= 0) { dragDepth = 0; isDragging.value = false }
 }
 
-function onDrop() {
+async function onDrop(e: DragEvent) {
   dragDepth = 0
   isDragging.value = false
-  // Phase 2: useImageUpload
+  const files = Array.from(e.dataTransfer?.files ?? [])
+  if (!files.length) return
+  const raw = await readImageFiles(files)
+  if (raw.length) store.add(raw)
 }
 
-// ─── Mutations ────────────────────────────────────────────────────────────────
-
-function handleRename(id: string, name: string) {
-  const item = items.value.find(i => i.id === id)
-  if (item) item.name = name
-}
-
-function handleAddConfig() {
-  const item = activeItem.value
-  if (!item) return
-  item.exportConfigs.unshift({
-    id: `c${item.id}-${Date.now()}`,
-    label: 'Nueva config',
-    format: 'webp',
-    quality: 80,
-    resize: { mode: 'original' },
-  })
-}
-
-function handleRemoveConfig(configId: string) {
-  const item = activeItem.value
-  if (!item) return
-  item.exportConfigs = item.exportConfigs.filter(c => c.id !== configId)
-}
-
-function handleUpdateConfig(configId: string, config: ExportConfig) {
-  const item = activeItem.value
-  if (!item) return
-  const idx = item.exportConfigs.findIndex(c => c.id === configId)
-  if (idx !== -1) item.exportConfigs[idx] = config
-}
-
-function handleDownloadZip() {
-  // Phase 4: useImageExport + JSZip
+async function handleDownloadZip() {
+  await exportAll(zipName.value)
 }
 </script>

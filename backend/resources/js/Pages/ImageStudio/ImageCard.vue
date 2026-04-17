@@ -1,71 +1,47 @@
 <template>
-  <div
-    class="group relative rounded-xl overflow-hidden cursor-pointer select-none transition-all duration-200"
-    :class="isActive
-      ? 'ring-2 ring-brand-400 ring-offset-1 ring-offset-[#080d1c]'
-      : 'ring-1 ring-white/8 hover:ring-white/20 hover:scale-[1.015]'"
-    @click="emit('select')"
+  <AppImageBox
+    :src="item.source.dataUrl || undefined"
+    :colors="colors"
+    :name="item.name"
+    :dims="`${item.source.naturalWidth} × ${item.source.naturalHeight}`"
+    :active="isActive"
+    @click="store.setActive(item.id)"
   >
-    <!-- Thumbnail: brand grid + gradient on top -->
-    <div class="aspect-video w-full relative overflow-hidden" :style="GRID_BG">
-      <img
-        v-if="item.source.dataUrl"
-        :src="item.source.dataUrl"
-        :alt="item.name"
-        class="absolute inset-0 w-full h-full object-cover"
-      />
-      <div
-        v-else
-        class="absolute inset-0"
-        :style="{ background: `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`, opacity: '0.82' }"
-      />
-
-      <!-- Status badge -->
+    <template #action>
       <span
-        class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold backdrop-blur-sm leading-none"
+        v-if="item.status !== 'idle'"
+        class="px-1.5 py-0.5 rounded-md text-[10px] font-semibold backdrop-blur-sm leading-none"
         :class="statusCfg.cls"
       >
         {{ statusCfg.label }}
       </span>
-    </div>
-
-    <!-- Name + dims -->
-    <div class="px-2 pt-1.5 pb-2 transition-colors" :class="isActive ? 'bg-brand-500/10' : 'bg-black/25'">
-      <p class="text-xs font-medium text-white/80 truncate leading-tight" :title="item.name">
-        {{ item.name }}
-      </p>
-      <p class="text-[10px] text-white/25 mt-0.5 font-mono leading-none">
-        {{ item.source.naturalWidth }}&thinsp;×&thinsp;{{ item.source.naturalHeight }}
-      </p>
-    </div>
-  </div>
+      <button
+        v-else
+        class="w-5 h-5 rounded-full flex items-center justify-center
+               bg-black/20 backdrop-blur-sm
+               text-white/0 group-hover:text-white/50
+               hover:!text-white hover:bg-rose-500/60
+               transition-all duration-150 cursor-pointer"
+        title="Eliminar"
+        @click.stop="store.remove(item.id)"
+      >
+        <AppIcon name="ui/x" size="xs" />
+      </button>
+    </template>
+  </AppImageBox>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ImageItem, ImageItemStatus } from '@/types/imageStudio'
+import { useImageStore } from '@/composables/imageStudio/useImageStore'
+import AppImageBox from '@/components/AppImageBox.vue'
+import AppIcon     from '@/components/AppIcon.vue'
 
-const props = defineProps<{
-  item: ImageItem
-  isActive: boolean
-}>()
+const props = defineProps<{ item: ImageItem }>()
 
-const emit = defineEmits<{
-  select: []
-}>()
-
-// ─── Brand grid background ────────────────────────────────────────────────────
-
-const GRID_BG = {
-  backgroundColor: '#080d1c',
-  backgroundImage: [
-    'linear-gradient(rgba(14,165,233,.07) 1px, transparent 1px)',
-    'linear-gradient(90deg, rgba(14,165,233,.07) 1px, transparent 1px)',
-  ].join(', '),
-  backgroundSize: '20px 20px',
-}
-
-// ─── Gradient placeholder ─────────────────────────────────────────────────────
+const store    = useImageStore()
+const isActive = computed(() => store.activeItemId.value === props.item.id)
 
 const GRADIENTS: [string, string][] = [
   ['#0ea5e9', '#0369a1'], ['#06b6d4', '#0e7490'], ['#8b5cf6', '#6d28d9'],
@@ -78,10 +54,8 @@ const colors = computed((): [string, string] => {
   return GRADIENTS[sum % GRADIENTS.length]
 })
 
-// ─── Status ───────────────────────────────────────────────────────────────────
-
 const STATUS: Record<ImageItemStatus, { label: string; cls: string }> = {
-  idle:      { label: 'Listo',      cls: 'bg-white/10 text-white/50' },
+  idle:      { label: '',           cls: '' },
   editing:   { label: 'Editando',   cls: 'bg-brand-500/25 text-brand-300' },
   exporting: { label: 'Exportando', cls: 'bg-live-500/25 text-live-300' },
   done:      { label: 'Exportado',  cls: 'bg-emerald-500/25 text-emerald-300' },

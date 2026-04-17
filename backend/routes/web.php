@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\AppPageController;
 use App\Http\Controllers\Auth\LoginPageController;
 use App\Http\Controllers\Auth\SwitchPageController;
 use Illuminate\Support\Facades\Route;
@@ -10,7 +11,7 @@ Route::get('/switch', SwitchPageController::class)->name('switch');
 Route::redirect('/register', '/login?mode=signup', 301)->name('register');
 
 // App shell — Vue Router gestiona toda la navegación interna
-Route::get('/app/{any?}', fn () => Inertia::render('App'))
+Route::get('/app/{any?}', AppPageController::class)
     ->where('any', '.*')
     ->name('app');
 

@@ -15,7 +15,7 @@
         class="shrink-0 w-5 h-5 rounded-md flex items-center justify-center
                text-white/20 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
         title="Eliminar"
-        @click="emit('remove')"
+        @click="store.removeExportConfig(itemId, config.id)"
       >
         <AppIcon name="ui/x" size="xs" />
       </button>
@@ -95,18 +95,16 @@
 <script setup lang="ts">
 import { reactive, computed } from 'vue'
 import type { ExportConfig } from '@/types/imageStudio'
+import { useImageStore } from '@/composables/imageStudio/useImageStore'
 import AppIcon from '@/components/AppIcon.vue'
 
 const props = defineProps<{
-  config: ExportConfig
-  itemName: string
+  config:    ExportConfig
+  itemId:    string
   canRemove: boolean
 }>()
 
-const emit = defineEmits<{
-  update: [config: ExportConfig]
-  remove: []
-}>()
+const store = useImageStore()
 
 const local = reactive<ExportConfig>({
   ...props.config,
@@ -114,12 +112,12 @@ const local = reactive<ExportConfig>({
 })
 
 function pushUpdate() {
-  emit('update', { ...local, resize: { ...local.resize } })
+  store.updateExportConfig(props.itemId, props.config.id, { ...local, resize: { ...local.resize } })
 }
 
 const outputName = computed(() => {
   const { format, resize } = local
-  const base = local.label?.trim() || props.itemName
+  const base = local.label?.trim() || props.config.label
   if (resize.mode === 'original') return `${base}@original.${format}`
   const suffix = resize.mode === 'width'
     ? `${resize.value ?? '?'}w`

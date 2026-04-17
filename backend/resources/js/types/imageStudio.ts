@@ -4,7 +4,7 @@ export type StudioView      = 'gallery' | 'export'
 export type SessionStage    = 'upload' | 'edit' | 'export'
 export type ImageItemStatus = 'idle' | 'editing' | 'exporting' | 'done' | 'error'
 export type ExportFormat    = 'jpeg' | 'webp' | 'png'
-export type ResizeMode      = 'original' | 'custom'
+export type ResizeMode      = 'original' | 'width' | 'height'
 
 // ─── Value objects ────────────────────────────────────────────────────────────
 
@@ -23,26 +23,48 @@ export interface CropState {
   height: number
 }
 
-export interface ResizeOptions {
-  mode: ResizeMode
-  width: number
-  height: number
-  lockAR: boolean
+export interface FilterState {
+  brightness:   number  // -100..100, default 0
+  contrast:     number
+  saturation:   number
+  shadows:      number
+  sharpness:    number
+  temperature:  number
+}
+
+// ─── DTOs ─────────────────────────────────────────────────────────────────────
+
+export interface DropPayload {
+  files: File[]
+}
+
+export interface RawImageData {
+  file:          File
+  dataUrl:       string
+  naturalWidth:  number
+  naturalHeight: number
+  sizeBytes:     number
 }
 
 // ─── Entities ─────────────────────────────────────────────────────────────────
 
-export interface ImageItem {
-  id: string
-  source: ImageSource
-  status: ImageItemStatus
-  crop?: CropState
+export interface ExportConfig {
+  id:      string
+  label:   string
+  format:  ExportFormat
+  quality: number        // 0–100
+  resize: {
+    mode:   ResizeMode
+    value?: number       // px — only when mode !== 'original'
+  }
 }
 
-export interface ExportConfig {
-  id: string
-  label: string
-  format: ExportFormat
-  quality: number
-  resize: ResizeOptions
+export interface ImageItem {
+  id:            string
+  name:          string
+  source:        ImageSource
+  status:        ImageItemStatus
+  crop?:         CropState
+  filters:       FilterState
+  exportConfigs: ExportConfig[]
 }
