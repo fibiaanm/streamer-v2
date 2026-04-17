@@ -1,0 +1,228 @@
+---
+description: Image Studio — herramienta auxiliar de edición y exportación batch de imágenes
+type: tool
+status: en-progreso
+---
+
+# Image Studio
+
+Herramienta auxiliar accesible en `/image-studio`. No requiere autenticación.
+Sigue el design system glass morphism documentado en `docs/stages/07-design-standards.mdc`.
+
+---
+
+## Objetivo
+
+Subir N imágenes, editarlas individualmente en un canvas (Fabric.js) y exportar cada una
+en una o más configuraciones de formato, tamaño y compresión, descargando todo como un ZIP.
+
+---
+
+## Layout — Split panel
+
+Cada vista es un split en dos columnas que conviven en pantalla al mismo tiempo.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  AppHeader: [●  Image Studio]           [Gallery] [Export]   │
+├──────────────────┬───────────────────────────────────────────┤
+│                  │                                           │
+│  Image Grid      │  Panel derecho                            │
+│  (lado izquierdo)│  Gallery → detalle / editor               │
+│                  │  Export  → configs de la imagen activa    │
+│  thumbnails con  │                                           │
+│  nombre editable │                                           │
+│  badge de status │                                           │
+│                  │                                           │
+└──────────────────┴───────────────────────────────────────────┘
+```
+
+- El **drop zone** abarca toda la página (siempre activo, en ambas vistas).
+- La **imagen activa** se resalta en el grid izquierdo; el panel derecho responde a ella.
+- `EditModal` se abre sobre el layout cuando el usuario entra al canvas completo.
+
+---
+
+## Vistas
+
+### Gallery view (`/image-studio`)
+- **Izquierda:** grid de `ImageCard` — thumbnail + nombre editable + badge de status.
+- **Derecha:** cuando hay imagen activa muestra `ImageInfoPanel` (dims, peso, crop aplicado)
+  y el botón para abrir `EditModal`.
+- Sin imagen activa: placeholder con instrucción de drop o click.
+
+### Export view (`/image-studio/export`)
+- **Izquierda:** mismo grid de `ImageCard` (misma selección, mismo estado).
+- **Derecha:** lista de `ExportConfigCard` de la imagen activa + botón "+ Añadir config".
+  Footer fijo: botón **Descargar ZIP** (activo solo si hay ≥1 imagen con ≥1 config).
+
+### EditModal (overlay z-200)
+- Canvas Fabric.js centrado con controles: crop, rotar, filtros (brillo, sombras, saturación).
+- Header del modal: nombre de la imagen + botón "Guardar y cerrar".
+- Guardar persiste el `CropState` y el estado de filtros en el `ImageItem`.
+
+---
+
+## Flujo de datos
+
+```
+Drop / file picker
+  └─ useImageUpload    →  File[] → ImageSource[]
+       └─ useImageQueue    →  añade ImageItem[] con status 'idle'
+
+Click imagen (Gallery)
+  └─ useImageQueue.setActive(id)
+       └─ ImageInfoPanel reactivo al activeItem
+
+Abrir editor
+  └─ EditModal monta useImageCanvas(activeItem)
+       └─ Fabric.js carga dataUrl, expone crop/rotate/filtros
+       └─ Al guardar: persiste CropState en ImageItem via callback
+
+Export view
+  └─ useExportConfigs(itemId)   →  CRUD de ExportConfig[] por imagen
+  └─ Descargar ZIP
+       └─ useImageExport(items, configs)  →  canvas offscreen por config  →  JSZip  →  .zip
+```
+
+---
+
+## Tipos — `types/imageStudio.ts`
+
+```typescript
+export type SessionStage    = 'upload' | 'edit' | 'export'
+export type ImageItemStatus = 'idle' | 'editing' | 'exporting' | 'done' | 'error'
+export type ExportFormat    = 'jpeg' | 'webp' | 'png'
+export type ResizeMode      = 'original' | 'width' | 'height'
+
+export interface ImageSource {
+  file: File
+  dataUrl: string
+  naturalWidth: number
+  naturalHeight: number
+  sizeBytes: number
+}
+
+export interface CropState {
+  x: number; y: number; width: number; height: number
+}
+
+export interface ImageItem {
+  id: string
+  source: ImageSource
+  name: string             // editable, default = file.name sin extensión
+  status: ImageItemStatus
+  crop?: CropState
+  exportConfigs: ExportConfig[]  // mínimo 1 al entrar a Export view
+}
+
+export interface ExportConfig {
+  id: string
+  format: ExportFormat
+  quality: number          // 0–100
+  resize: {
+    mode: ResizeMode
+    value?: number         // px — solo si mode !== 'original'
+  }
+}
+// Filename al descargar: {name}@{width}x{height}.{ext}
+// Ejemplo: hero@1920x1080.webp · avatar@400x400.jpeg
+```
+
+---
+
+## Árbol de archivos
+
+```
+Pages/
+  ImageStudio.vue                  ← orquestador: vista activa, ImageItem[], drop global
+  ImageStudio/
+    StudioNav.vue                  ← header con tabs Gallery / Export
+    DropOverlay.vue                ← feedback visual al arrastrar sobre la página
+    GalleryView.vue                ← split: ImageGrid + panel derecho (info / empty state)
+    ExportView.vue                 ← split: ImageGrid + ExportConfigPanel
+    ImageGrid.vue                  ← grid de ImageCard (compartido entre vistas)
+    ImageCard.vue                  ← thumbnail + nombre editable + badge
+    ImageInfoPanel.vue             ← dims, peso, crop dims, botón abrir editor
+    EditModal.vue                  ← overlay con canvas Fabric.js + controles
+    ExportConfigPanel.vue          ← lista de configs + botón añadir + ZIP download
+    ExportConfigCard.vue           ← una config: format, resize mode/value, quality slider
+
+composables/imageStudio/
+  useImageQueue.ts                 ← ImageItem[] reactivo — add, remove, rename, setActive
+  useImageUpload.ts                ← File[] → ImageSource[] (FileReader, validación mime)
+  useImageCanvas.ts                ← Fabric.js: load, crop, rotate, filtros, get state
+  useExportConfigs.ts              ← ExportConfig[] por item — add, remove, update
+  useImageExport.ts                ← (ImageItem[], configs) → JSZip → descarga
+
+types/
+  imageStudio.ts                   ← todos los tipos e interfaces del studio
+```
+
+---
+
+## Dependencias a instalar
+
+```bash
+npm install fabric jszip
+npm install --save-dev @types/fabric
+```
+
+---
+
+## Convención de nombres en el ZIP
+
+```
+{nombre-imagen}@{ancho}x{alto}.{formato}
+
+# Ejemplos
+hero-banner@1920x1080.webp
+avatar@400x400.jpeg
+thumbnail@320x180.webp
+product@original.png      ← cuando mode = 'original', se usa la palabra "original"
+```
+
+---
+
+## Fases de implementación
+
+### Fase 1 — Vistas con dummies ← COMPLETADA
+Construir todas las vistas y componentes con data estática.
+El objetivo es que el layout, la navegación y el diseño queden definidos antes
+de introducir cualquier lógica real.
+
+- [x] Ruta `/image-studio` en `routes.ts` y `web.php`
+- [x] `ImageStudio.vue` con estructura base y drop overlay visual
+- [x] `StudioNav.vue` con tabs Gallery / Export
+- [x] `GalleryView.vue` — split con grid dummy + panel de info dummy
+- [x] `ExportView.vue` — split con grid dummy + configs dummy
+- [x] `ImageGrid.vue` + `ImageCard.vue` con thumbnails estáticos
+- [x] `ImageInfoPanel.vue` con datos hardcodeados
+- [x] `ExportConfigPanel.vue` + `ExportConfigCard.vue` con configs hardcodeadas
+- [x] `EditModal.vue` con canvas placeholder + toolbar + filtros
+
+### Fase 2 — Upload y queue
+- [ ] `useImageUpload.ts` — FileReader + validación + ImageSource
+- [ ] `useImageQueue.ts` — ImageItem[] reactivo, setActive, rename
+- [ ] Drop zone funcional (drag events sobre `ImageStudio.vue`)
+- [ ] `GalleryView` reactiva al queue real
+
+### Fase 3 — Editor (Fabric.js)
+- [ ] `useImageCanvas.ts` — load imagen, crop interactivo, rotate
+- [ ] Filtros: brillo, contraste, saturación, sombras
+- [ ] Persistir CropState en ImageItem al cerrar modal
+
+### Fase 4 — Export
+- [ ] `useExportConfigs.ts` — CRUD por imagen, default config al entrar a Export
+- [ ] `useImageExport.ts` — canvas offscreen + toBlob por config
+- [ ] JSZip + descarga del archivo comprimido
+- [ ] Naming convention `@{w}x{h}.{ext}`
+
+---
+
+## Reglas de capas
+
+- Composables no importan componentes Vue.
+- Componentes no se llaman entre sí directamente — todo sube al orquestador.
+- `useImageCanvas` solo conoce al `activeItem`, nunca al array completo.
+- `useImageExport` no toca el DOM — trabaja con canvas offscreen.

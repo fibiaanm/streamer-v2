@@ -6,6 +6,10 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/Pages/Auth/Login.vue'),
   },
   {
+    path: '/switch',
+    component: () => import('@/Pages/Auth/Switch.vue'),
+  },
+  {
     path: '/app',
     component: () => import('@/views/WorkspacesView.vue'),
   },
@@ -17,6 +21,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/design-test',
     component: () => import('@/Pages/DesignTest.vue'),
+  },
+  {
+    path: '/image-studio',
+    component: () => import('@/Pages/ImageStudio.vue'),
   },
 ]
 

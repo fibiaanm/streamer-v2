@@ -1,5 +1,6 @@
 // ─── String unions ────────────────────────────────────────────────────────────
 
+export type StudioView      = 'gallery' | 'export'
 export type SessionStage    = 'upload' | 'edit' | 'export'
 export type ImageItemStatus = 'idle' | 'editing' | 'exporting' | 'done' | 'error'
 export type ExportFormat    = 'jpeg' | 'webp' | 'png'
