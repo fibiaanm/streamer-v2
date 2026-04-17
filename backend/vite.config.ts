@@ -19,18 +19,13 @@ export default defineConfig({
       },
     }),
   ],
-  worker: {
-    format: 'iife',
-  },
   server: {
     host: '0.0.0.0',
     port: 5173,
+    origin: 'http://localhost:8000',
     hmr: {
       host: 'localhost',
       port: 5173,
-    },
-    headers: {
-      'Access-Control-Allow-Origin': '*',
     },
   },
   resolve: {

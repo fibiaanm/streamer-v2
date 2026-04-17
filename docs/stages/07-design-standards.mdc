@@ -187,15 +187,43 @@ Font: **Instrument Sans** (definida en `--font-sans`).
 
 ---
 
+### Sistema de toasts — `AppToastContainer` + `AppToast` + `useToasts`
+
+Notificaciones contextuales bottom-right, acumulables, con dos estados: **colapsado** (stack de hasta 2 cards) y **expandido** (lista scrolleable al 50vh máximo).
+
+**API — `useToasts()`**
+
+Singleton global vía `createSharedComposableById`. Expone `add(toast)`, `remove(id)` y `clear()`.
+`add` recibe tipo, título, mensaje opcional, duración opcional en ms y hasta 2 acciones.
+Los cuatro tipos disponibles son `success`, `error`, `warning` e `info`.
+
+**Comportamiento**
+
+- Las cards siempre son los mismos nodos DOM — la posición anima via CSS `transition` entre estado apilado y estado lista, sin destruir ni recrear elementos.
+- Al descartar una card (botón ×, timer o "Limpiar todo"), se mueve hacia fuera de la pantalla por la derecha antes de eliminarse del array; las demás se reposicionan simultáneamente.
+- El timer de cada card corre en la propia card (intervalo de 50 ms). Se pausa con `pauseTimer`, que el container activa en hover o cuando el grupo está expandido.
+- "Limpiar todo" bloquea la altura del contenedor antes de arrancar las salidas para que no encoja mientras las cards animan.
+- El footer (Colapsar / Limpiar todo) siempre está en el DOM para reservar espacio y evitar drift al colapsar.
+
+**Archivos**
+
+| Archivo | Responsabilidad |
+|---|---|
+| `composables/core/useToasts.ts` | Estado global, `add / remove / clear` |
+| `components/AppToastContainer.vue` | Posicionamiento, estados stack/lista, animaciones |
+| `components/AppToast.vue` | Card individual, timer, barra de progreso, acciones |
+| `components/AppToastButton.vue` | Botón glass reutilizable para el footer |
+
+---
+
 ## Z-index
 
 | Capa | z | Uso |
 |---|---|---|
 | Base | 0 | Contenido |
 | Header | 50 | `AppHeader` sticky |
-| Dropdown | 100 | Menús flotantes |
-| Modal | 200 | Paneles modales |
-| Toast | 300 | Notificaciones |
+| Dropdown | 9999 | Menús flotantes |
+| Toast | 9500 | Notificaciones |
 
 ---
 
@@ -218,6 +246,7 @@ Muestra paleta de colores, tipografía y todos los componentes base en sus varia
 - [x] `AppTag.vue` — 6 variantes, prop `removable`
 - [x] `AppInput.vue` — floating label, 3 variantes, slots leading/trailing
 - [x] `AppIcon.vue` — glob de SVGs por nombre, 5 tamaños
+- [x] `useToasts` + `AppToastContainer` + `AppToast` + `AppToastButton` — sistema de notificaciones contextual
 - [x] Ruta `/design-test` con galería visual (solo en local)
 - [ ] `AppModal.vue` — Teleport + Transition + cierre en overlay *(etapa posterior)*
 - [ ] `AppDrawer.vue` — slide desde la derecha *(etapa posterior)*

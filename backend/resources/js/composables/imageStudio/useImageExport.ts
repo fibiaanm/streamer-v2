@@ -3,16 +3,7 @@ import type { WorkerInput, WorkerOutput } from '@/workers/imageExport.worker'
 import ImageExportWorker from '@/workers/imageExport.worker.ts?worker'
 import { packZip } from '@/composables/useZip'
 import { useImageStore } from './useImageStore'
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const EXT: Record<'jpeg' | 'webp' | 'png', string> = { jpeg: 'jpg', webp: 'webp', png: 'png' }
-
-function buildFilename(label: string, fallback: string, mode: string, value: number | undefined, format: 'jpeg' | 'webp' | 'png'): string {
-  const base   = label.trim() || fallback
-  const suffix = mode === 'width' ? `${value ?? '?'}w` : mode === 'height' ? `${value ?? '?'}h` : 'original'
-  return `${base}@${suffix}.${EXT[format]}`
-}
+import { buildFilename, deduplicateNames } from './exportUtils'
 
 // ─── Pool size — increase to parallelize ─────────────────────────────────────
 
@@ -63,7 +54,7 @@ export function useImageExport() {
     }
 
     // ── Worker pool ────────────────────────────────────────────────────────────
-    const results = new Map<string, { filename: string; buffer: ArrayBuffer }>()
+    const results = new Map<string, { name: string; buffer: ArrayBuffer }>()
     const errors  = new Set<string>()
     const queue   = [...jobs]
 
@@ -82,7 +73,7 @@ export function useImageExport() {
           progress.done++
 
           if (msg.type === 'result' && msg.buffer) {
-            results.set(msg.jobId, { filename: msg.filename, buffer: msg.buffer })
+            results.set(msg.jobId, { name: msg.filename, buffer: msg.buffer })
           } else {
             errors.add(job.itemId)
           }
@@ -105,7 +96,9 @@ export function useImageExport() {
 
     // ── Pack + download ────────────────────────────────────────────────────────
     if (results.size) {
-      const blob = await packZip(Array.from(results.values()))
+      const entries = deduplicateNames(Array.from(results.values()))
+
+      const blob = await packZip(entries)
       const url  = URL.createObjectURL(blob)
       Object.assign(document.createElement('a'), { href: url, download: `${zipName || 'mis-imagenes'}.zip` }).click()
       URL.revokeObjectURL(url)

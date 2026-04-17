@@ -11,6 +11,7 @@
       <!-- Content -->
       <div class="flex-1 h-full rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
         <EnterprisePanel v-if="activeNav === 'enterprise'" />
+        <MembersPanel   v-else-if="activeNav === 'members'" />
         <div v-else class="h-full flex items-center justify-center">
           <p class="text-sm text-white/25">{{ activeNav }}</p>
         </div>
@@ -28,6 +29,7 @@ import AppLayout       from '@/components/AppLayout.vue'
 import UserMenu        from '@/components/UserMenu.vue'
 import SettingsSidebar  from './Settings/SettingsSidebar.vue'
 import EnterprisePanel  from './Settings/EnterprisePanel.vue'
+import MembersPanel     from './Settings/MembersPanel.vue'
 
 const route  = useRoute()
 const router = useRouter()

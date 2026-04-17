@@ -22,7 +22,6 @@
         >
           Guardar
         </AppButton>
-        <p v-if="error" class="text-xs text-rose-400">{{ error }}</p>
       </div>
     </div>
 
@@ -33,18 +32,19 @@
 import { ref, computed, watch } from 'vue'
 import { useSession } from '@/composables/core/useSession'
 import { usePermissions } from '@/composables/core/usePermissions'
+import { useToasts } from '@/composables/core/useToasts'
 import { useApi } from '@/lib/api'
 import AppInput  from '@/components/AppInput.vue'
 import AppButton from '@/components/AppButton.vue'
 
 const { user }            = useSession()
 const { canEditSettings } = usePermissions()
+const { add: addToast }   = useToasts()
 const api                 = useApi()
 
 const original = ref(user.value?.enterprise.name ?? '')
 const name     = ref(original.value)
 const saving   = ref(false)
-const error    = ref<string | null>(null)
 
 const canSave = computed(() => name.value.trim() !== '' && name.value !== original.value)
 
@@ -54,13 +54,13 @@ watch(() => user.value?.enterprise.name, (val) => {
 
 async function save() {
   saving.value = true
-  error.value  = null
   try {
     await api.patch('/enterprises/current', { name: name.value })
     original.value = name.value
     if (user.value) user.value.enterprise.name = name.value
+    addToast({ type: 'success', title: 'Cambios guardados', duration: 3000 })
   } catch {
-    error.value = 'No se pudo guardar. Intenta de nuevo.'
+    addToast({ type: 'error', title: 'No se pudo guardar', message: 'Intenta de nuevo.', duration: 5000 })
   } finally {
     saving.value = false
   }
