@@ -4,6 +4,7 @@ namespace App\Domain\Auth\Http\Controllers;
 
 use App\Domain\Auth\Application\TokenService;
 use App\Domain\Auth\Exceptions\RefreshTokenInvalidException;
+use App\Domain\Auth\Http\AuthCookies;
 use App\Http\Formatters\ResponseFormatter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,9 +16,11 @@ class RefreshController
     public function __invoke(Request $request, TokenService $tokenService): JsonResponse
     {
         try {
-            $tokens = $tokenService->refresh($request->input('refresh_token', ''));
+            $tokens = $tokenService->refresh($request->cookie('refresh_token', ''));
 
-            return ResponseFormatter::success($tokens);
+            return ResponseFormatter::success($tokens)
+                ->withCookie(AuthCookies::access($tokens['access_token']))
+                ->withCookie(AuthCookies::refresh($tokens['refresh_token']));
 
         } catch (RefreshTokenInvalidException $e) {
             Log::warning('auth.refresh_invalid');
@@ -26,7 +29,6 @@ class RefreshController
         } catch (Throwable $e) {
             Log::error('auth.refresh_unexpected', [
                 'exception' => $e->getMessage(),
-                'trace'     => $e->getTraceAsString(),
             ]);
             return ResponseFormatter::serverError();
         }

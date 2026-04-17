@@ -7,16 +7,13 @@ export const useApi = () => createSharedComposableById('api', () => {
   const client = axios.create({
     baseURL: import.meta.env.VITE_API_URL as string,
     headers: { 'Content-Type': 'application/json' },
+    withCredentials: true,
   })
 
-  // ── Request: inyectar Authorization + X-Enterprise-ID ────────────────────
+  // ── Request: inyectar X-Enterprise-ID ────────────────────────────────────
   client.interceptors.request.use((config) => {
-    const { accessToken }  = useSession()
-    const enterpriseStore  = useEnterpriseStore()
+    const enterpriseStore = useEnterpriseStore()
 
-    if (accessToken.value) {
-      config.headers['Authorization'] = `Bearer ${accessToken.value}`
-    }
     if (enterpriseStore.activeEnterpriseId) {
       config.headers['X-Enterprise-ID'] = enterpriseStore.activeEnterpriseId
     }
@@ -27,13 +24,13 @@ export const useApi = () => createSharedComposableById('api', () => {
   // ── Response: refresh automático en 401 ──────────────────────────────────
   let isRefreshing = false
   let pendingQueue: Array<{
-    resolve: (token: string) => void
+    resolve: (value?: unknown) => void
     reject: (err: unknown) => void
   }> = []
 
-  const processQueue = (newToken: string | null, error: unknown = null) => {
+  const processQueue = (error: unknown = null) => {
     pendingQueue.forEach(({ resolve, reject }) =>
-      error ? reject(error) : resolve(newToken!),
+      error ? reject(error) : resolve(),
     )
     pendingQueue = []
   }
@@ -47,41 +44,27 @@ export const useApi = () => createSharedComposableById('api', () => {
         return Promise.reject(error)
       }
 
-      const session = useSession()
-
-      if (!session.refreshToken.value) {
-        session.clear()
-        window.location.href = '/login'
-        return Promise.reject(error)
-      }
-
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           pendingQueue.push({ resolve, reject })
-        }).then((token) => {
-          original.headers['Authorization'] = `Bearer ${token}`
-          return client(original)
-        })
+        }).then(() => client(original))
       }
 
       original._retry = true
       isRefreshing    = true
 
+      const session = useSession()
+
       try {
-        const res = await axios.post(
+        await axios.post(
           `${import.meta.env.VITE_API_URL as string}/auth/refresh`,
-          { refresh_token: session.refreshToken.value },
+          null,
+          { withCredentials: true },
         )
-        const { access_token, refresh_token } = res.data.data as {
-          access_token: string
-          refresh_token: string
-        }
-        session.setTokens(access_token, refresh_token)
-        processQueue(access_token)
-        original.headers['Authorization'] = `Bearer ${access_token}`
+        processQueue()
         return client(original)
       } catch (refreshError) {
-        processQueue(null, refreshError)
+        processQueue(refreshError)
         session.clear()
         window.location.href = '/login'
         return Promise.reject(refreshError)

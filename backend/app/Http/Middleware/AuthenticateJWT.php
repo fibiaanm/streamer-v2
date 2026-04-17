@@ -21,7 +21,13 @@ class AuthenticateJWT
         $payload = null;
 
         try {
-            $payload = JWTAuth::parseToken()->getPayload();
+            $token = $request->bearerToken() ?? $request->cookie('access_token');
+
+            if (!$token) {
+                throw new UnauthorizedException();
+            }
+
+            $payload = JWTAuth::setToken($token)->getPayload();
 
             $user = User::findOrFail($payload->get('sub'));
 

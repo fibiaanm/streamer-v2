@@ -4,7 +4,6 @@ import { createInertiaApp } from '@inertiajs/vue3'
 import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import { routes } from './router/routes'
-import { authGuard } from './router/guards'
 
 const pages = import.meta.glob<{ default: DefineComponent }>('./Pages/**/*.vue', { eager: true })
 
@@ -15,8 +14,6 @@ createInertiaApp({
       history: createWebHistory(),
       routes,
     })
-
-    router.beforeEach(authGuard)
 
     createApp({ render: () => h(App, props) })
       .use(plugin)

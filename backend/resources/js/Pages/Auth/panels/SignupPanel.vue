@@ -41,17 +41,15 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
 import AppInput from '@/components/AppInput.vue'
 import AppButton from '@/components/AppButton.vue'
 import { useApi } from '@/lib/api'
-import { useSession } from '@/composables/core/useSession'
+import { useEnterpriseStore } from '@/stores/enterpriseStore'
 
 const emit = defineEmits<{ switch: [mode: string] }>()
 
-const api     = useApi()
-const router  = useRouter()
-const session = useSession()
+const api             = useApi()
+const enterpriseStore = useEnterpriseStore()
 
 const form = ref({
   name:                  '',
@@ -85,8 +83,8 @@ async function submit() {
   loading.value  = true
   try {
     const res = await api.post('/auth/register', form.value)
-    session.setTokens(res.data.data.access_token, res.data.data.refresh_token, res.data.data.user)
-    router.push('/app')
+    enterpriseStore.clear()
+    window.location.href = '/switch'
   } catch (err: any) {
     const code = err.response?.data?.error?.code
     if (code === 'validation.failed') {

@@ -9,11 +9,11 @@ export const useSocket = () => createSharedComposableById('socket', () => {
   const connected = shallowRef(false)
   const socket    = shallowRef<Socket | null>(null)
 
-  const connect = (token: string) => {
+  const connect = () => {
     if (socket.value) return
 
     const instance = io(import.meta.env.VITE_SOCKET_URL as string, {
-      auth: { token: `Bearer ${token}` },
+      withCredentials: true,
       reconnectionAttempts: 5,
     })
 

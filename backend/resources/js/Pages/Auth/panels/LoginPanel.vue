@@ -46,12 +46,12 @@ import { ref } from 'vue'
 import AppInput from '@/components/AppInput.vue'
 import AppButton from '@/components/AppButton.vue'
 import { useApi } from '@/lib/api'
-import { useSession } from '@/composables/core/useSession'
+import { useEnterpriseStore } from '@/stores/enterpriseStore'
 
 const emit = defineEmits<{ switch: [mode: string] }>()
 
-const api     = useApi()
-const session = useSession()
+const api             = useApi()
+const enterpriseStore = useEnterpriseStore()
 
 const form     = ref({ email: '', password: '' })
 const errors   = ref<Record<string, string>>({})
@@ -64,8 +64,8 @@ async function submit() {
   loading.value  = true
   try {
     const res = await api.post('/auth/login', form.value)
-    session.setTokens(res.data.data.access_token, res.data.data.refresh_token, res.data.data.user)
-    window.location.href = '/app'
+    enterpriseStore.clear()
+    window.location.href = '/switch'
   } catch (err: any) {
     const code = err.response?.data?.error?.code
     if (code === 'auth.invalid_credentials') {

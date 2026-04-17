@@ -1,16 +1,39 @@
 <template>
-  <RouterView />
+  <RouterView v-if="ready" />
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useSession } from '@/composables/core/useSession'
+import { useEnterpriseStore } from '@/stores/enterpriseStore'
 import { useSocket } from '@/composables/core/useSocket'
+import { useApi } from '@/lib/api'
+import type { SessionUser } from '@/types'
 
-const { accessToken } = useSession()
+const ready           = ref(false)
+const session         = useSession()
+const enterpriseStore = useEnterpriseStore()
+const api             = useApi()
 const { connect }     = useSocket()
 
-if (accessToken.value) {
-  connect(accessToken.value)
-}
+onMounted(async () => {
+  if (!enterpriseStore.activeEnterpriseId) {
+    window.location.href = '/switch'
+    return
+  }
+
+  try {
+    const res = await api.get('/auth/me')
+    session.setUser(res.data.data as SessionUser)
+    connect()
+    ready.value = true
+  } catch (err: any) {
+    if (err.response?.status === 403) {
+      window.location.href = '/switch'
+    } else {
+      ready.value = true
+    }
+  }
+})
 </script>
