@@ -1,6 +1,8 @@
 <template>
   <div :class="['transition-colors duration-300', isDark ? 'dark' : '']">
 
+    <AppToastContainer />
+
     <PageBackground>
       <div class="h-screen overflow-y-auto">
 
@@ -163,6 +165,62 @@
         </section>
 
         <!-- ═════════════════════════════════════════════════════════════════ -->
+        <!-- Toasts                                                           -->
+        <!-- ═════════════════════════════════════════════════════════════════ -->
+        <section>
+          <SectionHeader label="Toasts" />
+          <div class="glass-light dark:glass rounded-2xl p-8 space-y-4">
+            <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-white/30 mb-4">
+              Añadir toast
+            </p>
+            <div class="flex flex-wrap gap-3">
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-emerald-500/30 text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20"
+                @click="addToast('success')"
+              >
+                Success
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-rose-500/30 text-rose-400 bg-rose-500/10 hover:bg-rose-500/20"
+                @click="addToast('error')"
+              >
+                Error
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-amber-500/30 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
+                @click="addToast('warning')"
+              >
+                Warning
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-blue-500/30 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
+                @click="addToast('info')"
+              >
+                Info
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-white/10 text-white/40 bg-white/5 hover:bg-white/10"
+                @click="addToast('success', true)"
+              >
+                Con timer (5s)
+              </button>
+              <button
+                class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all
+                       border border-white/10 text-white/40 bg-white/5 hover:bg-white/10"
+                @click="addToast('info', false, true)"
+              >
+                Con acciones
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ═════════════════════════════════════════════════════════════════ -->
         <!-- Elements                                                         -->
         <!-- ═════════════════════════════════════════════════════════════════ -->
         <section class="pb-20">
@@ -286,19 +344,46 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import PageBackground from '@/components/PageBackground.vue'
-import AppHeader from '@/components/AppHeader.vue'
-import AppButton from '@/components/AppButton.vue'
-import AppBadge from '@/components/AppBadge.vue'
-import AppTag from '@/components/AppTag.vue'
-import AppInput from '@/components/AppInput.vue'
+import PageBackground    from '@/components/PageBackground.vue'
+import AppHeader         from '@/components/AppHeader.vue'
+import AppButton         from '@/components/AppButton.vue'
+import AppBadge          from '@/components/AppBadge.vue'
+import AppTag            from '@/components/AppTag.vue'
+import AppInput          from '@/components/AppInput.vue'
+import AppToastContainer from '@/components/AppToastContainer.vue'
 import SectionHeader from './DesignTest/SectionHeader.vue'
-import PaletteRow from './DesignTest/PaletteRow.vue'
+import PaletteRow    from './DesignTest/PaletteRow.vue'
 import SemanticSwatch from './DesignTest/SemanticSwatch.vue'
+import { useToasts } from '@/composables/core/useToasts'
+import type { Toast } from '@/composables/core/useToasts'
 
 // ─── Dark/light toggle ────────────────────────────────────────────────────────
 const isDark   = ref(true)
 const inputVal = ref('')
+
+// ─── Toast tester ─────────────────────────────────────────────────────────────
+const { add } = useToasts()
+
+const TOAST_SAMPLES: Record<Toast['type'], { title: string; message: string }> = {
+  success: { title: 'Operación completada',  message: 'Los cambios se han guardado correctamente en el servidor.' },
+  error:   { title: 'Error al exportar',     message: 'No se pudo conectar con el servicio de exportación. Inténtalo de nuevo.' },
+  warning: { title: 'Límite casi alcanzado', message: 'Estás al 90% de tu cuota mensual de almacenamiento.' },
+  info:    { title: 'Nuevo participante',    message: 'María Gómez se ha unido a la sala "Design Sprint".' },
+}
+
+const addToast = (type: Toast['type'], withTimer = false, withActions = false) => {
+  add({
+    type,
+    ...TOAST_SAMPLES[type],
+    duration:  withTimer ? 5000 : undefined,
+    actions:   withActions
+      ? [
+          { label: 'Ver',    onClick: () => {} },
+          { label: 'Cerrar', onClick: () => {} },
+        ]
+      : undefined,
+  })
+}
 
 // ─── Color palettes ───────────────────────────────────────────────────────────
 interface ColorShade  { shade: number; hex: string }

@@ -1,10 +1,12 @@
 <template>
   <RouterView v-if="ready" />
+  <AppToastContainer />
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
+import AppToastContainer from '@/components/AppToastContainer.vue'
 import { useSession } from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
 import { useSocket } from '@/composables/core/useSocket'
