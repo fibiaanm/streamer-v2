@@ -33,7 +33,7 @@ it('returns user with enterprise when fully authenticated', function () {
 
     // plan limits are present with correct structure
     $response
-        ->assertJsonPath('data.enterprise.plan.name', 'Personal Free')
+        ->assertJsonPath('data.enterprise.plan.name', 'Free')
         ->assertJsonStructure([
             'data' => [
                 'enterprise' => [

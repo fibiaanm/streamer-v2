@@ -19,9 +19,10 @@ enum ErrorCode: string
     case EnterpriseInvitationExpired = 'enterprise.invitation_expired';
     case EnterpriseInvitationInvalid = 'enterprise.invitation_invalid';
     case EnterpriseMemberExists      = 'enterprise.member_already_exists';
-    case EnterpriseRoleBaseImmutable = 'enterprise.role_base_immutable';
-    case EnterpriseRoleNotFound      = 'enterprise.role_not_found';
-    case EnterpriseRoleHasMembers    = 'enterprise.role_has_members';
+    case EnterpriseRoleBaseImmutable   = 'enterprise.role_base_immutable';
+    case EnterpriseRoleNotFound        = 'enterprise.role_not_found';
+    case EnterpriseRoleHasMembers      = 'enterprise.role_has_members';
+    case EnterpriseRoleAssignNotAllowed = 'enterprise.role_assign_not_allowed';
 
     // Subscription / Plan limits
     case PlanLimitExceeded   = 'subscription.limit_exceeded';

@@ -3,6 +3,7 @@
 namespace App\Domain\Enterprises\Http\Controllers;
 
 use App\Domain\Enterprises\Events\RoleCreated;
+use App\Domain\Enterprises\Exceptions\EnterpriseActionForbiddenException;
 use App\Domain\Enterprises\Http\Resources\RoleResource;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\EnterprisePermission;
@@ -23,7 +24,13 @@ class CreateRoleController
         ]);
 
         try {
-            $enterprise = $request->attributes->get('active_enterprise');
+            $enterprise    = $request->attributes->get('active_enterprise');
+            $currentMember = $request->attributes->get('active_enterprise_member');
+            $currentMember->loadMissing('role.permissions');
+
+            if (!$currentMember->role->permissions->pluck('name')->contains('enterprise.roles.add')) {
+                throw new EnterpriseActionForbiddenException();
+            }
 
             $role = EnterpriseRole::create([
                 'enterprise_id' => $enterprise->id,
@@ -41,6 +48,8 @@ class CreateRoleController
 
             return ResponseFormatter::created(new RoleResource($role));
 
+        } catch (EnterpriseActionForbiddenException $e) {
+            return ResponseFormatter::error($e);
         } catch (Throwable $e) {
             Log::error('enterprises.create_role_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();

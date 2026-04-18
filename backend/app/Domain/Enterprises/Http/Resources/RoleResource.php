@@ -13,6 +13,7 @@ class RoleResource extends JsonResource
             'id'          => $this->getHashId(),
             'name'        => $this->name,
             'is_global'   => $this->isGlobal(),
+            'is_owner'    => $this->isOwner(),
             'permissions' => $this->permissions->pluck('name')->values()->all(),
         ];
     }

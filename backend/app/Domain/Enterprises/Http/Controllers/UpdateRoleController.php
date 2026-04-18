@@ -3,6 +3,7 @@
 namespace App\Domain\Enterprises\Http\Controllers;
 
 use App\Domain\Enterprises\Events\RoleUpdated;
+use App\Domain\Enterprises\Exceptions\EnterpriseActionForbiddenException;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleBaseImmutableException;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleNotFoundException;
 use App\Domain\Enterprises\Http\Resources\RoleResource;
@@ -26,12 +27,19 @@ class UpdateRoleController
         ]);
 
         try {
-            $enterprise = $request->attributes->get('active_enterprise');
-            $id         = HashId::decode($roleId);
+            $enterprise    = $request->attributes->get('active_enterprise');
+            $currentMember = $request->attributes->get('active_enterprise_member');
+            $currentMember->loadMissing('role.permissions');
+
+            if (!$currentMember->role->permissions->pluck('name')->contains('enterprise.roles.edit')) {
+                throw new EnterpriseActionForbiddenException();
+            }
+
+            $id = HashId::decode($roleId);
 
             $role = $id ? EnterpriseRole::find($id) : null;
 
-            if (!$role || $role->enterprise_id !== $enterprise->id) {
+            if (!$role || ($role->enterprise_id !== null && $role->enterprise_id !== $enterprise->id)) {
                 throw new EnterpriseRoleNotFoundException();
             }
 
@@ -54,7 +62,7 @@ class UpdateRoleController
 
             return ResponseFormatter::success(new RoleResource($role));
 
-        } catch (EnterpriseRoleNotFoundException | EnterpriseRoleBaseImmutableException $e) {
+        } catch (EnterpriseActionForbiddenException | EnterpriseRoleNotFoundException | EnterpriseRoleBaseImmutableException $e) {
             return ResponseFormatter::error($e);
         } catch (Throwable $e) {
             Log::error('enterprises.update_role_unexpected', ['exception' => $e]);

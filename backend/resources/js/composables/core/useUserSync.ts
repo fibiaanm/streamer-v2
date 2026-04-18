@@ -2,7 +2,7 @@ import { watch } from 'vue'
 import { useSocket } from './useSocket'
 import { useSession } from './useSession'
 import { useToasts } from './useToasts'
-import type { MemberKickedPayload, RoleSocketPayload } from '@/types'
+import type { MemberKickedPayload, MemberRoleAssignedPayload, RoleSocketPayload } from '@/types'
 
 export const useUserSync = () => {
   const { on, connected }      = useSocket()
@@ -26,7 +26,19 @@ export const useUserSync = () => {
       })
     })
 
-    on('role.updated', (data) => {
+    on('member.role_assigned', (data) => {
+      const { role } = data as MemberRoleAssignedPayload
+      if (!user.value) return
+
+      setUser({
+        ...user.value,
+        enterprise: { ...user.value.enterprise, role: role.name, permissions: role.permissions },
+      })
+
+      addToast({ type: 'info', title: 'Tu rol en la empresa ha sido actualizado', duration: 5000 })
+    })
+
+    on('role.permissions_changed', (data) => {
       const { name, permissions } = data as RoleSocketPayload
       if (!user.value) return
 

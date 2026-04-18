@@ -18,13 +18,17 @@ class SendEnterpriseInvitationsUseCase
      * @param  string[] $emails
      * @return Collection<int, Invitation>
      */
-    public function execute(Enterprise $enterprise, User $invitedBy, array $emails): Collection
-    {
-        $memberRole = EnterpriseRole::whereNull('enterprise_id')
+    public function execute(
+        Enterprise      $enterprise,
+        User            $invitedBy,
+        array           $emails,
+        ?EnterpriseRole $role = null,
+    ): Collection {
+        $targetRole = $role ?? EnterpriseRole::whereNull('enterprise_id')
             ->where('name', 'member')
             ->first();
 
-        if (! $memberRole) {
+        if (! $targetRole) {
             Log::error('send_enterprise_invitations.member_role_missing');
             throw new RuntimeException('Global member role not found');
         }
@@ -32,7 +36,7 @@ class SendEnterpriseInvitationsUseCase
         $invitations = collect();
 
         foreach ($emails as $email) {
-            $invitation = $this->createOrRefresh($enterprise, $invitedBy, $memberRole, $email);
+            $invitation = $this->createOrRefresh($enterprise, $invitedBy, $targetRole, $email);
             SendInvitationEmailJob::dispatch($invitation->id);
             $invitations->push($invitation);
         }
@@ -43,7 +47,7 @@ class SendEnterpriseInvitationsUseCase
     private function createOrRefresh(
         Enterprise     $enterprise,
         User           $invitedBy,
-        EnterpriseRole $memberRole,
+        EnterpriseRole $role,
         string         $email,
     ): Invitation {
         $existing = Invitation::where('invitable_type', Enterprise::class)
@@ -54,9 +58,10 @@ class SendEnterpriseInvitationsUseCase
 
         if ($existing) {
             $existing->update([
-                'token'      => Str::uuid()->toString(),
-                'status'     => 'pending',
-                'expires_at' => now()->addDays(7),
+                'enterprise_role_id' => $role->id,
+                'token'              => Str::uuid()->toString(),
+                'status'             => 'pending',
+                'expires_at'         => now()->addDays(7),
             ]);
 
             return $existing->fresh();
@@ -67,7 +72,7 @@ class SendEnterpriseInvitationsUseCase
             'invitable_id'         => $enterprise->id,
             'invited_by_user_id'   => $invitedBy->id,
             'email'                => $email,
-            'enterprise_role_id'   => $memberRole->id,
+            'enterprise_role_id'   => $role->id,
             'token'                => Str::uuid()->toString(),
             'status'               => 'pending',
             'expires_at'           => now()->addDays(7),

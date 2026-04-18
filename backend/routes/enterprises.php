@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Enterprises\Http\Controllers\AssignMemberRoleController;
 use App\Domain\Enterprises\Http\Controllers\CancelInvitationController;
 use App\Domain\Enterprises\Http\Controllers\CreateInvitationsController;
 use App\Domain\Enterprises\Http\Controllers\CreateRoleController;
@@ -16,8 +17,9 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('enterprises')->middleware(['auth.jwt', 'enterprise'])->group(function () {
     Route::prefix('current')->group(function () {
         Route::patch('/',                           UpdateEnterpriseController::class);
-        Route::get('members',                       ListMembersController::class);
-        Route::delete('members/{memberId}',         RemoveMemberController::class);
+        Route::get('members',                           ListMembersController::class);
+        Route::delete('members/{memberId}',             RemoveMemberController::class);
+        Route::patch('members/{memberId}/role',         AssignMemberRoleController::class);
         Route::get('invitations',                   ListInvitationsController::class);
         Route::post('invitations',                  CreateInvitationsController::class);
         Route::delete('invitations/{invitationId}', CancelInvitationController::class);

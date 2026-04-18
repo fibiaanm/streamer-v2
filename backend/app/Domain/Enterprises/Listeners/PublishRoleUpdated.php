@@ -35,7 +35,7 @@ class PublishRoleUpdated
                 ->pluck('user_id')
                 ->each(function (int $userId) use ($data) {
                     Redis::connection('pubsub')->publish("user.{$userId}", json_encode([
-                        'event' => 'role.updated',
+                        'event' => 'role.permissions_changed',
                         'data'  => $data,
                     ]));
                 });

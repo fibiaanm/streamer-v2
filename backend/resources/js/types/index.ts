@@ -66,6 +66,15 @@ export interface InvitationCancelledPayload {
   id: string
 }
 
+export interface MemberRoleChangedPayload {
+  memberId: string
+  role:     { id: string; name: string }
+}
+
+export interface MemberRoleAssignedPayload {
+  role: { id: string; name: string; permissions: string[] }
+}
+
 export interface RoleSocketPayload {
   id:          string
   name:        string

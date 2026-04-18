@@ -37,9 +37,9 @@
           {{ m.role.name }}
         </AppBadge>
 
-        <!-- Actions: three-dots (only for removable members) -->
+        <!-- Actions -->
         <AppDropdown
-          v-if="canRemoveMembers && isRemovable(m)"
+          v-if="canActOn(m)"
           align="right"
           @update:open="val => openMenuId = val ? m.id : null"
         >
@@ -51,11 +51,13 @@
               <AppIcon name="ui/more-horizontal" size="sm" />
             </button>
           </template>
-          <AppDropdownItem icon="ui/user-x" variant="danger" @click="confirmRemove(m)">
+          <AppDropdownItem v-if="canAssignRoles" icon="ui/shield" @click="openAssignRole(m)">
+            Cambiar rol
+          </AppDropdownItem>
+          <AppDropdownItem v-if="canRemoveMembers" icon="ui/user-x" variant="danger" @click="confirmRemove(m)">
             Eliminar
           </AppDropdownItem>
         </AppDropdown>
-        <!-- Spacer when no dropdown so badge doesn't shift -->
         <div v-else class="w-6 shrink-0" />
 
       </div>
@@ -106,6 +108,13 @@
     @close="inviteModalOpen = false"
     @invited="onInvited"
   />
+
+  <AssignRoleModal
+    :is-open="assignRoleModalOpen"
+    :member="assignRoleTarget"
+    @close="assignRoleModalOpen = false"
+    @saved="onRoleAssigned"
+  />
 </template>
 
 <script setup lang="ts">
@@ -123,8 +132,9 @@ import AppIcon            from '@/components/AppIcon.vue'
 import AppDropdown        from '@/components/AppDropdown.vue'
 import AppDropdownItem    from '@/components/AppDropdownItem.vue'
 import InviteMembersModal from '@/views/Settings/InviteMembersModal.vue'
+import AssignRoleModal    from '@/views/Settings/AssignRoleModal.vue'
 
-const { canInviteMembers, canRemoveMembers, membersMax } = usePermissions()
+const { canInviteMembers, canRemoveMembers, canAssignRoles, membersMax } = usePermissions()
 const { removeMember, cancelInvitation } = useMembersApi()
 const { user }   = useSession()
 const { add: addToast, remove: removeToast } = useToasts()
@@ -133,9 +143,11 @@ const membersState = useMembersState()
 const { members, invitations: pendingInvitations } = membersState
 useMembersSync(membersState)
 
-const inviteModalOpen = ref(false)
-const openMenuId      = ref<string | null>(null)
-const hoveredMemberId = ref<string | null>(null)
+const inviteModalOpen     = ref(false)
+const openMenuId          = ref<string | null>(null)
+const hoveredMemberId     = ref<string | null>(null)
+const assignRoleModalOpen = ref(false)
+const assignRoleTarget    = ref<Member | null>(null)
 
 onMounted(membersState.loadData)
 
@@ -155,6 +167,19 @@ const sortedMembers = computed(() =>
 // ── Guards ───────────────────────────────────────────────────────────────────
 const isRemovable = (m: Member) =>
   m.user.id !== user.value?.id && m.role.name !== 'owner'
+
+const canActOn = (m: Member) =>
+  isRemovable(m) && (canAssignRoles.value || canRemoveMembers.value)
+
+const openAssignRole = (m: Member) => {
+  assignRoleTarget.value    = m
+  assignRoleModalOpen.value = true
+}
+
+const onRoleAssigned = (updated: Member) => {
+  const m = membersState.members.value.find(x => x.id === updated.id)
+  if (m) m.role = updated.role
+}
 
 // ── Remove with undo toast ───────────────────────────────────────────────────
 const confirmRemove = (m: Member) => {
