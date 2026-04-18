@@ -12,7 +12,6 @@ export const useEnterpriseStore = defineStore('enterprise', () => {
   const activeEnterprise   = computed(() => user.value?.enterprise ?? null)
   const activeEnterpriseId = computed(() => selectedId.value)
   const activeRole         = computed(() => user.value?.enterprise?.role ?? null)
-  const activePermissions  = computed(() => user.value?.enterprise?.permissions ?? [])
 
   const set = (id: string) => {
     selectedId.value = id
@@ -24,7 +23,5 @@ export const useEnterpriseStore = defineStore('enterprise', () => {
     localStorage.removeItem(ENTERPRISE_KEY)
   }
 
-  const can = (permission: string) => activePermissions.value.includes(permission)
-
-  return { activeEnterprise, activeEnterpriseId, activeRole, activePermissions, set, clear, can }
+  return { activeEnterprise, activeEnterpriseId, activeRole, set, clear }
 })

@@ -27,6 +27,7 @@ export const usePermissions = () => {
   const canViewBilling   = computed(() => can('enterprise.billing.view'))
 
   return {
+    permissions,
     isEnterprise,
     haveATeam,
     membersMax,

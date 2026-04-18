@@ -40,10 +40,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRolesApi } from '@/composables/api/useRolesApi'
-import { useMembersApi } from '@/composables/api/useMembersApi'
-import { useSession } from '@/composables/core/useSession'
-import { useToasts } from '@/composables/core/useToasts'
+import { useRolesApi }      from '@/composables/api/useRolesApi'
+import { useMembersApi }    from '@/composables/api/useMembersApi'
+import { usePermissions }   from '@/composables/core/usePermissions'
+import { useToasts }        from '@/composables/core/useToasts'
 import type { Role } from '@/composables/api/useRolesApi'
 import type { Member } from '@/composables/api/useMembersApi'
 import AppModal  from '@/components/AppModal.vue'
@@ -62,7 +62,7 @@ const emit = defineEmits<{
 
 const { listRoles }  = useRolesApi()
 const { assignRole } = useMembersApi()
-const { user }       = useSession()
+const { permissions }    = usePermissions()
 const { add: addToast } = useToasts()
 
 const allRoles = ref<Role[]>([])
@@ -77,7 +77,7 @@ watch(() => props.isOpen, async (open) => {
 })
 
 const assignableRoles = computed(() => {
-  const myPermissions = new Set(user.value?.enterprise.permissions ?? [])
+  const myPermissions = new Set(permissions.value)
   return allRoles.value.filter(r =>
     !r.is_owner && r.permissions.every(p => myPermissions.has(p)),
   )

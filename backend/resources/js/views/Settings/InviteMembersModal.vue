@@ -46,10 +46,10 @@ import AppModal      from '@/components/AppModal.vue'
 import AppButton     from '@/components/AppButton.vue'
 import AppSelect     from '@/components/AppSelect.vue'
 import EmailTagInput from '@/components/EmailTagInput.vue'
-import { useMembersApi } from '@/composables/api/useMembersApi'
-import { useRolesApi }   from '@/composables/api/useRolesApi'
-import { useSession }    from '@/composables/core/useSession'
-import type { Role }     from '@/composables/api/useRolesApi'
+import { useMembersApi }  from '@/composables/api/useMembersApi'
+import { useRolesApi }    from '@/composables/api/useRolesApi'
+import { usePermissions } from '@/composables/core/usePermissions'
+import type { Role }      from '@/composables/api/useRolesApi'
 import type { SelectOption } from '@/components/AppSelect.vue'
 
 const props = defineProps<{ isOpen: boolean }>()
@@ -59,9 +59,9 @@ const emit = defineEmits<{
   invited: []
 }>()
 
-const { invite }    = useMembersApi()
-const { listRoles } = useRolesApi()
-const { user }      = useSession()
+const { invite }      = useMembersApi()
+const { listRoles }   = useRolesApi()
+const { permissions } = usePermissions()
 
 const emails       = ref<string[]>([])
 const loading      = ref(false)
@@ -75,7 +75,7 @@ const isValidEmail = (email: string) =>
 const validEmails = computed(() => emails.value.filter(isValidEmail))
 
 const assignableRoles = computed(() => {
-  const myPerms = new Set(user.value?.enterprise.permissions ?? [])
+  const myPerms = new Set(permissions.value)
   return allRoles.value.filter(r => !r.is_owner && r.permissions.every(p => myPerms.has(p)))
 })
 
