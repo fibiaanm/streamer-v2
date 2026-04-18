@@ -55,6 +55,10 @@ export const useApi = () => createSharedComposableById('api', () => {
 
       const session = useSession()
 
+      if (!session.authenticated.value) {
+        return Promise.reject(error)
+      }
+
       try {
         await axios.post(
           `${import.meta.env.VITE_API_URL as string}/auth/refresh`,

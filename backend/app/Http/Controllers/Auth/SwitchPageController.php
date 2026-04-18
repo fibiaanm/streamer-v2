@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Domain\Auth\AuthPayload;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 use Throwable;
-use Tymon\JWTAuth\Facades\JWTAuth;
-use Illuminate\Support\Facades\Log;
 
 class SwitchPageController extends Controller
 {
@@ -21,7 +21,13 @@ class SwitchPageController extends Controller
         }
 
         try {
-            JWTAuth::setToken($token)->getPayload();
+            $payload = AuthPayload::from($token);
+
+            if ($payload->isGuest()) {
+                Log::info('auth.switch_guest_token');
+                return redirect('/login');
+            }
+
             Log::info('auth.switch_valid_token');
         } catch (Throwable) {
             Log::info('auth.switch_invalid_token');

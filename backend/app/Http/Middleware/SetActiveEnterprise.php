@@ -19,6 +19,13 @@ class SetActiveEnterprise
 {
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->attributes->get('is_guest')) {
+            $request->attributes->set('active_enterprise', null);
+            $request->attributes->set('active_enterprise_member', null);
+            $request->attributes->set('active_subscription', null);
+            return $next($request);
+        }
+
         $hashId = $request->header(config('app.enterprise_header', 'X-Enterprise-ID'));
 
         if (!$hashId) {

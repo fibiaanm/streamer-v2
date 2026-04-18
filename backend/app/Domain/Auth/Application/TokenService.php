@@ -7,9 +7,28 @@ use App\Models\RefreshToken;
 use App\Models\User;
 use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use Tymon\JWTAuth\Facades\JWTFactory;
 
 class TokenService
 {
+    public function issueGuestToken(): array
+    {
+        $ttl = 60; // minutos
+
+        $payload = JWTFactory::customClaims([
+            'sub'   => 'guest',
+            'guest' => true,
+            'exp'   => now()->addMinutes($ttl)->timestamp,
+        ])->make();
+
+        $token = JWTAuth::manager()->encode($payload)->get();
+
+        return [
+            'access_token' => $token,
+            'expires_in'   => $ttl * 60,
+        ];
+    }
+
     public function issueTokens(User $user): array
     {
         $accessToken = JWTAuth::fromUser($user);

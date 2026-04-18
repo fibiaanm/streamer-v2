@@ -1,5 +1,18 @@
 <template>
-  <AppDropdown align="right">
+  <!-- Guest: botón de login simple -->
+  <template v-if="isGuest">
+    <a
+      href="/login"
+      class="px-3 py-1.5 rounded-lg text-xs font-medium text-white/60
+             border border-white/15 hover:border-white/30 hover:text-white/80
+             transition-colors"
+    >
+      Iniciar sesión
+    </a>
+  </template>
+
+  <!-- Auth: menú completo -->
+  <AppDropdown v-else align="right">
     <template #trigger>
       <button
         class="w-8 h-8 rounded-full bg-white/10 border border-white/15
@@ -51,14 +64,16 @@ import AppDropdownItem from '@/components/AppDropdownItem.vue'
 import SunMoonIcon     from '@/components/SunMoonIcon.vue'
 import { useSession }        from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
+import { usePermissions }    from '@/composables/core/usePermissions'
 import { useApi }            from '@/lib/api'
 import { useTheme }          from '@/composables/core/useTheme'
 
-const router          = useRouter()
-const session         = useSession()
-const enterpriseStore = useEnterpriseStore()
-const api             = useApi()
+const router             = useRouter()
+const session            = useSession()
+const enterpriseStore    = useEnterpriseStore()
+const api                = useApi()
 const { isDark, toggle } = useTheme()
+const { isGuest }        = usePermissions()
 
 const user = session.user
 

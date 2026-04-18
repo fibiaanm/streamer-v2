@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Auth\AuthPayload;
 use App\Domain\Auth\Exceptions\TokenExpiredException;
 use App\Domain\Auth\Exceptions\UnauthorizedException;
 use App\Models\User;
@@ -12,12 +13,12 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use Tymon\JWTAuth\Exceptions\TokenExpiredException as JWTTokenExpiredException;
 use Tymon\JWTAuth\Exceptions\JWTException;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthenticateJWT
 {
     public function handle(Request $request, Closure $next): Response
     {
+        /** @var AuthPayload|null $payload */
         $payload = null;
 
         try {
@@ -27,9 +28,14 @@ class AuthenticateJWT
                 throw new UnauthorizedException();
             }
 
-            $payload = JWTAuth::setToken($token)->getPayload();
+            $payload = AuthPayload::from($token);
 
-            $user = User::findOrFail($payload->get('sub'));
+            if ($payload->isGuest()) {
+                $request->attributes->set('is_guest', true);
+                return $next($request);
+            }
+
+            $user = User::findOrFail($payload->subject());
 
             auth()->setUser($user);
 
@@ -42,7 +48,7 @@ class AuthenticateJWT
             throw new UnauthorizedException();
 
         } catch (ModelNotFoundException) {
-            Log::warning('auth.user_not_found', ['sub' => $payload?->get('sub')]);
+            Log::warning('auth.user_not_found', ['sub' => $payload?->subject()]);
             throw new UnauthorizedException();
         }
 

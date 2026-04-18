@@ -10,6 +10,7 @@ export const usePermissions = () => {
 
   const can = (p: string) => permissions.value.includes(p)
 
+  const isGuest      = computed(() => user.value?.enterprise?.role === 'guest')
   const isEnterprise = computed(() => enterprise.value?.type === 'enterprise')
   const haveATeam    = computed(() => (limits.value?.members.max ?? 0) > 1)
   const membersMax   = computed(() => limits.value?.members.max ?? null)
@@ -28,6 +29,7 @@ export const usePermissions = () => {
 
   return {
     permissions,
+    isGuest,
     isEnterprise,
     haveATeam,
     membersMax,

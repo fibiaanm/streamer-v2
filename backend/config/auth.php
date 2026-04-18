@@ -118,4 +118,25 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Guest Permissions
+    |--------------------------------------------------------------------------
+    |
+    | Permisos que se otorgan a usuarios anónimos al solicitar un guest token.
+    | Agregar aquí los permisos que deben estar disponibles sin autenticación.
+    |
+    */
+    'guest_permissions' => [
+        'studio.view',
+        'studio.export',
+    ],
+
+    'guest_limits' => [],
+
+    // also check AppPageController and routes.ts (requiresAuth) when updating
+    'guest_paths' => [
+        'app',
+    ],
+
 ];
