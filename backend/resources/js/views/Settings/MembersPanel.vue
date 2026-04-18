@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col p-8 gap-6 overflow-y-auto">
+  <div class="flex flex-col p-8 gap-6">
 
     <!-- Header -->
     <div class="flex items-center justify-between">
@@ -110,11 +110,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { usePermissions } from '@/composables/core/usePermissions'
-import { useSession }     from '@/composables/core/useSession'
-import { useMembersApi }  from '@/composables/api/useMembersApi'
-import { useToasts }      from '@/composables/core/useToasts'
-import type { Member, Invitation } from '@/composables/api/useMembersApi'
+import { usePermissions }  from '@/composables/core/usePermissions'
+import { useSession }      from '@/composables/core/useSession'
+import { useMembersApi }   from '@/composables/api/useMembersApi'
+import { useMembersState } from '@/composables/core/useMembersState'
+import { useMembersSync }  from '@/composables/core/useMembersSync'
+import { useToasts }       from '@/composables/core/useToasts'
+import type { Member } from '@/composables/api/useMembersApi'
 import AppButton          from '@/components/AppButton.vue'
 import AppBadge           from '@/components/AppBadge.vue'
 import AppIcon            from '@/components/AppIcon.vue'
@@ -123,28 +125,21 @@ import AppDropdownItem    from '@/components/AppDropdownItem.vue'
 import InviteMembersModal from '@/views/Settings/InviteMembersModal.vue'
 
 const { canInviteMembers, canRemoveMembers, membersMax } = usePermissions()
-const { listMembers, listInvitations, cancelInvitation, removeMember } = useMembersApi()
+const { removeMember, cancelInvitation } = useMembersApi()
 const { user }   = useSession()
 const { add: addToast, remove: removeToast } = useToasts()
 
-const members            = ref<Member[]>([])
-const pendingInvitations = ref<Invitation[]>([])
-const inviteModalOpen    = ref(false)
-const openMenuId         = ref<string | null>(null)
-const hoveredMemberId    = ref<string | null>(null)
+const membersState = useMembersState()
+const { members, invitations: pendingInvitations } = membersState
+useMembersSync(membersState)
 
-const loadData = async () => {
-  const [membersRes, invitationsRes] = await Promise.all([
-    listMembers(),
-    listInvitations(),
-  ])
-  members.value            = membersRes.data.data
-  pendingInvitations.value = invitationsRes.data.data
-}
+const inviteModalOpen = ref(false)
+const openMenuId      = ref<string | null>(null)
+const hoveredMemberId = ref<string | null>(null)
 
-onMounted(loadData)
+onMounted(membersState.loadData)
 
-const onInvited = () => loadData()
+const onInvited = () => membersState.loadData()
 
 // ── Sorting ──────────────────────────────────────────────────────────────────
 const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, billing: 2, member: 3 }
@@ -173,7 +168,7 @@ const confirmRemove = (m: Member) => {
     }],
     onTimeout: async () => {
       await removeMember(m.id)
-      members.value = members.value.filter(x => x.id !== m.id)
+      membersState.members.value = membersState.members.value.filter(x => x.id !== m.id)
     },
   })
 }
@@ -206,7 +201,7 @@ const ROLE_BADGE: Record<string, BadgeVariant> = {
 const roleBadgeVariant = (role: string): BadgeVariant => ROLE_BADGE[role] ?? 'neutral'
 
 // ── Cancel invitation ─────────────────────────────────────────────────────────
-const cancelInvite = async (inv: Invitation) => {
+const cancelInvite = async (inv: { id: string }) => {
   await cancelInvitation(inv.id)
   pendingInvitations.value = pendingInvitations.value.filter(i => i.id !== inv.id)
 }

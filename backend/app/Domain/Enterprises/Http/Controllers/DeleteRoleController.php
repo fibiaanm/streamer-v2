@@ -2,6 +2,7 @@
 
 namespace App\Domain\Enterprises\Http\Controllers;
 
+use App\Domain\Enterprises\Events\RoleDeleted;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleBaseImmutableException;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleHasMembersException;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleNotFoundException;
@@ -40,6 +41,7 @@ class DeleteRoleController
                 throw new EnterpriseRoleHasMembersException();
             }
 
+            event(new RoleDeleted($enterprise, $role));
             $role->permissions()->detach();
             $role->delete();
 
@@ -48,7 +50,7 @@ class DeleteRoleController
         } catch (EnterpriseRoleNotFoundException | EnterpriseRoleBaseImmutableException | EnterpriseRoleHasMembersException $e) {
             return ResponseFormatter::error($e);
         } catch (Throwable $e) {
-            Log::error('enterprises.delete_role_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.delete_role_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

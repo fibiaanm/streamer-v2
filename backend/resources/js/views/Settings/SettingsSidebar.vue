@@ -1,5 +1,5 @@
 <template>
-  <nav class="w-52 shrink-0 flex flex-col gap-0.5 pt-1">
+  <nav class="w-52 shrink-0 flex flex-col gap-0.5 pt-1 sticky top-[5.75rem]">
     <SettingsSidebarItem
       v-for="item in items"
       :key="item.nav"

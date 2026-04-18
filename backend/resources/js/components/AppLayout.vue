@@ -1,5 +1,5 @@
 <template>
-  <div class="dark">
+  <div :class="{ dark: isDark }">
     <PageBackground>
       <div class="h-screen overflow-y-auto">
 
@@ -25,4 +25,7 @@
 <script setup lang="ts">
 import PageBackground from '@/components/PageBackground.vue'
 import AppHeader      from '@/components/AppHeader.vue'
+import { useTheme }   from '@/composables/core/useTheme'
+
+const { isDark } = useTheme()
 </script>

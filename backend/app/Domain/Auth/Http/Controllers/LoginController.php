@@ -28,7 +28,7 @@ class LoginController
 
         } catch (Throwable $e) {
             Log::error('auth.login_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

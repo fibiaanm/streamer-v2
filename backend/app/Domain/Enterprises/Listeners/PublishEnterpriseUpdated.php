@@ -22,7 +22,7 @@ class PublishEnterpriseUpdated
                 ],
             ]));
         } catch (Throwable $e) {
-            Log::error('enterprises.publish_updated_failed', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.publish_updated_failed', ['exception' => $e]);
         }
     }
 }

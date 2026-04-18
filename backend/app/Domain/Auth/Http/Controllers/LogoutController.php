@@ -27,7 +27,7 @@ class LogoutController
 
         } catch (Throwable $e) {
             Log::error('auth.logout_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

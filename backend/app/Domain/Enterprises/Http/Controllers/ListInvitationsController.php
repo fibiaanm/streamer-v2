@@ -27,7 +27,7 @@ class ListInvitationsController
             return ResponseFormatter::success(InvitationResource::collection($invitations));
 
         } catch (Throwable $e) {
-            Log::error('enterprises.list_invitations_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.list_invitations_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

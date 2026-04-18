@@ -4,12 +4,12 @@
       <UserMenu />
     </template>
 
-    <div class="flex items-start p-6 gap-6" style="height: calc(100vh - 4.5rem)">
+    <div class="flex items-start p-6 gap-6">
 
       <SettingsSidebar />
 
       <!-- Content -->
-      <div class="flex-1 h-full rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
+      <div class="flex-1 rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
         <EnterprisePanel v-if="activeNav === 'enterprise'" />
         <MembersPanel   v-else-if="activeNav === 'members'" />
         <RolesPanel     v-else-if="activeNav === 'roles'" />

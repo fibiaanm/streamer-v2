@@ -44,6 +44,39 @@ export interface EnterpriseUpdatedPayload {
   name: string
 }
 
+export interface MemberRemovedPayload {
+  id: string
+}
+
+export interface MemberKickedPayload {
+  enterpriseId: string
+  enterpriseName: string
+}
+
+export interface InvitationCreatedPayload {
+  id: string
+  email: string
+  status: 'pending'
+  expires_at: string
+  role: { id: string; name: string }
+  invited_by: { id: string; name: string }
+}
+
+export interface InvitationCancelledPayload {
+  id: string
+}
+
+export interface RoleSocketPayload {
+  id:          string
+  name:        string
+  is_global:   boolean
+  permissions: string[]
+}
+
+export interface RoleDeletedPayload {
+  id: string
+}
+
 export interface ApiError {
   code: string
   context?: Record<string, unknown>

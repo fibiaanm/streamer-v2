@@ -27,7 +27,7 @@ class ListRolesController
             return ResponseFormatter::success(RoleResource::collection($roles));
 
         } catch (Throwable $e) {
-            Log::error('enterprises.list_roles_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.list_roles_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

@@ -11,6 +11,9 @@
       class="shrink-0"
       :class="iconClass"
     />
+    <span v-else-if="$slots.icon" class="shrink-0 flex items-center" :class="iconClass">
+      <slot name="icon" />
+    </span>
     <span class="truncate">
       <slot />
     </span>

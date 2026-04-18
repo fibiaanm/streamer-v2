@@ -24,6 +24,10 @@
       <AppDropdownItem icon="ui/settings" @click="goToSettings">
         Configuración
       </AppDropdownItem>
+      <AppDropdownItem @click="toggle">
+        <template #icon><SunMoonIcon :moon="isDark" /></template>
+        {{ isDark ? 'Modo claro' : 'Modo oscuro' }}
+      </AppDropdownItem>
     </div>
 
     <!-- Destructive -->
@@ -44,14 +48,17 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import AppDropdown     from '@/components/AppDropdown.vue'
 import AppDropdownItem from '@/components/AppDropdownItem.vue'
-import { useSession } from '@/composables/core/useSession'
+import SunMoonIcon     from '@/components/SunMoonIcon.vue'
+import { useSession }        from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
-import { useApi } from '@/lib/api'
+import { useApi }            from '@/lib/api'
+import { useTheme }          from '@/composables/core/useTheme'
 
 const router          = useRouter()
 const session         = useSession()
 const enterpriseStore = useEnterpriseStore()
 const api             = useApi()
+const { isDark, toggle } = useTheme()
 
 const user = session.user
 

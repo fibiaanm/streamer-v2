@@ -15,7 +15,10 @@ class EnterprisePermissionSeeder extends Seeder
             'enterprise.members.view',
             'enterprise.members.invite',
             'enterprise.members.remove',
-            'enterprise.roles.manage',        // solo owner puede gestionar roles base
+            'enterprise.roles.add',
+            'enterprise.roles.edit',
+            'enterprise.roles.remove',
+            'enterprise.roles.assign',
             'enterprise.billing.view',
             'enterprise.billing.manage',
             'workspace.create',

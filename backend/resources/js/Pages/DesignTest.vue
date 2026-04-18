@@ -24,7 +24,7 @@
                    border border-slate-200 dark:border-white/8 transition-all cursor-pointer"
             @click="isDark = !isDark"
           >
-            <span>{{ isDark ? '☀' : '🌙' }}</span>
+            <SunMoonIcon :moon="isDark" />
             <span>{{ isDark ? 'Light mode' : 'Dark mode' }}</span>
           </button>
         </template>
@@ -351,6 +351,7 @@ import AppBadge          from '@/components/AppBadge.vue'
 import AppTag            from '@/components/AppTag.vue'
 import AppInput          from '@/components/AppInput.vue'
 import AppToastContainer from '@/components/AppToastContainer.vue'
+import SunMoonIcon    from '@/components/SunMoonIcon.vue'
 import SectionHeader from './DesignTest/SectionHeader.vue'
 import PaletteRow    from './DesignTest/PaletteRow.vue'
 import SemanticSwatch from './DesignTest/SemanticSwatch.vue'

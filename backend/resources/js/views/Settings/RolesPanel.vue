@@ -1,10 +1,10 @@
 <template>
-  <div class="h-full flex flex-col p-8 gap-6 overflow-y-auto">
+  <div class="flex flex-col p-8 gap-6">
 
     <!-- Header -->
     <div class="flex items-center justify-between">
       <p class="text-xs text-white/30">{{ customRoles.length }} rol{{ customRoles.length !== 1 ? 'es' : '' }} personalizados</p>
-      <AppButton v-if="canManageRoles" size="sm" icon="ui/plus" @click="openCreate">
+      <AppButton v-if="canAddRoles" size="sm" icon="ui/plus" @click="openCreate">
         Nuevo rol
       </AppButton>
     </div>
@@ -21,14 +21,16 @@
           <p class="text-xs text-white/30 truncate">{{ role.permissions.length }} permiso{{ role.permissions.length !== 1 ? 's' : '' }}</p>
         </div>
 
-        <div v-if="canManageRoles" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div v-if="canEditRoles || canRemoveRoles" class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
+            v-if="canEditRoles"
             class="p-1.5 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/8 transition-colors cursor-pointer"
             @click="openEdit(role)"
           >
             <AppIcon name="ui/pencil" size="sm" />
           </button>
           <button
+            v-if="canRemoveRoles"
             class="p-1.5 rounded-lg text-white/30 hover:text-rose-400 hover:bg-white/8 transition-colors cursor-pointer"
             @click="confirmDelete(role)"
           >
@@ -73,30 +75,30 @@
 import { ref, computed, onMounted } from 'vue'
 import { usePermissions } from '@/composables/core/usePermissions'
 import { useRolesApi } from '@/composables/api/useRolesApi'
+import { useRolesState } from '@/composables/core/useRolesState'
+import { useRolesSync } from '@/composables/core/useRolesSync'
 import { useToasts } from '@/composables/core/useToasts'
 import type { Role } from '@/composables/api/useRolesApi'
-import AppButton    from '@/components/AppButton.vue'
-import AppBadge     from '@/components/AppBadge.vue'
-import AppIcon      from '@/components/AppIcon.vue'
+import AppButton     from '@/components/AppButton.vue'
+import AppBadge      from '@/components/AppBadge.vue'
+import AppIcon       from '@/components/AppIcon.vue'
 import RoleEditModal from './RoleEditModal.vue'
 
-const { canManageRoles }                       = usePermissions()
-const { listRoles, listPermissions, deleteRole } = useRolesApi()
-const { add: addToast }                        = useToasts()
+const { canAddRoles, canEditRoles, canRemoveRoles } = usePermissions()
+const { deleteRole }      = useRolesApi()
+const { add: addToast }   = useToasts()
 
-const roles                = ref<Role[]>([])
-const availablePermissions = ref<string[]>([])
-const modalOpen            = ref(false)
-const editingRole          = ref<Role | null>(null)
+const rolesState = useRolesState()
+const { roles, availablePermissions } = rolesState
+useRolesSync(rolesState)
+
+onMounted(rolesState.loadData)
+
+const modalOpen   = ref(false)
+const editingRole = ref<Role | null>(null)
 
 const customRoles = computed(() => roles.value.filter(r => !r.is_global))
 const baseRoles   = computed(() => roles.value.filter(r => r.is_global))
-
-onMounted(async () => {
-  const [rolesRes, permsRes] = await Promise.all([listRoles(), listPermissions()])
-  roles.value                = rolesRes.data.data
-  availablePermissions.value = permsRes.data.data
-})
 
 const openCreate = () => { editingRole.value = null; modalOpen.value = true }
 const openEdit   = (role: Role) => { editingRole.value = role; modalOpen.value = true }
@@ -110,7 +112,6 @@ const onSaved = (saved: Role) => {
 async function confirmDelete(role: Role) {
   try {
     await deleteRole(role.id)
-    roles.value = roles.value.filter(r => r.id !== role.id)
     addToast({ type: 'success', title: 'Rol eliminado', duration: 3000 })
   } catch {
     addToast({ type: 'error', title: 'No se pudo eliminar', message: 'El rol puede tener miembros asignados.', duration: 5000 })

@@ -25,7 +25,7 @@ class ListMembersController
             return ResponseFormatter::success(MemberResource::collection($members));
 
         } catch (Throwable $e) {
-            Log::error('enterprises.list_members_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.list_members_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

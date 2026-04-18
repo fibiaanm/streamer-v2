@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col p-8 gap-6 overflow-y-auto">
+  <div class="flex flex-col p-8 gap-6">
 
     <div class="space-y-1">
       <h2 class="text-sm font-semibold text-white/70">Empresa</h2>

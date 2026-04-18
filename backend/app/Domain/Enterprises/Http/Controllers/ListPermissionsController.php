@@ -19,7 +19,7 @@ class ListPermissionsController
             return ResponseFormatter::success($permissions->values()->all());
 
         } catch (Throwable $e) {
-            Log::error('enterprises.list_permissions_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.list_permissions_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

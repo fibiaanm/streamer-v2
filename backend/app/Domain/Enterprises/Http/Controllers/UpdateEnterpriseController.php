@@ -27,7 +27,7 @@ class UpdateEnterpriseController
             return ResponseFormatter::success(['name' => $enterprise->name]);
 
         } catch (Throwable $e) {
-            Log::error('enterprises.update_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.update_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

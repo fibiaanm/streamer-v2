@@ -1,7 +1,18 @@
 <template>
   <div class="dark">
     <PageBackground>
-      <div class="min-h-screen flex items-center justify-center px-6">
+      <AppHeader>
+        <template #right>
+          <button
+            class="text-xs text-white/40 hover:text-white/70 transition-colors cursor-pointer"
+            @click="logout"
+          >
+            Cerrar sesión
+          </button>
+        </template>
+      </AppHeader>
+
+      <div class="min-h-[calc(100vh-4rem)] flex items-center justify-center px-6">
         <div class="glass-auth w-full max-w-sm rounded-2xl p-8 space-y-6">
 
           <div class="space-y-1">
@@ -39,7 +50,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import PageBackground from '@/components/PageBackground.vue'
-import { useApi } from '@/lib/api'
+import AppHeader      from '@/components/AppHeader.vue'
+import { useApi }            from '@/lib/api'
+import { useSession }        from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
 
 interface EnterpriseOption {
@@ -49,6 +62,7 @@ interface EnterpriseOption {
 }
 
 const api             = useApi()
+const session         = useSession()
 const enterpriseStore = useEnterpriseStore()
 
 const loading     = ref(true)
@@ -70,5 +84,15 @@ onMounted(async () => {
 function select(id: string) {
   enterpriseStore.set(id)
   window.location.href = '/app'
+}
+
+async function logout() {
+  try {
+    await api.post('/auth/logout')
+  } finally {
+    session.clear()
+    enterpriseStore.clear()
+    window.location.href = '/login'
+  }
 }
 </script>

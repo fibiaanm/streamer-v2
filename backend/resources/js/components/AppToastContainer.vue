@@ -235,6 +235,8 @@ const cardStyle = (id: string, i: number): CSSProperties => {
 const handleRemove = (id: string) => {
   if (leavingIds.value.includes(id)) return
 
+  const toast = toasts.value.find(t => t.id === id)
+
   // Snapshot the card's current position so it slides from the right place
   const idx = toasts.value.findIndex(t => t.id === id)
   if (idx !== -1) {
@@ -244,6 +246,7 @@ const handleRemove = (id: string) => {
   leavingIds.value = [...leavingIds.value, id]
 
   setTimeout(() => {
+    toast?.onRemove?.()
     remove(id)
     leavingIds.value = leavingIds.value.filter(x => x !== id)
     delete leavingStyles.value[id]

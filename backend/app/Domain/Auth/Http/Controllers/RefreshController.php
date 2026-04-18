@@ -28,7 +28,7 @@ class RefreshController
 
         } catch (Throwable $e) {
             Log::error('auth.refresh_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

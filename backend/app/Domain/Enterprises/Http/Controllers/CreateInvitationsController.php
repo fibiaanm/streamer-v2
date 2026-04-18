@@ -3,6 +3,7 @@
 namespace App\Domain\Enterprises\Http\Controllers;
 
 use App\Domain\Enterprises\Application\UseCases\SendEnterpriseInvitationsUseCase;
+use App\Domain\Enterprises\Events\InvitationCreated;
 use App\Domain\Enterprises\Http\Resources\InvitationResource;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\Invitation;
@@ -39,12 +40,16 @@ class CreateInvitationsController
                 ->with(['enterpriseRole', 'invitedBy'])
                 ->get();
 
+            foreach ($invitations as $invitation) {
+                event(new InvitationCreated($enterprise, $invitation));
+            }
+
             return ResponseFormatter::created(
                 InvitationResource::collection($invitations)->resolve(),
             );
 
         } catch (Throwable $e) {
-            Log::error('enterprises.create_invitations_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.create_invitations_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

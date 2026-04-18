@@ -16,6 +16,13 @@ trait HasHashId
         return HashId::encode((int) $this->getKey());
     }
 
+    public static function findByHashId(string $hashId): static|null
+    {
+        $id = HashId::decode($hashId);
+
+        return $id !== null ? static::find($id) : null;
+    }
+
     public function getRouteKey(): string
     {
         return $this->getHashId();

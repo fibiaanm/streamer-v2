@@ -2,6 +2,7 @@
 
 namespace App\Domain\Enterprises\Http\Controllers;
 
+use App\Domain\Enterprises\Events\MemberRemoved;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\EnterpriseMember;
 use Illuminate\Http\JsonResponse;
@@ -39,10 +40,12 @@ class RemoveMemberController
 
             $target->update(['status' => 'suspended']);
 
+            event(new MemberRemoved($enterprise, $target));
+
             return ResponseFormatter::noContent();
 
         } catch (Throwable $e) {
-            Log::error('enterprises.remove_member_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.remove_member_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

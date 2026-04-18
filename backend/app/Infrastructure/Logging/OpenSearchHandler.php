@@ -41,18 +41,40 @@ class OpenSearchHandler extends AbstractProcessingHandler
         }
     }
 
-    /**
-     * Ensure context values are scalar or simple arrays so OpenSearch
-     * doesn't reject the document due to dynamic mapping conflicts.
-     */
     private function normalizeContext(array $context): array
     {
         $normalized = [];
         foreach ($context as $key => $value) {
-            $normalized[(string) $key] = is_scalar($value) || is_null($value)
-                ? $value
-                : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $normalized[(string) $key] = $this->normalizeValue($value);
         }
         return $normalized;
+    }
+
+    private function normalizeValue(mixed $value, int $depth = 0): mixed
+    {
+        if ($depth > 5) {
+            return '[max depth]';
+        }
+
+        if (is_null($value) || is_scalar($value)) {
+            return $value;
+        }
+
+        if ($value instanceof Throwable) {
+            return sprintf(
+                '%s: %s in %s:%d',
+                get_class($value),
+                $value->getMessage(),
+                $value->getFile(),
+                $value->getLine(),
+            );
+        }
+
+        if (is_array($value)) {
+            return array_map(fn ($v) => $this->normalizeValue($v, $depth + 1), $value);
+        }
+
+        $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $encoded !== false ? $encoded : '[unserializable]';
     }
 }

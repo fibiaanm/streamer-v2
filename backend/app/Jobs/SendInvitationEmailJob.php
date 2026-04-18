@@ -47,7 +47,7 @@ class SendInvitationEmailJob implements ShouldQueue
     {
         Log::warning('send_invitation_email.failed', [
             'invitation_id' => $this->invitationId,
-            'exception'     => $exception->getMessage(),
+            'exception'     => $exception,
         ]);
     }
 }

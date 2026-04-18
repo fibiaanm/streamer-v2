@@ -2,6 +2,7 @@
 
 namespace App\Domain\Enterprises\Http\Controllers;
 
+use App\Domain\Enterprises\Events\InvitationCancelled;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\Enterprise;
 use App\Models\Invitation;
@@ -32,10 +33,12 @@ class CancelInvitationController
 
             $invitation->update(['status' => 'revoked']);
 
+            event(new InvitationCancelled($enterprise, $invitation));
+
             return ResponseFormatter::noContent();
 
         } catch (Throwable $e) {
-            Log::error('enterprises.cancel_invitation_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.cancel_invitation_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

@@ -18,7 +18,7 @@ class MeController
 
         } catch (Throwable $e) {
             Log::error('auth.me_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

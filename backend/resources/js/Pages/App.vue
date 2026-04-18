@@ -11,6 +11,7 @@ import { useSession } from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
 import { useSocket } from '@/composables/core/useSocket'
 import { useEnterpriseSync } from '@/composables/core/useEnterpriseSync'
+import { useUserSync } from '@/composables/core/useUserSync'
 import { useApi } from '@/lib/api'
 import type { SessionUser } from '@/types'
 
@@ -20,6 +21,7 @@ const enterpriseStore = useEnterpriseStore()
 const api             = useApi()
 const { connect } = useSocket()
 useEnterpriseSync()
+useUserSync()
 
 onMounted(async () => {
   if (!enterpriseStore.activeEnterpriseId) {

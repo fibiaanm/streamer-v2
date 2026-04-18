@@ -19,7 +19,11 @@ export const usePermissions = () => {
   const canViewMembers   = computed(() => can('enterprise.members.view') && haveATeam.value)
   const canInviteMembers = computed(() => can('enterprise.members.invite'))
   const canRemoveMembers = computed(() => can('enterprise.members.remove'))
-  const canManageRoles   = computed(() => can('enterprise.roles.manage') && haveATeam.value)
+  const canAddRoles      = computed(() => can('enterprise.roles.add') && haveATeam.value)
+  const canEditRoles     = computed(() => can('enterprise.roles.edit') && haveATeam.value)
+  const canRemoveRoles   = computed(() => can('enterprise.roles.remove') && haveATeam.value)
+  const canAssignRoles   = computed(() => can('enterprise.roles.assign') && haveATeam.value)
+  const canManageRoles   = computed(() => (canAddRoles.value || canEditRoles.value || canRemoveRoles.value) && haveATeam.value)
   const canViewBilling   = computed(() => can('enterprise.billing.view'))
 
   return {
@@ -31,6 +35,10 @@ export const usePermissions = () => {
     canViewMembers,
     canInviteMembers,
     canRemoveMembers,
+    canAddRoles,
+    canEditRoles,
+    canRemoveRoles,
+    canAssignRoles,
     canManageRoles,
     canViewBilling,
   }

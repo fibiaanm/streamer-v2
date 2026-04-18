@@ -14,6 +14,7 @@ export interface Toast {
   duration?: number      // ms — undefined = no auto-dismiss
   actions?: ToastAction[]
   onTimeout?: () => void // se ejecuta si el timer llega a cero; no corre si el usuario cancela
+  onRemove?: () => void  // se ejecuta siempre que el toast desaparece (timeout o cierre manual)
 }
 
 export type ToastInput = Omit<Toast, 'id'>

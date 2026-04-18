@@ -2,6 +2,7 @@
 
 namespace App\Domain\Enterprises\Http\Controllers;
 
+use App\Domain\Enterprises\Events\RoleUpdated;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleBaseImmutableException;
 use App\Domain\Enterprises\Exceptions\EnterpriseRoleNotFoundException;
 use App\Domain\Enterprises\Http\Resources\RoleResource;
@@ -49,13 +50,14 @@ class UpdateRoleController
             }
 
             $role->load('permissions');
+            event(new RoleUpdated($enterprise, $role));
 
             return ResponseFormatter::success(new RoleResource($role));
 
         } catch (EnterpriseRoleNotFoundException | EnterpriseRoleBaseImmutableException $e) {
             return ResponseFormatter::error($e);
         } catch (Throwable $e) {
-            Log::error('enterprises.update_role_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.update_role_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }

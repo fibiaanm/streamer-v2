@@ -15,6 +15,7 @@ class ProfileController
             $user = auth()->user();
 
             $enterprises = $user->enterpriseMembers()
+                ->where('status', 'active')
                 ->with('enterprise')
                 ->get()
                 ->map(fn ($member) => [
@@ -32,7 +33,7 @@ class ProfileController
 
         } catch (Throwable $e) {
             Log::error('auth.profile_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

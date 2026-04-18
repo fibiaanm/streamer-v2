@@ -129,20 +129,89 @@ Variables que consume: `JWT_SECRET`, `REDIS_HOST`, `REDIS_PORT`, `PORT`, `LOG_LE
 
 ## Eventos emitidos al cliente
 
-| Evento | Payload | Disponible desde |
-|---|---|---|
-| `enterprise.role_updated` | `{ userId, roleId }` | etapa 09 |
-| `workspace.member_added` | member object | etapa 08 |
-| `workspace.asset_created` | asset object | etapa 09 |
-| `room.participant_joined` | participant object | etapa 10 |
-| `presence.joined` | `{ userId, name }` | etapa 10 |
-| `presence.left` | `{ userId, name }` | etapa 10 |
-| `presence.list` | `[{ userId, name }]` | etapa 10 |
-| `message.created` | message object | etapa 11 |
-| `message.updated` | message object | etapa 11 |
-| `message.deleted` | `{ id }` | etapa 11 |
-| `stream.started` | stream object | etapa 13 |
-| `stream.ended` | `{ streamId }` | etapa 13 |
+| Evento | Canal | Payload | Disponible desde |
+|---|---|---|---|
+| `enterprise.updated` | `enterprise.{id}` | `{ id, name }` | etapa 09 |
+| `member.removed` | `enterprise.{id}` + `user.{id}` | `{ id }` | etapa 09 |
+| `member.kicked` | `user.{id}` | `{ enterpriseId, enterpriseName }` | etapa 09 |
+| `invitation.created` | `enterprise.{id}` | invitation object | etapa 09 |
+| `invitation.cancelled` | `enterprise.{id}` | `{ id }` | etapa 09 |
+| `role.created` | `enterprise.{id}` | role object | etapa 09 |
+| `role.updated` | `enterprise.{id}` + `user.{id}` (afectados) | role object | etapa 09 |
+| `role.deleted` | `enterprise.{id}` | `{ id }` | etapa 09 |
+| `room.participant_joined` | `room.{id}` | participant object | etapa 10 |
+| `presence.joined` | `room.{id}` | `{ userId, name }` | etapa 10 |
+| `presence.left` | `room.{id}` | `{ userId, name }` | etapa 10 |
+| `message.created` | `room.{id}` | message object | etapa 11 |
+| `message.updated` | `room.{id}` | message object | etapa 11 |
+| `message.deleted` | `room.{id}` | `{ id }` | etapa 11 |
+| `stream.started` | `room.{id}` | stream object | etapa 13 |
+| `stream.ended` | `room.{id}` | `{ streamId }` | etapa 13 |
+
+---
+
+## Patrones de suscripción frontend
+
+### 1. Eventos globales de usuario (`useUserSync`)
+
+Para eventos que llegan al canal personal `user.{id}` y afectan la sesión global
+(kick, actualización de permisos de rol, etc.), se usa el patrón `watch(connected)`.
+
+```ts
+// composables/core/useUserSync.ts  — llamado una sola vez en App.vue
+export const useUserSync = () => {
+  const { on, connected } = useSocket()
+  let registered = false
+  watch(connected, (isConnected) => {
+    if (!isConnected || registered) return
+    on('member.kicked', handler)
+    on('role.updated',  handler)
+    registered = true
+  }, { immediate: true })
+}
+```
+
+- El flag `registered` evita duplicar listeners en reconexiones.
+- Los handlers tienen acceso al estado de sesión vía `useSession()` / `useToasts()`.
+
+### 2. Eventos de scope (vistas montadas) — `useScopedSocketEvents`
+
+Para eventos que solo importan mientras una vista específica está montada
+(lista de miembros, lista de roles, etc.) se usa `useScopedSocketEvents`.
+Este helper registra los listeners en `onMounted` y los desregistra en `onUnmounted`.
+
+```ts
+// composables/core/useScopedSocketEvents.ts
+export const useScopedSocketEvents = (handlers: Record<string, (data: unknown) => void>) => {
+  const { on, off } = useSocket()
+  onMounted(()   => Object.entries(handlers).forEach(([e, h]) => on(e, h)))
+  onUnmounted(() => Object.entries(handlers).forEach(([e, h]) => off(e, h)))
+}
+```
+
+### 3. Patrón estado + sync
+
+La convención para dominios con estado reactivo que recibe eventos:
+
+```
+useXState.ts     — ref[] + loadData(), sin sockets
+useXSync.ts      — useScopedSocketEvents, recibe la instancia de state como parámetro
+XPanel.vue       — const state = useXState(); useXSync(state); onMounted(state.loadData)
+```
+
+- `useXState` no es un shared composable: cada vista tiene su propia instancia.
+- `useXSync` recibe el estado como parámetro en lugar de crearlo, para permitir
+  que varios consumidores (vista + modal) compartan el mismo ref.
+
+**Dominios con este patrón:** `members` (MembersPanel), `roles` (RolesPanel).
+
+### 4. Añadir soporte a un nuevo dominio
+
+1. Crear `useXState.ts` con `ref[]` + `loadData()`.
+2. Crear `useXSync.ts` que recibe `ReturnType<typeof useXState>` y llama `useScopedSocketEvents`.
+3. En el backend, crear eventos en `Domain/X/Events/`, listeners en `Domain/X/Listeners/`
+   publicando en `Redis::connection('pubsub')`, y registrarlos en `AppServiceProvider`.
+4. Si el evento afecta la sesión del usuario actual, añadir el handler en `useUserSync`.
 
 ---
 

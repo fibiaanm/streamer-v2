@@ -25,7 +25,7 @@ class RegisterController
 
         } catch (Throwable $e) {
             Log::error('auth.register_unexpected', [
-                'exception' => $e->getMessage(),
+                'exception' => $e,
             ]);
             return ResponseFormatter::serverError();
         }

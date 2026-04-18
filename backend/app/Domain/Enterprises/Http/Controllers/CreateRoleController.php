@@ -2,6 +2,7 @@
 
 namespace App\Domain\Enterprises\Http\Controllers;
 
+use App\Domain\Enterprises\Events\RoleCreated;
 use App\Domain\Enterprises\Http\Resources\RoleResource;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\EnterprisePermission;
@@ -36,11 +37,12 @@ class CreateRoleController
             }
 
             $role->load('permissions');
+            event(new RoleCreated($enterprise, $role));
 
             return ResponseFormatter::created(new RoleResource($role));
 
         } catch (Throwable $e) {
-            Log::error('enterprises.create_role_unexpected', ['exception' => $e->getMessage()]);
+            Log::error('enterprises.create_role_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
     }
