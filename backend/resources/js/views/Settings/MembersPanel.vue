@@ -3,8 +3,10 @@
 
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <p class="text-xs text-white/30">{{ members.length }} miembro{{ members.length !== 1 ? 's' : '' }}</p>
-      <AppButton v-if="canInviteMembers" size="sm" icon="ui/plus">
+      <p class="text-xs text-white/30">
+        {{ members.length }}<template v-if="membersMax !== null"> / {{ membersMax }}</template> miembro{{ members.length !== 1 ? 's' : '' }}
+      </p>
+      <AppButton v-if="canInviteMembers" size="sm" icon="ui/plus" @click="inviteModalOpen = true">
         Invitar
       </AppButton>
     </div>
@@ -14,7 +16,10 @@
       <div
         v-for="m in sortedMembers"
         :key="m.id"
-        class="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/4 transition-colors"
+        class="group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors"
+        :class="(hoveredMemberId === m.id || openMenuId === m.id) ? 'bg-white/4' : ''"
+        @mouseenter="hoveredMemberId = m.id"
+        @mouseleave="hoveredMemberId = null"
       >
         <!-- Avatar -->
         <div :class="['w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0', avatarColor(m.user.name)]">
@@ -32,15 +37,27 @@
           {{ m.role.name }}
         </AppBadge>
 
-        <!-- Remove -->
-        <button
-          v-if="canRemoveMembers && m.role.name !== 'owner'"
-          class="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-white/8 text-white/30 hover:text-rose-400 cursor-pointer"
-          @click="confirmRemove(m)"
+        <!-- Actions: three-dots (only for removable members) -->
+        <AppDropdown
+          v-if="canRemoveMembers && isRemovable(m)"
+          align="right"
+          @update:open="val => openMenuId = val ? m.id : null"
         >
-          <AppIcon name="ui/x" size="sm" />
-        </button>
+          <template #trigger>
+            <button
+              class="transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/40 hover:text-white/70 cursor-pointer"
+              :class="openMenuId === m.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+            >
+              <AppIcon name="ui/more-horizontal" size="sm" />
+            </button>
+          </template>
+          <AppDropdownItem icon="ui/user-x" variant="danger" @click="confirmRemove(m)">
+            Eliminar
+          </AppDropdownItem>
+        </AppDropdown>
+        <!-- Spacer when no dropdown so badge doesn't shift -->
         <div v-else class="w-6 shrink-0" />
+
       </div>
     </div>
 
@@ -72,7 +89,7 @@
           <!-- Cancel -->
           <button
             v-if="canInviteMembers"
-            class="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-white/8 text-white/30 hover:text-rose-400 cursor-pointer"
+            class="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/30 hover:text-rose-400 cursor-pointer"
             @click="cancelInvite(inv)"
           >
             <AppIcon name="ui/x" size="sm" />
@@ -83,36 +100,51 @@
     </template>
 
   </div>
+
+  <InviteMembersModal
+    :is-open="inviteModalOpen"
+    @close="inviteModalOpen = false"
+    @invited="onInvited"
+  />
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { usePermissions } from '@/composables/core/usePermissions'
+import { useSession }     from '@/composables/core/useSession'
+import { useMembersApi }  from '@/composables/api/useMembersApi'
+import { useToasts }      from '@/composables/core/useToasts'
 import type { Member, Invitation } from '@/composables/api/useMembersApi'
-import AppButton from '@/components/AppButton.vue'
-import AppBadge  from '@/components/AppBadge.vue'
-import AppIcon   from '@/components/AppIcon.vue'
+import AppButton          from '@/components/AppButton.vue'
+import AppBadge           from '@/components/AppBadge.vue'
+import AppIcon            from '@/components/AppIcon.vue'
+import AppDropdown        from '@/components/AppDropdown.vue'
+import AppDropdownItem    from '@/components/AppDropdownItem.vue'
+import InviteMembersModal from '@/views/Settings/InviteMembersModal.vue'
 
-const { canInviteMembers, canRemoveMembers } = usePermissions()
+const { canInviteMembers, canRemoveMembers, membersMax } = usePermissions()
+const { listMembers, listInvitations, cancelInvitation, removeMember } = useMembersApi()
+const { user }   = useSession()
+const { add: addToast, remove: removeToast } = useToasts()
 
-// ── Dummy data ───────────────────────────────────────────────────────────────
-const members = ref<Member[]>([
-  { id: '1', status: 'active', user: { id: '1', name: 'Ana García',    email: 'ana@acme.com'    }, role: { id: '1', name: 'owner'  } },
-  { id: '2', status: 'active', user: { id: '2', name: 'Carlos López',  email: 'carlos@acme.com' }, role: { id: '2', name: 'admin'  } },
-  { id: '3', status: 'active', user: { id: '3', name: 'María Torres',  email: 'maria@acme.com'  }, role: { id: '3', name: 'member' } },
-  { id: '4', status: 'active', user: { id: '4', name: 'Pedro Ruiz',    email: 'pedro@acme.com'  }, role: { id: '4', name: 'member' } },
-])
+const members            = ref<Member[]>([])
+const pendingInvitations = ref<Invitation[]>([])
+const inviteModalOpen    = ref(false)
+const openMenuId         = ref<string | null>(null)
+const hoveredMemberId    = ref<string | null>(null)
 
-const pendingInvitations = ref<Invitation[]>([
-  {
-    id: '1',
-    email: 'lucia@acme.com',
-    status: 'pending',
-    expires_at: '2026-04-24T00:00:00Z',
-    role: { id: '3', name: 'member' },
-    invited_by: { id: '1', name: 'Ana García' },
-  },
-])
+const loadData = async () => {
+  const [membersRes, invitationsRes] = await Promise.all([
+    listMembers(),
+    listInvitations(),
+  ])
+  members.value            = membersRes.data.data
+  pendingInvitations.value = invitationsRes.data.data
+}
+
+onMounted(loadData)
+
+const onInvited = () => loadData()
 
 // ── Sorting ──────────────────────────────────────────────────────────────────
 const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, billing: 2, member: 3 }
@@ -124,6 +156,27 @@ const sortedMembers = computed(() =>
     return wa - wb
   }),
 )
+
+// ── Guards ───────────────────────────────────────────────────────────────────
+const isRemovable = (m: Member) =>
+  m.user.id !== user.value?.id && m.role.name !== 'owner'
+
+// ── Remove with undo toast ───────────────────────────────────────────────────
+const confirmRemove = (m: Member) => {
+  const toastId = addToast({
+    type:     'warning',
+    title:    `${m.user.name} será eliminado`,
+    duration: 5000,
+    actions:  [{
+      label:   'Cancelar',
+      onClick: () => removeToast(toastId),
+    }],
+    onTimeout: async () => {
+      await removeMember(m.id)
+      members.value = members.value.filter(x => x.id !== m.id)
+    },
+  })
+}
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
 const AVATAR_COLORS = [
@@ -152,9 +205,11 @@ const ROLE_BADGE: Record<string, BadgeVariant> = {
 }
 const roleBadgeVariant = (role: string): BadgeVariant => ROLE_BADGE[role] ?? 'neutral'
 
-// ── Actions (stubs — conectar con API cuando backend esté listo) ─────────────
-const confirmRemove  = (_m: Member)     => {}
-const cancelInvite   = (_inv: Invitation) => {}
+// ── Cancel invitation ─────────────────────────────────────────────────────────
+const cancelInvite = async (inv: Invitation) => {
+  await cancelInvitation(inv.id)
+  pendingInvitations.value = pendingInvitations.value.filter(i => i.id !== inv.id)
+}
 
 // ── Utils ────────────────────────────────────────────────────────────────────
 const formatExpiry = (iso: string) => {

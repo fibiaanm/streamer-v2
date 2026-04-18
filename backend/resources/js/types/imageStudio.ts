@@ -64,6 +64,7 @@ export interface ImageItem {
   name:          string
   source:        ImageSource
   status:        ImageItemStatus
+  rotation:      number        // 0 | 90 | 180 | 270
   crop?:         CropState
   filters:       FilterState
   exportConfigs: ExportConfig[]

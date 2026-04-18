@@ -13,217 +13,340 @@ Sigue el design system glass morphism documentado en `docs/stages/07-design-stan
 
 ## Objetivo
 
-Subir N imágenes, editarlas individualmente en un canvas (Fabric.js) y exportar cada una
-en una o más configuraciones de formato, tamaño y compresión, descargando todo como un ZIP.
+Subir N imágenes, editarlas individualmente en un canvas (Fabric.js, pendiente) y exportar
+cada una en una o más configuraciones de formato, tamaño y compresión, descargando todo como un ZIP.
 
 ---
 
-## Layout — Split panel
+## Layout — vista única
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  AppHeader: [●  Image Studio]     [Galería] [Exportar]       │
+│  StudioNav: [●  Image Studio]  [N imágenes]                  │
 ├──────────────────┬───────────────────────────────────────────┤
-│                  │                                           │
-│  Image Grid      │  Panel derecho                            │
-│  w-72, scrollable│  Gallery → ImageInfoPanel                 │
-│                  │  Export  → ExportConfigPanel              │
-│  thumbnails con  │                                           │
-│  brand-grid bg   │                                           │
-│  badge de status │                                           │
+│                  │  ImageHero (h-48, preview + nombre)        │
+│  Image Grid      ├───────────────────────────────────────────┤
+│  w-72, scrollable│  ExportConfigPanel                        │
+│                  │  (TransitionGroup de ExportConfigCards)    │
+│  ImageCards      │                                           │
+│  + AddCard       │  — vacío si no hay imagen activa —        │
 │                  │                                           │
 ├──────────────────┴───────────────────────────────────────────┤
-│  Export footer: [ZIP: nombre.zip] · N imgs · M outputs  [↓]  │
+│  [ZIP: nombre.zip]  ·  N imágenes · M outputs  [↓ ZIP]       │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- **Drop zone** abarca toda la página (siempre activo en ambas vistas), con `DropOverlay` visual.
+No hay tabs. El footer ocupa el ancho completo para comunicar que la descarga es global.
+La vista original con `GalleryView` / `ExportView` / `StudioTabs` fue eliminada.
+
+- **Drop zone** abarca toda la página (drag events en `ImageStudio.vue`), con `DropOverlay` visual.
 - **Imagen activa** resaltada en el grid; panel derecho reactivo a ella.
-- **`?view=gallery|export`** en la URL — persiste al recargar.
-- `EditModal` se abre en overlay z-200 al hacer hover+click en el preview.
+- `EditModal` se abre desde el botón en `ImageHero`.
 
 ---
 
-## Vistas
-
-### Gallery view (`/image-studio?view=gallery`)
-- **Izquierda:** grid 2-col de `ImageCard` — brand-grid bg + gradiente placeholder + badge de status.
-  Click para seleccionar. Sin rename inline.
-- **Derecha:** `ImageInfoPanel` — preview 16:9 (hover abre editor con icono + texto), nombre
-  editable con AppIcon `ui/pencil`, grid de metadata (dims, peso, ratio, crop si existe).
-- Sin imagen activa: empty state con instrucción.
-
-### Export view (`/image-studio?view=export`)
-- **Izquierda:** mismo `ImageGrid`.
-- **Derecha:** `ExportConfigPanel` — botón compacto "+ Nueva configuración" arriba, luego
-  grid `xl:grid-cols-2` de `ExportConfigCard` con `TransitionGroup` (nueva aparece arriba, resto anima).
-- **Footer fijo:** input nombre del ZIP + resumen "N imágenes · M outputs" + botón Descargar ZIP.
-
-### EditModal (overlay z-200)
-- **Toolbar izquierdo:** Select (`ui/cursor`), Crop (`ui/crop`), Rotar L/R (`ui/rotate-ccw/cw`).
-- **Canvas central:** brand-grid bg + gradiente placeholder. Overlay de recorte con reglas de
-  tercio cuando herramienta crop está activa.
-- **Panel derecho:** 6 sliders de ajuste (brillo, contraste, saturación, sombras, nitidez, temperatura)
-  + botón "Restablecer".
-
----
-
-## Componentes — estado actual
+## Componentes
 
 ```
 Pages/
-  ImageStudio.vue             ✅ orquestador: vista activa, ImageItem[], drop, zipName
+  ImageStudio.vue               ✅ orquestador: drop, zipName, exportAll, EditModal
   ImageStudio/
-    StudioNav.vue             ✅ AppHeader, lee store directo (sin tabs)
-    DropOverlay.vue           ✅ Teleport overlay con brand-grid y mensaje
-    ImageGrid.vue             ✅ panel w-72, grid 2-col, empty state
-    ImageCard.vue             ✅ brand-grid bg, gradiente 82% opacity, badge status
-    ImageInfoPanel.vue        ✅ nombre editable + metadata compacta en una línea
-    EditModal.vue             ✅ toolbar AppIcon, canvas placeholder, 6 filtros reactivos
-    ExportConfigPanel.vue     ✅ botón compacto arriba, xl:grid-cols-2, TransitionGroup
-    ExportConfigCard.vue      ✅ label editable, formato+resize en 1 fila, sin spinners
+    StudioNav.vue               ✅ AppHeader con título + conteo de imágenes
+    DropOverlay.vue             ✅ overlay visual al arrastrar
+    ImageGrid.vue               ✅ grid 2-col, AddCard con AppImageBox dashed
+    ImageCard.vue               ✅ usa AppImageBox, badge de status o botón × (idle)
+    ImageHero.vue               ✅ preview h-48, máscara inferior, nombre editable + metadata
+    ExportConfigPanel.vue       ✅ botón "+ config", xl:grid-cols-2, TransitionGroup
+    ExportConfigCard.vue        ✅ label, formato, calidad, resize — llama store directamente
+    EditModal.vue               ✅ canvas placeholder (Fabric.js pendiente), 6 filtros
 
-icons/ui/ (nuevos)
-    open-editor.svg           ✅ marco + lápiz
-    gallery.svg               ✅ cuatro cuadrados
-    download.svg              ✅ flecha + línea
-    pencil.svg                ✅ lápiz diagonal
-    cursor.svg                ✅ cursor puntero
-    crop.svg                  ✅ marco de recorte
-    rotate-ccw.svg            ✅ flecha circular izquierda
-    rotate-cw.svg             ✅ flecha circular derecha
+components/
+  AppImageBox.vue               ✅ cuadrado reusable: grid bg, gradiente, overlay inferior,
+                                   slots #action y default
+
+icons/ui/ (nuevos en esta etapa)
+  plus.svg  image.svg  download.svg  pencil.svg  x.svg
+  open-editor.svg  cursor.svg  crop.svg  rotate-ccw.svg  rotate-cw.svg
 
 types/
-  imageStudio.ts              ✅ StudioView, SessionStage, ImageItemStatus,
-                                 ExportFormat, ResizeMode, ImageSource,
-                                 CropState, FilterState, DropPayload, RawImageData,
-                                 ImageItem (name+filters+exportConfigs), ExportConfig
+  imageStudio.ts                ✅ ResizeMode, FilterState, RawImageData, ImageItem, ExportConfig
 
 composables/imageStudio/
-    useImageStore.ts            ✅ singleton module-level: items[], activeItemId, mutations CRUD
+  useImageStore.ts              ✅ singleton module-level (refs fuera de la función)
+  useImageUpload.ts             ✅ File[] → RawImageData[] via FileReader + HTMLImageElement
+  useImageExport.ts             ✅ orquesta jobs → worker pool → zip → descarga → toast
+  exportUtils.ts                ✅ buildFilename, deduplicateNames (funciones puras, testeables)
+
+workers/
+  imageExport.worker.ts         ✅ stateless, un job por mensaje, pool-ready
+  imageExportUtils.ts           ✅ targetDims — exportado para testing, importado por el worker
 ```
+
+**Eliminados:** `GalleryView.vue`, `ExportView.vue`, `StudioTabs.vue`, `ImageInfoPanel.vue`
+
+---
+
+## Store — `useImageStore`
+
+Singleton via refs a nivel de módulo (fuera de la función composable).
+Todos los componentes llaman al store directamente — sin prop-drilling para mutaciones.
+
+```typescript
+// Estado module-level — persiste entre montajes
+const items        = ref<ImageItem[]>([])
+const activeItemId = ref<string | null>(null)
+
+export function useImageStore() {
+  // computed
+  activeItem    // ImageItem | null
+  totalOutputs  // sum de exportConfigs.length
+
+  // mutaciones
+  add(raw: RawImageData[])
+  remove(id: string)
+  setActive(id: string)
+  rename(id: string, name: string)
+  setStatus(id: string, status: ImageItemStatus)
+  setCrop(id: string, crop: CropState | undefined)
+  setFilters(id: string, filters: Partial<FilterState>)
+  addExportConfig(itemId: string)
+  removeExportConfig(itemId: string, configId: string)
+  updateExportConfig(itemId: string, configId: string, patch: Partial<ExportConfig>)
+}
+```
+
+---
+
+## Pipeline de exportación
+
+### Flujo completo
+
+```
+ImageStudio.vue
+  └── handleDownloadZip()
+        └── useImageExport.exportAll(zipName)
+              ├── 1. Snapshot: items × configs → Job[]
+              ├── 2. fetch(dataUrl) → Blob por imagen
+              ├── 3. Worker pool (POOL_SIZE=1, escalable)
+              │     └── imageExport.worker.ts
+              │           ├── createImageBitmap(blob)
+              │           ├── targetDims() → { w, h }
+              │           ├── OffscreenCanvas(w, h)
+              │           ├── ctx.drawImage + convertToBlob({ quality })
+              │           └── postMessage(result, [buffer])  // transferable
+              ├── 4. deduplicateNames() — sufijo (2)(3) antes de la extensión
+              ├── 5. packZip() — JSZip lazy-loaded
+              ├── 6. URL.createObjectURL → <a>.click() → revokeObjectURL
+              └── 7. useToasts — success / warning / error
+```
+
+### Worker pool
+
+El worker es **stateless** — recibe un job, procesa, responde, no guarda estado.
+`POOL_SIZE = 1` en `useImageExport.ts` — aumentar para paralelizar sin cambiar más nada.
+
+```typescript
+const workers = Array.from({ length: Math.min(POOL_SIZE, jobs.length) }, () => new ImageExportWorker())
+// dispatch recluta al worker libre hasta vaciar la queue
+```
+
+### Convención de filename
+
+```
+{config.label || item.name}@{valor}{w|h}.{ext}
+{config.label || item.name}@original.{ext}
+
+# Ejemplos
+hero@original.webp
+thumbnail@200w.jpg
+banner@600h.png
+```
+
+Extensiones: `jpeg → .jpg`, `webp → .webp`, `png → .png`.
+
+### Deduplicación de nombres
+
+Cuando dos configs producen el mismo filename (misma imagen, misma config duplicada),
+el sufijo se inserta **inmediatamente antes de la extensión**:
+
+```
+hero@original.webp
+hero@original(2).webp
+hero@original(3).webp
+```
+
+Implementado en `exportUtils.deduplicateNames()` con un `Map<string, number>` de contadores.
+
+### Toasts de resultado
+
+| Escenario | Tipo | Título | Mensaje | Auto-dismiss |
+|---|---|---|---|---|
+| Todo exportado | `success` | "ZIP listo" | "N archivos exportados" | 4 s |
+| Parcial | `warning` | "Exportación parcial" | "N exportados, M con error" | no |
+| Todo falla | `error` | "Error al exportar" | "No se pudo procesar ninguna imagen" | no |
+
+---
+
+## Librerías pesadas — estrategia de carga
+
+### JSZip
+
+Cargada de forma **lazy** con dynamic import y singleton a nivel de módulo.
+No impacta el bundle inicial — solo se carga la primera vez que el usuario exporta.
+
+```typescript
+// composables/useZip.ts
+type JSZipType = typeof import('jszip')['default']
+
+let _JSZip: JSZipType | null = null
+
+async function loadJSZip(): Promise<JSZipType> {
+  if (!_JSZip) _JSZip = (await import('jszip')).default
+  return _JSZip
+}
+```
+
+La instancia se reutiliza en exportaciones sucesivas sin volver a importar.
+
+### Fabric.js (pendiente)
+
+Seguir el mismo patrón: dynamic import en `useImageCanvas.ts` al abrir `EditModal` por primera vez.
+Fabric es >500 KB — **nunca** importar estático en la ruta principal.
+
+```typescript
+// patrón a seguir en useImageCanvas.ts
+let _fabric: typeof import('fabric') | null = null
+
+async function loadFabric() {
+  if (!_fabric) _fabric = await import('fabric')
+  return _fabric
+}
+```
+
+### Regla general
+
+Cualquier librería de procesamiento (imágenes, canvas, PDF, video) debe cargarse con
+dynamic import en el momento de uso, nunca con `import` estático al nivel del módulo.
+
+---
+
+## Workers y CORS en desarrollo
+
+Los workers requieren que el script se sirva desde el mismo origen que la página.
+En desarrollo (Docker: nginx `:8000` → Vite `:5173`) esto se resuelve con dos cambios:
+
+**`vite.config.ts`** — Vite genera URLs apuntando a `:8000`:
+```typescript
+server: {
+  origin: 'http://localhost:8000',
+}
+```
+
+**`docker/nginx/default.conf`** — nginx proxea los assets de Vite:
+```nginx
+location ~ ^/(@|resources/js|resources/css|node_modules) {
+    proxy_pass http://vite:5173;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+}
+```
+
+Con esto `import.meta.url` en el worker resuelve a `:8000` y no hay error de origen cruzado.
+En producción el worker está en el mismo dominio — sin configuración adicional.
+
+---
+
+## Testing
+
+Framework: **Vitest** + **happy-dom**. Config en `vitest.config.ts`.
+
+```bash
+docker compose exec vite npm test          # run once
+docker compose exec vite npm run test:watch  # watch mode
+docker compose exec vite npm run coverage    # con cobertura v8
+```
+
+### Cobertura actual — 61 tests
+
+| Archivo de test | Qué cubre |
+|---|---|
+| `buildFilename.test.ts` | Extensiones, label/fallback, modos de resize, valores undefined |
+| `targetDims.test.ts` | original/width/height, redondeo, fallback sin resizeValue, upscaling |
+| `deduplicateNames.test.ts` | Sin colisión, sufijos (2)(3), posición antes de extensión, buffers |
+| `useImageStore.test.ts` | add, remove, rename, setStatus, addExportConfig, remove/updateConfig, totalOutputs, activeItem |
+
+**Qué no se testea** (requieren APIs de browser sin valor real en unit):
+- `OffscreenCanvas` / `createImageBitmap` dentro del worker
+- Trigger de descarga DOM
+- JSZip output (librería externa)
+
+### Extracto de funciones puras
+
+Para poder testear sin APIs de browser, las funciones puras están en módulos separados:
+
+- `composables/imageStudio/exportUtils.ts` — `buildFilename`, `deduplicateNames`
+- `workers/imageExportUtils.ts` — `targetDims`
+
+El worker importa `targetDims` desde `imageExportUtils.ts` en lugar de definirla inline.
 
 ---
 
 ## Tipos — `types/imageStudio.ts`
 
 ```typescript
-export type StudioView      = 'gallery' | 'export'
-export type SessionStage    = 'upload' | 'edit' | 'export'
-export type ImageItemStatus = 'idle' | 'editing' | 'exporting' | 'done' | 'error'
-export type ExportFormat    = 'jpeg' | 'webp' | 'png'
+export type ImageItemStatus = 'idle' | 'exporting' | 'done' | 'error'
 export type ResizeMode      = 'original' | 'width' | 'height'
 
-export interface ImageSource {
-  file: File
-  dataUrl: string
-  naturalWidth: number
-  naturalHeight: number
-  sizeBytes: number
+export interface FilterState {
+  brightness: number; contrast: number; saturation: number
+  shadows: number; sharpness: number; temperature: number
 }
 
-export interface CropState {
-  x: number; y: number; width: number; height: number
-}
-
-export interface ResizeOptions {
-  mode: ResizeMode
-  width: number
-  height: number
-  lockAR: boolean
+export interface RawImageData {
+  file: File; dataUrl: string
+  naturalWidth: number; naturalHeight: number; sizeBytes: number
 }
 
 export interface ImageItem {
-  id: string
-  source: ImageSource
-  name: string               // editable, default = file.name sin extensión
-  status: ImageItemStatus
+  id: string; name: string; status: ImageItemStatus
+  source: { file, dataUrl, naturalWidth, naturalHeight, sizeBytes }
   crop?: CropState
+  filters: FilterState
   exportConfigs: ExportConfig[]
 }
 
 export interface ExportConfig {
-  id: string
-  label: string              // nombre editable de la config → base del filename
-  format: ExportFormat
-  quality: number            // 0–100
-  resize: {
-    mode: ResizeMode
-    value?: number           // px — solo si mode !== 'original'
-  }
+  id: string; label: string
+  format: 'jpeg' | 'webp' | 'png'
+  quality: number                // 0–100
+  resize: { mode: ResizeMode; value?: number }
 }
 ```
 
-**Convención de filename al exportar:**
-```
-{config.label || item.name}@{valor}{w|h}.{formato}
-{config.label || item.name}@original.{formato}
-
-# Ejemplos
-web-optimizado@original.webp
-miniatura@200w.jpeg
-alto-600px@600h.jpeg
-```
-
 ---
 
-## Dependencias pendientes de instalar
+## Fases
 
-```bash
-npm install fabric jszip
-npm install --save-dev @types/fabric
-```
+### Fase 1 — Vistas y diseño ✅
 
----
+Layout single-view, todos los componentes, design system glass, iconos SVG.
 
-## Fases de implementación
+### Fase 2 — Upload y store ✅
 
-### Fase 1 — Vistas y diseño ✅ COMPLETADA
+`useImageStore` singleton, `useImageUpload`, drag-drop funcional, file picker, sin dummy data.
 
-- [x] Ruta `/image-studio` en `routes.ts` y `web.php`
-- [x] `ImageStudio.vue` — orquestador, drop global, query param `?view=`
-- [x] `StudioNav.vue` + `StudioTabs.vue` — tabs con sliding pill animado + AppIcon
-- [x] `DropOverlay.vue` — feedback visual al arrastrar
-- [x] `GalleryView.vue` — split panel, empty state
-- [x] `ExportView.vue` — split panel + footer con nombre ZIP
-- [x] `ImageGrid.vue` + `ImageCard.vue` — brand-grid, gradientes, badges
-- [x] `ImageInfoPanel.vue` — preview clickeable con hover overlay, nombre editable, metadata
-- [x] `ExportConfigPanel.vue` — TransitionGroup, grid xl:2-col, botón compacto arriba
-- [x] `ExportConfigCard.vue` — label editable, layout compacto, sin spinners en input
-- [x] `EditModal.vue` — canvas placeholder, toolbar con AppIcon, 6 filtros, crop overlay
-- [x] 8 iconos SVG en `icons/ui/`
-- [x] Tipos completos en `types/imageStudio.ts`
+### Fase 3 — Editor Fabric.js ⏳
 
-### Fase 2 — Upload y queue ⏳ PENDIENTE
+- [ ] `useImageCanvas.ts` — Fabric.js lazy-loaded al abrir EditModal
+- [ ] Herramienta Select, Crop, Rotación 90°
+- [ ] Filtros conectados a sliders (`fabric.Image.filters.*`)
+- [ ] Persistir `CropState` + filtros en `ImageItem`
 
-- [x] `useImageStore.ts` — singleton module-level, dummy data en DEV, todos los métodos de mutación
-- [x] Componentes usan store directamente (sin prop-drilling para mutaciones)
-- [x] `FilterState` y DTOs `DropPayload` / `RawImageData` en tipos
-- [ ] Instalar dependencias: `fabric`, `jszip`, `@types/fabric`
-- [ ] `useImageUpload.ts` — `File[]` → `RawImageData[]` (FileReader, validación mime, dims)
-- [ ] Drop zone funcional — conectar drag events de `ImageStudio.vue` a `useImageUpload` + `store.add()`
-- [ ] File picker como alternativa al drag (input `type="file"` oculto)
-- [ ] Reemplazar dummy data en DEV por drop/picker real
+### Fase 4 — Export y ZIP ✅
 
-### Fase 3 — Editor Fabric.js ⏳ PENDIENTE
-
-- [ ] `useImageCanvas.ts` — instanciar Fabric.js en `EditModal`, cargar imagen activa
-- [ ] Herramienta Select: mover/escalar objetos en canvas
-- [ ] Herramienta Crop: rect interactivo con handles, aplicar recorte
-- [ ] Rotación: 90° izquierda / derecha
-- [ ] Filtros: conectar sliders del panel a `fabric.Image.filters.*`
-  (Brightness, Contrast, Saturation, Shadows, Convolute para nitidez, temperatura custom)
-- [ ] Persistir `CropState` + estado de filtros en `ImageItem` al guardar
-
-### Fase 4 — Export y ZIP ⏳ PENDIENTE
-
-- [ ] `useExportConfigs.ts` — CRUD de `ExportConfig[]` por item (extraer de orquestador)
-- [ ] `useImageExport.ts` — canvas offscreen + `toBlob()` por cada config
-  - Resize via canvas 2D API (respetar `ResizeMode`: width / height / original)
-  - Compresión via parámetro `quality` en `toBlob`
-- [ ] JSZip — empaquetar todos los blobs con naming convention
-- [ ] Trigger descarga del ZIP con nombre configurable
-- [ ] Feedback de progreso durante exportación (status `exporting` en cada item)
+Worker pool, OffscreenCanvas, JSZip lazy, deduplicación, toasts.
 
 ---
 
@@ -232,5 +355,6 @@ npm install --save-dev @types/fabric
 - Composables **no** importan componentes Vue.
 - Componentes **no** se llaman entre sí — todo sube al orquestador.
 - `useImageCanvas` solo conoce el `activeItem`, nunca el array completo.
-- `useImageExport` **no** toca el DOM — trabaja con canvas offscreen (`OffscreenCanvas` o `document.createElement('canvas')`).
-- Lógica de negocio (validación, cálculo de dims, ZIP) vive en composables, nunca en componentes.
+- `useImageExport` **no** toca el DOM directamente (salvo el `<a>.click()` de descarga).
+- Lógica de negocio (cálculo de dims, naming, ZIP) vive en composables/utils, nunca en componentes.
+- Librerías pesadas: **siempre** dynamic import, nunca import estático.

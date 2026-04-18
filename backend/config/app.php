@@ -52,7 +52,8 @@ return [
     |
     */
 
-    'url' => env('APP_URL', 'http://localhost'),
+    'url'          => env('APP_URL', 'http://localhost'),
+    'frontend_url' => env('APP_FRONTEND_URL', env('APP_URL', 'http://localhost')),
 
     'enterprise_header' => env('ENTERPRISE_HEADER', 'X-Enterprise-ID'),
 

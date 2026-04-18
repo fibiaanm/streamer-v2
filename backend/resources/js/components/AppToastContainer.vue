@@ -65,7 +65,7 @@
               <AppToast
                 :toast="toast"
                 :pause-timer="isExpanded || isHovered"
-                :compact="isCompact"
+                :compact="isCompact && toast.id !== visibleToasts.at(-1)?.id"
                 @remove="handleRemove"
               />
             </div>
@@ -247,6 +247,7 @@ const handleRemove = (id: string) => {
     remove(id)
     leavingIds.value = leavingIds.value.filter(x => x !== id)
     delete leavingStyles.value[id]
+    if (toasts.value.length === 0 && leavingIds.value.length === 0) collapse()
   }, LEAVE_MS)
 }
 

@@ -16,20 +16,21 @@ class OpenSearchTransport extends Transport {
   }
 
   log(info: Record<string, unknown>, callback: () => void): void {
-    try {
-      this.client.index({
-        index: `${this.index}-${today()}`,
-        body: {
-          '@timestamp': new Date().toISOString(),
-          service:      'socketio',
-          level:        info['level'],
-          message:      info['message'],
-          context:      info['context'] ?? {},
-        },
-      });
-    } catch {
+    const { level, message, service, ...context } = info;
+
+    this.client.index({
+      index: `${this.index}-${today()}`,
+      body: {
+        '@timestamp': new Date().toISOString(),
+        service:      'socketio',
+        level,
+        message,
+        context,
+      },
+    }).catch(() => {
       // silent fail — OpenSearch down does not affect the service
-    }
+    });
+
     callback();
   }
 }

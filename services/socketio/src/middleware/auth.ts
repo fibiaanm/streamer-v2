@@ -11,8 +11,15 @@ export interface SocketUser {
   exp: number;
 }
 
+function tokenFromCookie(cookieHeader: string | undefined): string | undefined {
+  if (!cookieHeader) return undefined;
+  const match = cookieHeader.match(/(?:^|;\s*)access_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 export function authMiddleware(socket: Socket, next: (err?: Error) => void): void {
-  const raw = socket.handshake.auth?.token as string | undefined;
+  const raw = (socket.handshake.auth?.token as string | undefined)
+    ?? tokenFromCookie(socket.handshake.headers.cookie);
   const token = raw?.replace(/^Bearer\s+/i, '');
 
   if (!token) {

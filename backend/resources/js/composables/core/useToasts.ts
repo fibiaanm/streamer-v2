@@ -11,8 +11,9 @@ export interface Toast {
   type: 'success' | 'error' | 'warning' | 'info'
   title: string
   message?: string
-  duration?: number   // ms — undefined = no auto-dismiss
+  duration?: number      // ms — undefined = no auto-dismiss
   actions?: ToastAction[]
+  onTimeout?: () => void // se ejecuta si el timer llega a cero; no corre si el usuario cancela
 }
 
 export type ToastInput = Omit<Toast, 'id'>

@@ -52,14 +52,20 @@ const dropdownStyle = computed(() => {
   return { top: `${top}px`, left: `${rect.left}px` }
 })
 
+const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+
 const toggle = () => {
   if (!open.value && containerRef.value) {
     anchorRect.value = containerRef.value.getBoundingClientRect()
   }
   open.value = !open.value
+  emit('update:open', open.value)
 }
 
-const close = () => { open.value = false }
+const close = () => {
+  open.value = false
+  emit('update:open', false)
+}
 
 const onClickOutside = (e: MouseEvent) => {
   const target = e.target as Node

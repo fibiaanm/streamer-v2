@@ -8,12 +8,14 @@ import { authMiddleware } from './middleware/auth';
 import { startSubscriber } from './redis/subscriber';
 import { registerRoomHandlers } from './handlers/roomHandler';
 import { registerPresenceHandlers } from './handlers/presenceHandler';
+import { registerEnterpriseHandlers } from './handlers/enterpriseHandler';
 
 const httpServer = http.createServer();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: true,
+    credentials: true,
   },
 });
 
@@ -27,6 +29,7 @@ io.on('connection', (socket) => {
 
   registerRoomHandlers(socket);
   registerPresenceHandlers(socket);
+  registerEnterpriseHandlers(socket);
 
   socket.on('disconnect', (reason) => {
     logger.info('socket.disconnected', { socket_id: socket.id, reason });

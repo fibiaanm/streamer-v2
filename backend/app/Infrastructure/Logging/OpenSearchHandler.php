@@ -30,12 +30,29 @@ class OpenSearchHandler extends AbstractProcessingHandler
                     'level'      => strtolower($record->level->name),
                     'channel'    => $record->channel,
                     'message'    => $record->message,
-                    'context'    => $record->context,
+                    'context'    => $this->normalizeContext($record->context),
                     'extra'      => $record->extra,
                 ],
             ]);
-        } catch (Throwable) {
-            // silent fail — OpenSearch down does not affect the application
+        } catch (Throwable $e) {
+            // OpenSearch down / rejected — never affect the app, but trace to stderr
+            // so the stack channel's stderr handler still captures the original log.
+            error_log('[opensearch-handler] indexing failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Ensure context values are scalar or simple arrays so OpenSearch
+     * doesn't reject the document due to dynamic mapping conflicts.
+     */
+    private function normalizeContext(array $context): array
+    {
+        $normalized = [];
+        foreach ($context as $key => $value) {
+            $normalized[(string) $key] = is_scalar($value) || is_null($value)
+                ? $value
+                : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        return $normalized;
     }
 }

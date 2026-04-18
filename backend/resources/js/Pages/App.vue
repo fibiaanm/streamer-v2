@@ -10,6 +10,7 @@ import AppToastContainer from '@/components/AppToastContainer.vue'
 import { useSession } from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
 import { useSocket } from '@/composables/core/useSocket'
+import { useEnterpriseSync } from '@/composables/core/useEnterpriseSync'
 import { useApi } from '@/lib/api'
 import type { SessionUser } from '@/types'
 
@@ -17,7 +18,8 @@ const ready           = ref(false)
 const session         = useSession()
 const enterpriseStore = useEnterpriseStore()
 const api             = useApi()
-const { connect }     = useSocket()
+const { connect } = useSocket()
+useEnterpriseSync()
 
 onMounted(async () => {
   if (!enterpriseStore.activeEnterpriseId) {

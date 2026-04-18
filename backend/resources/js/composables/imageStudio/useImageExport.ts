@@ -4,6 +4,7 @@ import ImageExportWorker from '@/workers/imageExport.worker.ts?worker'
 import { packZip } from '@/composables/useZip'
 import { useImageStore } from './useImageStore'
 import { buildFilename, deduplicateNames } from './exportUtils'
+import { useToasts } from '@/composables/core/useToasts'
 
 // ─── Pool size — increase to parallelize ─────────────────────────────────────
 
@@ -13,6 +14,7 @@ const POOL_SIZE = 1
 
 export function useImageExport() {
   const store       = useImageStore()
+  const toasts      = useToasts()
   const isExporting = ref(false)
   const progress    = reactive({ done: 0, total: 0 })
 
@@ -39,6 +41,9 @@ export function useImageExport() {
           resizeValue:   cfg.resize.value,
           naturalWidth:  item.source.naturalWidth,
           naturalHeight: item.source.naturalHeight,
+          rotation:      item.rotation ?? 0,
+          cropState:     item.crop,
+          filters:       item.filters,
         })
       }
     }
@@ -105,6 +110,15 @@ export function useImageExport() {
     }
 
     isExporting.value = false
+
+    // ── Toasts ─────────────────────────────────────────────────────────────────
+    if (errors.size === 0) {
+      toasts.add({ type: 'success', title: 'ZIP listo', message: `${results.size} archivo${results.size !== 1 ? 's' : ''} exportado${results.size !== 1 ? 's' : ''}`, duration: 4000 })
+    } else if (results.size > 0) {
+      toasts.add({ type: 'warning', title: 'Exportación parcial', message: `${results.size} exportado${results.size !== 1 ? 's' : ''}, ${errors.size} con error` })
+    } else {
+      toasts.add({ type: 'error', title: 'Error al exportar', message: 'No se pudo procesar ninguna imagen' })
+    }
   }
 
   return { exportAll, isExporting, progress }

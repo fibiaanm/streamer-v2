@@ -34,8 +34,9 @@ export function useImageStore() {
       items.value.push({
         id,
         name,
-        status: 'idle',
-        filters: defaultFilters(),
+        status:   'idle',
+        rotation: 0,
+        filters:  defaultFilters(),
         source: {
           file: r.file,
           dataUrl: r.dataUrl,
@@ -77,6 +78,11 @@ export function useImageStore() {
   function setCrop(id: string, crop: CropState | undefined): void {
     const item = items.value.find(i => i.id === id)
     if (item) item.crop = crop
+  }
+
+  function setRotation(id: string, rotation: number): void {
+    const item = items.value.find(i => i.id === id)
+    if (item) item.rotation = ((rotation % 360) + 360) % 360
   }
 
   function setFilters(id: string, filters: Partial<FilterState>): void {
@@ -121,6 +127,7 @@ export function useImageStore() {
     rename,
     setStatus,
     setCrop,
+    setRotation,
     setFilters,
     addExportConfig,
     removeExportConfig,

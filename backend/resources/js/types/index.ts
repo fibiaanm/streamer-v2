@@ -39,6 +39,11 @@ export interface SessionUser {
   enterprise: Enterprise
 }
 
+export interface EnterpriseUpdatedPayload {
+  id: string
+  name: string
+}
+
 export interface ApiError {
   code: string
   context?: Record<string, unknown>

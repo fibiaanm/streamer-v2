@@ -106,6 +106,7 @@ const startTick = () => {
     progress.value = Math.max(0, (remaining / props.toast.duration!) * 100)
     if (remaining <= 0) {
       stopTick()
+      props.toast.onTimeout?.()
       emit('remove', props.toast.id)
     }
   }, TICK_MS)

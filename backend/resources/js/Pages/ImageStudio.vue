@@ -77,6 +77,7 @@
         </div>
 
         <EditModal :is-open="editorOpen" @close="editorOpen = false" />
+        <AppToastContainer />
       </div>
     </PageBackground>
   </div>
@@ -95,7 +96,8 @@ import DropOverlay       from './ImageStudio/DropOverlay.vue'
 import ImageGrid         from './ImageStudio/ImageGrid.vue'
 import ImageHero         from './ImageStudio/ImageHero.vue'
 import ExportConfigPanel from './ImageStudio/ExportConfigPanel.vue'
-import EditModal         from './ImageStudio/EditModal.vue'
+import EditModal              from './ImageStudio/EditModal.vue'
+import AppToastContainer from '@/components/AppToastContainer.vue'
 
 const store              = useImageStore()
 const { exportAll, isExporting, progress } = useImageExport()

@@ -5,7 +5,7 @@
         v-if="isOpen && item"
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
       >
-        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm" @click="emit('close')" />
+        <div class="absolute inset-0 bg-black/75 backdrop-blur-sm" @click="handleClose" />
 
         <div class="relative glass rounded-2xl w-full max-w-6xl flex flex-col overflow-hidden" style="height: 88vh">
 
@@ -14,17 +14,15 @@
             <div class="flex items-center gap-3">
               <button
                 class="flex items-center gap-1.5 text-xs text-white/35 hover:text-white/70 transition-colors cursor-pointer"
-                @click="emit('close')"
+                @click="handleClose"
               >
-                <svg class="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <path d="M9 2L4 7l5 5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+                <AppIcon name="ui/chevron-left" size="sm" />
                 Volver
               </button>
               <div class="w-px h-4 bg-white/10" />
               <span class="text-sm font-semibold text-white/85">{{ item.name }}</span>
             </div>
-            <AppButton variant="primary" size="sm" @click="emit('close')">
+            <AppButton variant="primary" size="sm" @click="handleSave">
               Guardar y cerrar
             </AppButton>
           </div>
@@ -42,7 +40,7 @@
                 :class="activeTool === tool.id
                   ? 'bg-brand-500/20 text-brand-400'
                   : 'text-white/25 hover:text-white/60 hover:bg-white/5'"
-                @click="activeTool = tool.id"
+                @click="onToolClick(tool.id)"
               >
                 <AppIcon :name="tool.icon" size="sm" />
               </button>
@@ -53,6 +51,7 @@
                 title="Rotar izquierda"
                 class="w-9 h-9 rounded-xl flex items-center justify-center
                        text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors cursor-pointer"
+                @click="rotateCCW"
               >
                 <AppIcon name="ui/rotate-ccw" size="sm" />
               </button>
@@ -60,50 +59,73 @@
                 title="Rotar derecha"
                 class="w-9 h-9 rounded-xl flex items-center justify-center
                        text-white/25 hover:text-white/60 hover:bg-white/5 transition-colors cursor-pointer"
+                @click="rotateCW"
               >
                 <AppIcon name="ui/rotate-cw" size="sm" />
               </button>
             </div>
 
-            <!-- Canvas area -->
-            <div class="flex-1 flex items-center justify-center overflow-hidden bg-black/30">
-              <div
-                class="rounded-xl overflow-hidden shadow-2xl border border-white/5 relative"
-                :style="{ width: '640px', height: '360px', ...GRID_BG }"
-              >
-                <!-- Gradient preview -->
-                <div
-                  class="absolute inset-0"
-                  :style="{ background: `linear-gradient(135deg, ${colors[0]} 0%, ${colors[1]} 100%)`, opacity: '0.75' }"
-                />
-
-                <!-- Crop overlay -->
-                <div
-                  v-if="activeTool === 'crop'"
-                  class="absolute inset-8 border-2 border-white/70 rounded"
-                  style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.55)"
-                >
-                  <div class="absolute inset-x-0 top-1/3 h-px bg-white/20" />
-                  <div class="absolute inset-x-0 top-2/3 h-px bg-white/20" />
-                  <div class="absolute inset-y-0 left-1/3 w-px bg-white/20" />
-                  <div class="absolute inset-y-0 left-2/3 w-px bg-white/20" />
-                  <div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-white -mt-px -ml-px" />
-                  <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-white -mt-px -mr-px" />
-                  <div class="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-white -mb-px -ml-px" />
-                  <div class="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-white -mb-px -mr-px" />
-                </div>
-
-                <!-- Dims label -->
-                <div class="absolute bottom-2 left-1/2 -translate-x-1/2">
-                  <span class="px-2 py-0.5 rounded bg-black/50 backdrop-blur-sm text-[10px] font-mono text-white/50">
-                    {{ item.source.naturalWidth }} × {{ item.source.naturalHeight }}
-                  </span>
-                </div>
-              </div>
+            <!-- Preview area -->
+            <div class="flex-1 overflow-hidden bg-[#080d1c] flex items-center justify-center">
+              <img
+                v-if="item"
+                :src="item.source.dataUrl"
+                :style="previewStyle"
+                class="object-contain select-none pointer-events-none"
+                style="max-width: 85%; max-height: 85%"
+                draggable="false"
+              />
             </div>
 
-            <!-- Filter panel -->
-            <div class="w-60 shrink-0 border-l border-white/8 flex flex-col overflow-hidden">
+            <!-- Right panel -->
+            <div class="w-64 shrink-0 border-l border-white/8 flex flex-col overflow-hidden">
+
+              <!-- Crop panel (only when crop tool active) -->
+              <template v-if="activeTool === 'crop'">
+                <div class="px-4 py-3 border-b border-white/6 shrink-0">
+                  <p class="text-[11px] font-semibold uppercase tracking-widest text-white/30 mb-3">Recorte</p>
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 space-y-1">
+                      <p class="text-[10px] text-white/25">W</p>
+                      <input
+                        type="number"
+                        :value="cropW"
+                        min="1"
+                        class="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5
+                               text-xs text-white/70 outline-none focus:border-brand-500/50
+                               [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                        @change="setCropWidth(+($event.target as HTMLInputElement).value)"
+                      />
+                    </div>
+
+                    <button
+                      :title="aspectLocked ? 'Liberar proporción' : 'Bloquear proporción'"
+                      class="mt-4 w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                      :class="aspectLocked
+                        ? 'bg-brand-500/20 text-brand-400'
+                        : 'text-white/25 hover:text-white/60 hover:bg-white/5'"
+                      @click="toggleAspectLock"
+                    >
+                      <AppIcon :name="aspectLocked ? 'ui/lock' : 'ui/lock-open'" size="xs" />
+                    </button>
+
+                    <div class="flex-1 space-y-1">
+                      <p class="text-[10px] text-white/25">H</p>
+                      <input
+                        type="number"
+                        :value="cropH"
+                        min="1"
+                        class="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5
+                               text-xs text-white/70 outline-none focus:border-brand-500/50
+                               [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                        @change="setCropHeight(+($event.target as HTMLInputElement).value)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Filter panel -->
               <div class="px-4 py-3 border-b border-white/6 shrink-0">
                 <p class="text-[11px] font-semibold uppercase tracking-widest text-white/30">Ajustes</p>
               </div>
@@ -120,7 +142,7 @@
                     type="range" min="-100" max="100"
                     class="w-full h-1 rounded-full cursor-pointer appearance-none bg-white/10"
                     :style="{ accentColor: '#0ea5e9' }"
-                    @change="pushFilters"
+                    @change="persistFilters"
                   />
                 </div>
               </div>
@@ -147,7 +169,7 @@ import { useImageStore } from '@/composables/imageStudio/useImageStore'
 import AppButton from '@/components/AppButton.vue'
 import AppIcon   from '@/components/AppIcon.vue'
 
-type ToolId = 'select' | 'crop'
+type EditorTool = 'select' | 'crop'
 
 const props = defineProps<{ isOpen: boolean }>()
 const emit  = defineEmits<{ close: [] }>()
@@ -155,39 +177,51 @@ const emit  = defineEmits<{ close: [] }>()
 const store = useImageStore()
 const item  = store.activeItem
 
-const activeTool = ref<ToolId>('select')
+// ─── Local editor state ───────────────────────────────────────────────────────
 
-// ─── Brand grid ───────────────────────────────────────────────────────────────
-
-const GRID_BG = {
-  backgroundColor: '#080d1c',
-  backgroundImage: [
-    'linear-gradient(rgba(14,165,233,.07) 1px, transparent 1px)',
-    'linear-gradient(90deg, rgba(14,165,233,.07) 1px, transparent 1px)',
-  ].join(', '),
-  backgroundSize: '24px 24px',
-}
-
-// ─── Gradient ─────────────────────────────────────────────────────────────────
-
-const GRADIENTS: [string, string][] = [
-  ['#0ea5e9', '#0369a1'], ['#06b6d4', '#0e7490'], ['#8b5cf6', '#6d28d9'],
-  ['#10b981', '#059669'], ['#f59e0b', '#d97706'], ['#f43f5e', '#be123c'],
-  ['#6366f1', '#4338ca'], ['#ec4899', '#be185d'],
-]
-
-const colors = computed((): [string, string] => {
-  if (!item.value) return GRADIENTS[0]
-  const sum = [...item.value.id].reduce((a, c) => a + c.charCodeAt(0), 0)
-  return GRADIENTS[sum % GRADIENTS.length]
-})
+const activeTool   = ref<EditorTool>('select')
+const cropDirty    = ref(false)
+const rotation     = ref(0)
+const cropW        = ref(0)
+const cropH        = ref(0)
+const aspectLocked = ref(false)
+let   _ar          = 1   // locked aspect ratio (w / h in natural px)
 
 // ─── Tools ────────────────────────────────────────────────────────────────────
 
-const TOOLS: { id: ToolId; label: string; icon: string }[] = [
+const TOOLS: { id: EditorTool; label: string; icon: string }[] = [
   { id: 'select', label: 'Seleccionar', icon: 'ui/cursor' },
   { id: 'crop',   label: 'Recortar',    icon: 'ui/crop' },
 ]
+
+function onToolClick(id: EditorTool) {
+  activeTool.value = id
+  if (id === 'crop') cropDirty.value = true
+}
+
+// ─── Rotation ─────────────────────────────────────────────────────────────────
+
+function rotateCW()  { rotation.value = (rotation.value + 90) % 360 }
+function rotateCCW() { rotation.value = ((rotation.value - 90) + 360) % 360 }
+
+// ─── Crop ─────────────────────────────────────────────────────────────────────
+
+function setCropWidth(px: number) {
+  if (px < 1) return
+  cropW.value = px
+  if (aspectLocked.value) cropH.value = Math.round(px / _ar)
+}
+
+function setCropHeight(px: number) {
+  if (px < 1) return
+  cropH.value = px
+  if (aspectLocked.value) cropW.value = Math.round(px * _ar)
+}
+
+function toggleAspectLock() {
+  aspectLocked.value = !aspectLocked.value
+  if (aspectLocked.value && cropH.value > 0) _ar = cropW.value / cropH.value
+}
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 
@@ -200,25 +234,64 @@ const FILTERS: { id: keyof FilterState; label: string }[] = [
   { id: 'temperature', label: 'Temperatura' },
 ]
 
-const filterValues = reactive<FilterState>(
-  item.value ? { ...item.value.filters } : { brightness: 0, contrast: 0, saturation: 0, shadows: 0, sharpness: 0, temperature: 0 }
-)
+const ZERO: FilterState = { brightness: 0, contrast: 0, saturation: 0, shadows: 0, sharpness: 0, temperature: 0 }
+const filterValues = reactive<FilterState>({ ...ZERO })
 
-watch(() => item.value?.id, () => {
-  if (!item.value) return
-  Object.assign(filterValues, item.value.filters)
-})
-
-function pushFilters() {
-  if (!item.value) return
-  store.setFilters(item.value.id, { ...filterValues })
+function persistFilters() {
+  if (item.value) store.setFilters(item.value.id, { ...filterValues })
 }
 
 function resetFilters() {
-  const zero: FilterState = { brightness: 0, contrast: 0, saturation: 0, shadows: 0, sharpness: 0, temperature: 0 }
-  Object.assign(filterValues, zero)
-  if (item.value) store.setFilters(item.value.id, zero)
+  Object.assign(filterValues, ZERO)
+  if (item.value) store.setFilters(item.value.id, { ...filterValues })
 }
+
+// ─── CSS preview ──────────────────────────────────────────────────────────────
+
+const previewStyle = computed(() => {
+  const parts: string[] = []
+  if (filterValues.brightness !== 0) parts.push(`brightness(${100 + filterValues.brightness}%)`)
+  if (filterValues.contrast   !== 0) parts.push(`contrast(${100 + filterValues.contrast}%)`)
+  if (filterValues.saturation !== 0) parts.push(`saturate(${100 + filterValues.saturation}%)`)
+  return {
+    transform: rotation.value ? `rotate(${rotation.value}deg)` : undefined,
+    filter:    parts.length ? parts.join(' ') : undefined,
+  }
+})
+
+// ─── Save / close ─────────────────────────────────────────────────────────────
+
+function handleSave() {
+  if (item.value) {
+    store.setFilters(item.value.id, { ...filterValues })
+    store.setRotation(item.value.id, rotation.value)
+    if (cropDirty.value) {
+      store.setCrop(item.value.id, { x: 0, y: 0, width: cropW.value, height: cropH.value })
+    }
+  }
+  emit('close')
+}
+
+function handleClose() {
+  emit('close')
+}
+
+// ─── Lifecycle ────────────────────────────────────────────────────────────────
+
+watch(
+  () => props.isOpen,
+  (open) => {
+    if (open && item.value) {
+      Object.assign(filterValues, item.value.filters)
+      rotation.value     = item.value.rotation ?? 0
+      cropW.value        = item.value.crop?.width  ?? item.value.source.naturalWidth
+      cropH.value        = item.value.crop?.height ?? item.value.source.naturalHeight
+      aspectLocked.value = false
+      cropDirty.value    = false
+      activeTool.value   = 'select'
+    }
+  },
+)
 </script>
 
 <style scoped>
