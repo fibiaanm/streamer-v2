@@ -35,7 +35,7 @@ export const useMembersApi = () => {
   const assignRole       = (userId: string, roleId: string)      => api.patch(`/enterprises/current/members/${userId}/role`, { role_id: roleId })
 
   const listInvitations  = ()                                    => api.get<{ data: Invitation[] }>('/enterprises/current/invitations')
-  const invite           = (emails: string[])                    => api.post<{ data: Invitation[] }>('/enterprises/current/invitations', { emails })
+  const invite           = (emails: string[], roleId: string)    => api.post<{ data: Invitation[] }>('/enterprises/current/invitations', { emails, role_id: roleId })
   const cancelInvitation = (id: string)                          => api.delete(`/enterprises/current/invitations/${id}`)
 
   return { listMembers, removeMember, assignRole, listInvitations, invite, cancelInvitation }
