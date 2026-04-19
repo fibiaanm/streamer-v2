@@ -2,7 +2,7 @@
 description: Etapa 09 — Dominio de empresas, roles enterprise, membresías e invitaciones
 type: stage
 stage: 09
-status: pendiente
+status: completado
 depends_on: 05
 ---
 
@@ -136,13 +136,13 @@ Aplica tanto a `PATCH /roles/{id}` (actualizar permisos) como a cualquier operac
 
 ## Checklist
 
-- [ ] `EnterprisePermissionSeeder` y `EnterpriseRoleSeeder` ejecutados
-- [ ] CRUD de empresas con autorización por rol
-- [ ] Middleware `SetActiveEnterprise` funcional en todas las rutas protegidas
-- [ ] CRUD de roles custom enterprise
-- [ ] Asignación de roles a miembros
-- [ ] Mutation `inviteToEnterprise` creando registro y enviando email
-- [ ] Endpoint `acceptInvitation` con flujo completo (nuevo y existente usuario)
-- [ ] Expiración automática de invitaciones (job o scope)
-- [ ] Validaciones de negocio implementadas
-- [ ] Tests: invitación, aceptación, roles, permisos
+- [x] `EnterprisePermissionSeeder` y `EnterpriseRoleSeeder` ejecutados
+- [x] CRUD de empresas con autorización por rol
+- [x] Middleware `SetActiveEnterprise` funcional en todas las rutas protegidas
+- [x] CRUD de roles custom enterprise
+- [x] Asignación de roles a miembros
+- [x] Mutation `inviteToEnterprise` creando registro y enviando email
+- [x] Endpoint `acceptInvitation` con flujo completo (nuevo y existente usuario)
+- [x] Expiración de invitaciones — `ExpireInvitationsCommand` (hourly scheduler) + doble guardia en `ListInvitationsController`
+- [x] Validaciones de negocio implementadas
+- [x] Tests: invitación, aceptación, roles, permisos (RolesTest 12, AssignMemberRoleTest 8, InvitationsTest 8, AcceptInvitationTest)

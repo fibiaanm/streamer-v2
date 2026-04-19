@@ -24,10 +24,12 @@ class AcceptInvitationPageController extends Controller
             return Inertia::render('Auth/AcceptInvitation', ['error' => 'invalid']);
         }
 
-        if (!$invitation->isPending()) {
-            return Inertia::render('Auth/AcceptInvitation', [
-                'error' => $invitation->expires_at->isPast() ? 'expired' : 'invalid',
-            ]);
+        if ($invitation->status !== 'pending') {
+            return Inertia::render('Auth/AcceptInvitation', ['error' => 'invalid']);
+        }
+
+        if ($invitation->expires_at->isPast()) {
+            return Inertia::render('Auth/AcceptInvitation', ['error' => 'expired']);
         }
 
         return Inertia::render('Auth/AcceptInvitation', [

@@ -21,6 +21,7 @@ class ListInvitationsController
             $invitations = Invitation::where('invitable_type', Enterprise::class)
                 ->where('invitable_id', $enterprise->id)
                 ->where('status', 'pending')
+                ->where('expires_at', '>', now())
                 ->with(['enterpriseRole', 'invitedBy'])
                 ->get();
 

@@ -27,11 +27,12 @@ class ShowInvitationController
                 throw new InvitationInvalidException();
             }
 
-            if (!$invitation->isPending()) {
-                if ($invitation->expires_at->isPast()) {
-                    throw new InvitationExpiredException();
-                }
+            if ($invitation->status !== 'pending') {
                 throw new InvitationInvalidException();
+            }
+
+            if ($invitation->expires_at->isPast()) {
+                throw new InvitationExpiredException();
             }
 
             return ResponseFormatter::success([
