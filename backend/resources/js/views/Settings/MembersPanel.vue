@@ -13,91 +13,119 @@
 
     <!-- Member list -->
     <div class="space-y-1">
-      <div
+      <MemberRow
         v-for="m in sortedMembers"
         :key="m.id"
-        class="group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors"
+        :name="m.user.name"
+        :sub="m.user.email"
+        class="group"
         :class="(hoveredMemberId === m.id || openMenuId === m.id) ? 'bg-white/4' : ''"
         @mouseenter="hoveredMemberId = m.id"
         @mouseleave="hoveredMemberId = null"
       >
-        <!-- Avatar -->
-        <div :class="['w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0', avatarColor(m.user.name)]">
-          {{ initials(m.user.name) }}
-        </div>
-
-        <!-- Name + email -->
-        <div class="flex-1 min-w-0">
-          <p class="text-sm text-white/80 truncate">{{ m.user.name }}</p>
-          <p class="text-xs text-white/30 truncate">{{ m.user.email }}</p>
-        </div>
-
-        <!-- Role badge -->
-        <AppBadge :variant="roleBadgeVariant(m.role.name)" size="sm">
-          {{ m.role.name }}
-        </AppBadge>
-
-        <!-- Actions -->
-        <AppDropdown
-          v-if="canActOn(m)"
-          align="right"
-          @update:open="val => openMenuId = val ? m.id : null"
-        >
-          <template #trigger>
-            <button
-              class="transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/40 hover:text-white/70 cursor-pointer"
-              :class="openMenuId === m.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-            >
-              <AppIcon name="ui/more-horizontal" size="sm" />
-            </button>
-          </template>
-          <AppDropdownItem v-if="canAssignRoles" icon="ui/shield" @click="openAssignRole(m)">
-            Cambiar rol
-          </AppDropdownItem>
-          <AppDropdownItem v-if="canRemoveMembers" icon="ui/user-x" variant="danger" @click="confirmRemove(m)">
-            Eliminar
-          </AppDropdownItem>
-        </AppDropdown>
-        <div v-else class="w-6 shrink-0" />
-
-      </div>
+        <template #avatar>
+          <MemberAvatar :user="m.user" />
+        </template>
+        <template #badge>
+          <AppBadge :variant="roleBadgeVariant(m.role.name)" size="sm">
+            {{ m.role.name }}
+          </AppBadge>
+        </template>
+        <template #actions>
+          <AppDropdown
+            v-if="canActOn(m)"
+            align="right"
+            @update:open="val => openMenuId = val ? m.id : null"
+          >
+            <template #trigger>
+              <button
+                class="transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/40 hover:text-white/70 cursor-pointer"
+                :class="openMenuId === m.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+              >
+                <AppIcon name="ui/more-horizontal" size="sm" />
+              </button>
+            </template>
+            <AppDropdownItem v-if="canAssignRoles" icon="ui/shield" @click="openAssignRole(m)">
+              Cambiar rol
+            </AppDropdownItem>
+            <AppDropdownItem v-if="canRemoveMembers" icon="ui/user-x" variant="danger" @click="confirmRemove(m)">
+              Eliminar
+            </AppDropdownItem>
+          </AppDropdown>
+          <div v-else class="w-6 shrink-0" />
+        </template>
+      </MemberRow>
     </div>
 
     <!-- Pending invitations -->
     <template v-if="pendingInvitations.length">
       <div class="border-t border-white/8 pt-4 space-y-1">
         <p class="text-xs text-white/30 mb-3">Invitaciones pendientes</p>
-        <div
+        <MemberRow
           v-for="inv in pendingInvitations"
           :key="inv.id"
-          class="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/4 transition-colors"
+          class="group hover:bg-white/4"
         >
-          <!-- Placeholder avatar -->
-          <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 bg-white/6 text-white/30">
-            ?
-          </div>
-
-          <!-- Email -->
-          <div class="flex-1 min-w-0">
+          <template #avatar>
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 bg-white/6 text-white/30">
+              ?
+            </div>
+          </template>
+          <template #text>
             <p class="text-sm text-white/50 truncate">{{ inv.email }}</p>
             <p class="text-xs text-white/25 truncate">Expira {{ formatExpiry(inv.expires_at) }}</p>
+          </template>
+          <template #badge>
+            <AppBadge :variant="roleBadgeVariant(inv.role.name)" size="sm">
+              {{ inv.role.name }}
+            </AppBadge>
+          </template>
+          <template #actions>
+            <button
+              v-if="canInviteMembers"
+              class="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/30 hover:text-rose-400 cursor-pointer"
+              @click="cancelInvite(inv)"
+            >
+              <AppIcon name="ui/x" size="sm" />
+            </button>
+            <div v-else class="w-6 shrink-0" />
+          </template>
+        </MemberRow>
+      </div>
+    </template>
+
+    <!-- Suspended members -->
+    <template v-if="canRemoveMembers">
+      <div class="border-t border-white/8 pt-4">
+        <button
+          v-if="!suspendedLoaded"
+          class="text-xs text-white/30 hover:text-white/50 transition-colors cursor-pointer"
+          :disabled="suspendedLoading"
+          @click="loadSuspended"
+        >
+          {{ suspendedLoading ? 'Cargando…' : 'Mostrar miembros inactivos' }}
+        </button>
+
+        <template v-else>
+          <p class="text-xs text-white/30 mb-3">Inactivos</p>
+          <div v-if="suspendedMembers.length" class="space-y-1">
+            <MemberRow
+              v-for="m in suspendedMembers"
+              :key="m.id"
+              :name="m.user.name"
+              :sub="m.user.email"
+              class="opacity-50"
+            >
+              <template #avatar>
+                <MemberAvatar :user="m.user" />
+              </template>
+              <template #badge>
+                <AppBadge variant="neutral" size="sm">inactivo</AppBadge>
+              </template>
+            </MemberRow>
           </div>
-
-          <!-- Role badge -->
-          <AppBadge :variant="roleBadgeVariant(inv.role.name)" size="sm">
-            {{ inv.role.name }}
-          </AppBadge>
-
-          <!-- Cancel -->
-          <button
-            v-if="canInviteMembers"
-            class="opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/8 text-white/30 hover:text-rose-400 cursor-pointer"
-            @click="cancelInvite(inv)"
-          >
-            <AppIcon name="ui/x" size="sm" />
-          </button>
-          <div v-else class="w-6 shrink-0" />
-        </div>
+          <p v-else class="text-xs text-white/25 px-3">No hay miembros inactivos.</p>
+        </template>
       </div>
     </template>
 
@@ -131,11 +159,13 @@ import AppBadge           from '@/components/AppBadge.vue'
 import AppIcon            from '@/components/AppIcon.vue'
 import AppDropdown        from '@/components/AppDropdown.vue'
 import AppDropdownItem    from '@/components/AppDropdownItem.vue'
+import MemberAvatar       from '@/components/MemberAvatar.vue'
+import MemberRow          from '@/views/Settings/MemberRow.vue'
 import InviteMembersModal from '@/views/Settings/InviteMembersModal.vue'
 import AssignRoleModal    from '@/views/Settings/AssignRoleModal.vue'
 
 const { canInviteMembers, canRemoveMembers, canAssignRoles, membersMax } = usePermissions()
-const { removeMember, cancelInvitation } = useMembersApi()
+const { removeMember, cancelInvitation, listSuspendedMembers } = useMembersApi()
 const { user }   = useSession()
 const { add: addToast, remove: removeToast } = useToasts()
 
@@ -148,10 +178,24 @@ const openMenuId          = ref<string | null>(null)
 const hoveredMemberId     = ref<string | null>(null)
 const assignRoleModalOpen = ref(false)
 const assignRoleTarget    = ref<Member | null>(null)
+const suspendedMembers    = ref<Member[]>([])
+const suspendedLoaded     = ref(false)
+const suspendedLoading    = ref(false)
 
 onMounted(membersState.loadData)
 
 const onInvited = () => membersState.loadData()
+
+const loadSuspended = async () => {
+  suspendedLoading.value = true
+  try {
+    const res = await listSuspendedMembers()
+    suspendedMembers.value = res.data.data
+    suspendedLoaded.value  = true
+  } finally {
+    suspendedLoading.value = false
+  }
+}
 
 // ── Sorting ──────────────────────────────────────────────────────────────────
 const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, billing: 2, member: 3 }
@@ -196,23 +240,6 @@ const confirmRemove = (m: Member) => {
       membersState.members.value = membersState.members.value.filter(x => x.id !== m.id)
     },
   })
-}
-
-// ── Avatar ───────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = [
-  'bg-sky-500/20 text-sky-300',
-  'bg-purple-500/20 text-purple-300',
-  'bg-emerald-500/20 text-emerald-300',
-  'bg-amber-500/20 text-amber-300',
-  'bg-rose-500/20 text-rose-300',
-]
-
-const initials = (name: string) =>
-  name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
-
-const avatarColor = (name: string) => {
-  const hash = [...name].reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 }
 
 // ── Role badge ───────────────────────────────────────────────────────────────

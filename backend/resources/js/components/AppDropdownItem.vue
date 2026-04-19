@@ -3,6 +3,7 @@
     class="w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors cursor-pointer text-left"
     :class="variantClasses"
     v-bind="$attrs"
+    @click="closeDropdown"
   >
     <AppIcon
       v-if="icon"
@@ -21,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 
 const props = withDefaults(defineProps<{
@@ -30,6 +31,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   variant: 'default',
 })
+
+const closeDropdown = inject<() => void>('dropdown:close', () => {})
 
 const variantClasses = computed(() =>
   props.variant === 'danger'

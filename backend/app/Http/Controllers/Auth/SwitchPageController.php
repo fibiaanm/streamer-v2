@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Domain\Auth\AuthPayload;
+use App\Domain\Auth\Http\AuthCookies;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -28,6 +30,11 @@ class SwitchPageController extends Controller
                 return redirect('/login');
             }
 
+            if (!User::where('id', $payload->subject())->exists()) {
+                Log::warning('auth.switch_user_not_found');
+                return $this->forgetAndRedirect();
+            }
+
             Log::info('auth.switch_valid_token');
         } catch (Throwable) {
             Log::info('auth.switch_invalid_token');
@@ -37,5 +44,14 @@ class SwitchPageController extends Controller
         }
 
         return Inertia::render('Auth/Switch');
+    }
+
+    private function forgetAndRedirect(): RedirectResponse
+    {
+        $redirect = redirect('/login');
+        foreach (AuthCookies::forget() as $cookie) {
+            $redirect = $redirect->withCookie($cookie);
+        }
+        return $redirect;
     }
 }

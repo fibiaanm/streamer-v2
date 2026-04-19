@@ -1,9 +1,10 @@
 import { useApi } from '@/lib/api'
 
 export interface MemberUser {
-  id:    string
-  name:  string
-  email: string
+  id:         string
+  name:       string
+  email:      string
+  avatar_url?: string | null
 }
 
 export interface MemberRole {
@@ -30,7 +31,8 @@ export interface Invitation {
 export const useMembersApi = () => {
   const api = useApi()
 
-  const listMembers      = ()                                    => api.get<{ data: Member[] }>('/enterprises/current/members')
+  const listMembers           = ()  => api.get<{ data: Member[] }>('/enterprises/current/members')
+  const listSuspendedMembers  = ()  => api.get<{ data: Member[] }>('/enterprises/current/members?status=suspended')
   const removeMember     = (memberId: string)                    => api.delete(`/enterprises/current/members/${memberId}`)
   const assignRole       = (userId: string, roleId: string)      => api.patch(`/enterprises/current/members/${userId}/role`, { role_id: roleId })
 
@@ -38,5 +40,5 @@ export const useMembersApi = () => {
   const invite           = (emails: string[], roleId: string)    => api.post<{ data: Invitation[] }>('/enterprises/current/invitations', { emails, role_id: roleId })
   const cancelInvitation = (id: string)                          => api.delete(`/enterprises/current/invitations/${id}`)
 
-  return { listMembers, removeMember, assignRole, listInvitations, invite, cancelInvitation }
+  return { listMembers, listSuspendedMembers, removeMember, assignRole, listInvitations, invite, cancelInvitation }
 }

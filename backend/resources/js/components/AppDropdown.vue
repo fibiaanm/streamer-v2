@@ -29,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
 
 const props = withDefaults(defineProps<{
   align?: 'left' | 'right'
@@ -76,6 +76,8 @@ const onClickOutside = (e: MouseEvent) => {
 
 onMounted(() => document.addEventListener('mousedown', onClickOutside))
 onUnmounted(() => document.removeEventListener('mousedown', onClickOutside))
+
+provide('dropdown:close', close)
 
 defineExpose({ close })
 </script>

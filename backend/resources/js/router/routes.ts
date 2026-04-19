@@ -6,6 +6,10 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/Pages/Auth/Login.vue'),
   },
   {
+    path: '/accept-invitation',
+    component: () => import('@/Pages/Auth/AcceptInvitation.vue'),
+  },
+  {
     path: '/switch',
     component: () => import('@/Pages/Auth/Switch.vue'),
   },

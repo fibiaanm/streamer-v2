@@ -1,10 +1,17 @@
-import type { MemberRemovedPayload, MemberRoleChangedPayload, InvitationCreatedPayload, InvitationCancelledPayload } from '@/types'
+import type { MemberRemovedPayload, MemberRoleChangedPayload, MemberAddedPayload, InvitationCreatedPayload, InvitationCancelledPayload } from '@/types'
 import type { Invitation } from '@/composables/api/useMembersApi'
 import { useScopedSocketEvents } from './useScopedSocketEvents'
 import type { useMembersState } from './useMembersState'
 
 export const useMembersSync = (state: ReturnType<typeof useMembersState>) => {
   useScopedSocketEvents({
+    'member.added': (data) => {
+      const { member, invitation_id } = data as MemberAddedPayload
+      if (!state.members.value.find(m => m.id === member.id)) {
+        state.members.value.push(member)
+      }
+      state.invitations.value = state.invitations.value.filter(i => i.id !== invitation_id)
+    },
     'member.removed': (data) => {
       const { id } = data as MemberRemovedPayload
       state.members.value = state.members.value.filter(m => m.id !== id)

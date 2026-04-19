@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\AcceptInvitationPageController;
 use App\Http\Controllers\Auth\AppPageController;
 use App\Http\Controllers\Auth\LoginPageController;
 use App\Http\Controllers\Auth\SwitchPageController;
@@ -8,6 +9,7 @@ use Inertia\Inertia;
 
 Route::get('/login', LoginPageController::class)->name('login');
 Route::get('/switch', SwitchPageController::class)->name('switch');
+Route::get('/accept-invitation', AcceptInvitationPageController::class)->name('accept-invitation');
 Route::redirect('/register', '/login?mode=signup', 301)->name('register');
 
 // App shell — Vue Router gestiona toda la navegación interna

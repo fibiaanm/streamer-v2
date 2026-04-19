@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Domain\Enterprises\Events\EnterpriseUpdated;
 use App\Domain\Enterprises\Events\InvitationCancelled;
 use App\Domain\Enterprises\Events\InvitationCreated;
+use App\Domain\Enterprises\Events\MemberAdded;
 use App\Domain\Enterprises\Events\MemberRemoved;
 use App\Domain\Enterprises\Events\MemberRoleChanged;
 use App\Domain\Enterprises\Events\RoleCreated;
@@ -13,6 +14,7 @@ use App\Domain\Enterprises\Events\RoleUpdated;
 use App\Domain\Enterprises\Listeners\PublishEnterpriseUpdated;
 use App\Domain\Enterprises\Listeners\PublishInvitationCancelled;
 use App\Domain\Enterprises\Listeners\PublishInvitationCreated;
+use App\Domain\Enterprises\Listeners\PublishMemberAdded;
 use App\Domain\Enterprises\Listeners\PublishMemberRemoved;
 use App\Domain\Enterprises\Listeners\PublishMemberRoleChanged;
 use App\Domain\Enterprises\Listeners\PublishRoleCreated;
@@ -37,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(EnterpriseUpdated::class,    PublishEnterpriseUpdated::class);
+        Event::listen(MemberAdded::class,          PublishMemberAdded::class);
         Event::listen(MemberRemoved::class,        PublishMemberRemoved::class);
         Event::listen(MemberRoleChanged::class,    PublishMemberRoleChanged::class);
         Event::listen(InvitationCreated::class,    PublishInvitationCreated::class);

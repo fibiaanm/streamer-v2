@@ -71,6 +71,16 @@ export interface MemberRoleChangedPayload {
   role:     { id: string; name: string }
 }
 
+export interface MemberAddedPayload {
+  member: {
+    id:     string
+    status: string
+    user:   { id: string; name: string; email: string }
+    role:   { id: string; name: string }
+  }
+  invitation_id: string
+}
+
 export interface MemberRoleAssignedPayload {
   role: { id: string; name: string; permissions: string[] }
 }

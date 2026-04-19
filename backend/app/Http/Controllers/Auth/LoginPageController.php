@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Domain\Auth\AuthPayload;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -23,23 +24,34 @@ class LoginPageController extends Controller
                 $payload = AuthPayload::from($token);
 
                 if ($payload->isGuest()) {
-                    return Inertia::render('Auth/Login', [
-                        'imageUrl' => self::IMAGES[array_rand(self::IMAGES)],
-                    ]);
+                    return $this->loginPage();
+                }
+
+                if (!User::where('id', $payload->subject())->exists()) {
+                    return $this->loginPageForgettingCookies();
                 }
 
                 return redirect('/switch');
             } catch (Throwable) {
-                return Inertia::render('Auth/Login', [
-                    'imageUrl' => self::IMAGES[array_rand(self::IMAGES)],
-                ])
-                    ->withCookie(cookie()->forget('access_token'))
-                    ->withCookie(cookie()->forget('refresh_token'));
+                return $this->loginPageForgettingCookies();
             }
         }
 
+        return $this->loginPage();
+    }
+
+    private function loginPage(): Response
+    {
         return Inertia::render('Auth/Login', [
             'imageUrl' => self::IMAGES[array_rand(self::IMAGES)],
         ]);
+    }
+
+    private function loginPageForgettingCookies(): Response
+    {
+        cookie()->queue(cookie()->forget('access_token'));
+        cookie()->queue(cookie()->forget('refresh_token'));
+
+        return $this->loginPage();
     }
 }

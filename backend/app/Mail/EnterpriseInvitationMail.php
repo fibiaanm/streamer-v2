@@ -30,7 +30,7 @@ class EnterpriseInvitationMail extends Mailable implements ShouldQueue
     public function content(): Content
     {
         $acceptUrl = rtrim(config('app.frontend_url'), '/')
-            . '/invitations/'
+            . '/accept-invitation?token='
             . $this->invitation->token;
 
         return new Content(

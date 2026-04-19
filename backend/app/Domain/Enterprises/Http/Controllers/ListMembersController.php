@@ -17,8 +17,9 @@ class ListMembersController
         try {
             $enterprise = $request->attributes->get('active_enterprise');
 
+            $status  = $request->query('status', 'active');
             $members = EnterpriseMember::where('enterprise_id', $enterprise->id)
-                ->where('status', 'active')
+                ->where('status', $status)
                 ->with(['user', 'role'])
                 ->get();
 
