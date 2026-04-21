@@ -17,11 +17,17 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/app',
     component: () => import('@/views/WorkspacesView.vue'),
+    meta: { appName: 'Workspaces', appIcon: 'ui/building', appMenu: true },
   },
   {
     path: '/app/settings',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { requiresAuth: true },
+    meta: { appName: 'Configuración', appIcon: 'ui/settings', requiresAuth: true },
+  },
+  {
+    path: '/app/image-studio',
+    component: () => import('@/Pages/ImageStudio.vue'),
+    meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true },
   },
   // Workspaces, rooms y streams se añaden en sus etapas respectivas
   {

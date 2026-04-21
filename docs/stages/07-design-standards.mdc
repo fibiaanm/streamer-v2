@@ -171,6 +171,34 @@ Los SVGs deben usar `stroke="currentColor"` para heredar el color del padre.
 
 **Importante**: el glob usa ruta relativa (`../icons/**/*.svg`), no el alias `@/` — Vite no resuelve aliases en `import.meta.glob` de forma confiable.
 
+#### Cómo añadir un ícono
+
+1. Crear el archivo en `resources/js/icons/<categoría>/<nombre>.svg` (kebab-case)
+2. Usar la plantilla estándar — `stroke="currentColor"` es obligatorio:
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="..."/>
+</svg>
+```
+
+3. Usarlo inmediatamente — el glob lo detecta en tiempo de build sin configuración adicional:
+
+```vue
+<AppIcon name="ui/nombre" size="md" />
+```
+
+#### Íconos disponibles (`icons/ui/`)
+
+`alert-triangle` · `arrows-swap` · `building` · `check-circle` · `check` · `chevron-left` ·
+`crop` · `cursor` · `download` · `eye-off` · `eye` · `gallery` · `image` · `info` ·
+`lock-open` · `lock` · `log-out` · `menu` · `more-horizontal` · `open-editor` · `pencil` ·
+`plus` · `repeat` · `rotate-ccw` · `rotate-cw` · `settings` · `shield` · `switch-enterprise` ·
+`user-x` · `users` · `x-circle` · `x`
+
+Si el ícono que necesitas no existe, créalo antes de usarlo.
+
 ---
 
 ## Tipografía

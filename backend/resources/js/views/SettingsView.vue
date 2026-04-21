@@ -1,5 +1,9 @@
 <template>
   <AppLayout>
+    <template #header-left>
+      <AppMenuSwitcher />
+    </template>
+
     <template #header-right>
       <UserMenu />
     </template>
@@ -25,6 +29,7 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePermissions } from '@/composables/core/usePermissions'
 import AppLayout       from '@/components/AppLayout.vue'
+import AppMenuSwitcher from '@/components/AppMenuSwitcher.vue'
 import UserMenu        from '@/components/UserMenu.vue'
 import SettingsSidebar  from './Settings/SettingsSidebar.vue'
 import GeneralPanel     from './Settings/GeneralPanel.vue'

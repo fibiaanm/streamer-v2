@@ -1,12 +1,17 @@
 <template>
-  <RouterView v-if="ready" />
-  <AppToastContainer />
+  <div @dragenter="onDragEnter" @dragleave="onDragLeave" @dragover="onDragOver" @drop="handleDrop">
+    <RouterView v-if="ready" />
+    <DropOverlay v-if="isDragging" />
+    <AppToastContainer />
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import AppToastContainer from '@/components/AppToastContainer.vue'
+import DropOverlay       from '@/components/DropOverlay.vue'
+import { useFileDrop }       from '@/composables/useFileDrop'
 import { useSession }        from '@/composables/core/useSession'
 import { useSocket }         from '@/composables/core/useSocket'
 import { useEnterpriseSync } from '@/composables/core/useEnterpriseSync'
@@ -20,6 +25,8 @@ const api         = useApi()
 const { connect } = useSocket()
 useEnterpriseSync()
 useUserSync()
+
+const { isDragging, onDragEnter, onDragLeave, onDragOver, handleDrop } = useFileDrop()
 
 onMounted(async () => {
   try {
