@@ -52,7 +52,7 @@ Pages/
   ImageStudio.vue               ✅ orquestador: drop, zipName, exportAll, EditModal
   ImageStudio/
     StudioNav.vue               ✅ AppHeader con título + conteo de imágenes
-    DropOverlay.vue             ✅ overlay visual al arrastrar
+    DropOverlay.vue             ✅ overlay visual al arrastrar (en components/, compartido)
     ImageGrid.vue               ✅ grid 2-col, AddCard con AppImageBox dashed
     ImageCard.vue               ✅ usa AppImageBox, badge de status o botón × (idle)
     ImageHero.vue               ✅ preview h-48, máscara inferior, nombre editable + metadata
@@ -73,9 +73,14 @@ types/
 
 composables/imageStudio/
   useImageStore.ts              ✅ singleton module-level (refs fuera de la función)
-  useImageUpload.ts             ✅ File[] → RawImageData[] via FileReader + HTMLImageElement
+  useFileProcessor.ts           ✅ processFiles(files, onFile) — ZIP expand, HEIC convert, readFile; isProcessing singleton
+  useHeicConvert.ts             ✅ convertHeic — lazy-load heic2any, File HEIC → File JPEG
   useImageExport.ts             ✅ orquesta jobs → worker pool → zip → descarga → toast
   exportUtils.ts                ✅ buildFilename, deduplicateNames (funciones puras, testeables)
+
+composables/
+  useFileDrop.ts                ✅ isDragging, dragDepth, handlers de dragenter/leave/over/drop
+  useZip.ts                     ✅ packZip + extractImagesFromZip (lazy JSZip)
 
 workers/
   imageExport.worker.ts         ✅ stateless, un job por mensaje, pool-ready

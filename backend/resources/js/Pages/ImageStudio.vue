@@ -5,8 +5,8 @@
         class="h-screen flex flex-col overflow-hidden"
         @dragenter="onDragEnter"
         @dragleave="onDragLeave"
-        @dragover.prevent
-        @drop.prevent="onDrop"
+        @dragover="onDragOver"
+        @drop="handleDrop"
       >
         <DropOverlay v-if="isDragging" />
 
@@ -85,47 +85,30 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useImageStore } from '@/composables/imageStudio/useImageStore'
-import { readImageFiles } from '@/composables/imageStudio/useImageUpload'
-import { useImageExport } from '@/composables/imageStudio/useImageExport'
+import { useImageStore }    from '@/composables/imageStudio/useImageStore'
+import { useFileProcessor } from '@/composables/imageStudio/useFileProcessor'
+import { useFileDrop }      from '@/composables/useFileDrop'
+import { useImageExport }   from '@/composables/imageStudio/useImageExport'
 import PageBackground    from '@/components/PageBackground.vue'
 import AppButton         from '@/components/AppButton.vue'
 import AppIcon           from '@/components/AppIcon.vue'
+import DropOverlay       from '@/components/DropOverlay.vue'
 import StudioNav         from './ImageStudio/StudioNav.vue'
-import DropOverlay       from './ImageStudio/DropOverlay.vue'
 import ImageGrid         from './ImageStudio/ImageGrid.vue'
 import ImageHero         from './ImageStudio/ImageHero.vue'
 import ExportConfigPanel from './ImageStudio/ExportConfigPanel.vue'
-import EditModal              from './ImageStudio/EditModal.vue'
+import EditModal         from './ImageStudio/EditModal.vue'
 import AppToastContainer from '@/components/AppToastContainer.vue'
 
-const store              = useImageStore()
+const store   = useImageStore()
 const { exportAll, isExporting, progress } = useImageExport()
+const { processFiles } = useFileProcessor()
 const editorOpen = ref(false)
 const zipName    = ref('mis-imagenes')
-const isDragging = ref(false)
 
-let dragDepth = 0
-
-function onDragEnter(e: DragEvent) {
-  if (!e.dataTransfer?.types.includes('Files')) return
-  dragDepth++
-  isDragging.value = true
-}
-
-function onDragLeave() {
-  dragDepth--
-  if (dragDepth <= 0) { dragDepth = 0; isDragging.value = false }
-}
-
-async function onDrop(e: DragEvent) {
-  dragDepth = 0
-  isDragging.value = false
-  const files = Array.from(e.dataTransfer?.files ?? [])
-  if (!files.length) return
-  const raw = await readImageFiles(files)
-  if (raw.length) store.add(raw)
-}
+const { isDragging, onDragEnter, onDragLeave, onDragOver, handleDrop } = useFileDrop(
+  files => processFiles(files, raw => store.add([raw]))
+)
 
 async function handleDownloadZip() {
   await exportAll(zipName.value)

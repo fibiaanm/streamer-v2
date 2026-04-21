@@ -52,7 +52,17 @@ artisan: ## Ejecuta un comando artisan: make artisan cmd="route:list"
 migrate: ## Ejecuta las migraciones
 	$(DC) exec php php artisan migrate
 
-migrate-fresh: ## Rollback completo + migra + seedea
+buckets-flush: ## Vacía los buckets public y streamer en MinIO
+	$(DC) run --rm \
+		-e MINIO_ROOT_USER=$${MINIO_ROOT_USER:-minioadmin} \
+		-e MINIO_ROOT_PASSWORD=$${MINIO_ROOT_PASSWORD:-minioadmin} \
+		minio-setup /bin/sh -c "\
+			/usr/bin/mc alias set local http://minio:9000 \$$MINIO_ROOT_USER \$$MINIO_ROOT_PASSWORD && \
+			/usr/bin/mc rm --recursive --force local/public       2>/dev/null || true && \
+			/usr/bin/mc rm --recursive --force local/\$${AWS_BUCKET:-streamer} 2>/dev/null || true && \
+			echo 'MinIO: buckets vaciados.'"
+
+migrate-fresh: buckets-flush ## Rollback completo + migra + seedea (también vacía buckets MinIO)
 	$(DC) exec php php artisan migrate:fresh --seed
 
 shell: ## Abre una shell en el contenedor php
@@ -60,17 +70,27 @@ shell: ## Abre una shell en el contenedor php
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
 
-test: ## Ejecuta todos los tests con Pest
+test-db: ## Crea la BD streamer_test con extensiones (idempotente)
+	@$(DC) exec postgres psql -U streamer -tc \
+		"SELECT 1 FROM pg_database WHERE datname='streamer_test'" \
+		| grep -q 1 \
+		|| $(DC) exec postgres psql -U streamer \
+		   -c "CREATE DATABASE streamer_test OWNER streamer"
+	@$(DC) exec postgres psql -U streamer -d streamer_test \
+		-c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; CREATE EXTENSION IF NOT EXISTS ltree;" \
+		> /dev/null
+
+test: test-db ## Ejecuta todos los tests con Pest
 	$(DC) exec php ./vendor/bin/pest
 
-test-unit: ## Solo tests unitarios
+test-unit: test-db ## Solo tests unitarios
 	$(DC) exec php ./vendor/bin/pest tests/Unit
 
-test-feature: ## Solo tests de feature (SQLite)
+test-feature: test-db ## Solo tests de feature (excluye grupo pgsql)
 	$(DC) exec php ./vendor/bin/pest tests/Feature --exclude-group=pgsql
 
-test-pgsql: ## Solo tests que requieren PostgreSQL
+test-pgsql: test-db ## Solo tests que requieren PostgreSQL (ltree, etc.)
 	$(DC) exec php ./vendor/bin/pest --group=pgsql
 
-.PHONY: prepare dev down restart build ps logs artisan migrate migrate-fresh shell \
-        test test-unit test-feature test-pgsql
+.PHONY: prepare dev down restart build ps logs artisan migrate migrate-fresh buckets-flush shell \
+        test-db test test-unit test-feature test-pgsql

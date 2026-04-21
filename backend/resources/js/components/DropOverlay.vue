@@ -12,7 +12,7 @@
         </div>
         <div>
           <p class="text-sm font-semibold text-white/90">Suelta las imágenes aquí</p>
-          <p class="text-xs text-white/35 mt-1">JPG · PNG · WebP · GIF · AVIF</p>
+          <p class="text-xs text-white/35 mt-1">JPG · PNG · WebP · GIF · HEIC · ZIP</p>
         </div>
       </div>
     </div>
