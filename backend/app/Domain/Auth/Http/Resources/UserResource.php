@@ -2,7 +2,6 @@
 
 namespace App\Domain\Auth\Http\Resources;
 
-use App\Services\LimitsResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,10 +19,9 @@ class UserResource extends JsonResource
 
         $planData = null;
         if ($subscription) {
-            $limits = app(LimitsResolver::class)->resolve($subscription);
             $planData = [
                 'name'   => $subscription->plan->name,
-                'limits' => $limits,
+                'limits' => $subscription->resolvedLimits()->toArray(),
             ];
         }
 

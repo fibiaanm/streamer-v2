@@ -15,7 +15,8 @@ return new class extends Migration
             $table->string('type'); // image | video | audio | document | other
             $table->string('title');
             $table->text('description')->nullable();
-            $table->string('status')->default('active'); // active | archived | trashed
+            $table->string('status')->default('pending'); // pending | active | archived | trashed
+            $table->timestamp('upload_expires_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });

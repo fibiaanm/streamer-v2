@@ -5,6 +5,7 @@ use Database\Seeders\EnterpriseRolePermissionSeeder;
 use Database\Seeders\EnterpriseRoleSeeder;
 use Database\Seeders\PlanSeeder;
 use Database\Seeders\WorkspacePermissionSeeder;
+use Database\Seeders\WorkspaceRoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,6 +17,7 @@ pest()->extend(TestCase::class)
             EnterpriseRoleSeeder::class,
             EnterpriseRolePermissionSeeder::class,
             WorkspacePermissionSeeder::class,
+            WorkspaceRoleSeeder::class,
             PlanSeeder::class,
         ]);
     })

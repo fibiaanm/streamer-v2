@@ -2,7 +2,7 @@
 description: Etapa 12 — Dominio de workspaces con jerarquía ltree, roles y permisos
 type: stage
 stage: 12
-status: pendiente
+status: completado
 depends_on: 10
 ---
 

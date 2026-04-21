@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('workspace_roles', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('workspace_id')->nullable()->constrained()->nullOnDelete();
             $table->string('name');
             $table->boolean('is_base')->default(false);
             $table->timestamp('created_at')->useCurrent();

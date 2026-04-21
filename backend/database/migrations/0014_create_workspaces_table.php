@@ -12,6 +12,7 @@ return new class extends Migration
         Schema::create('workspaces', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+            $table->foreignId('enterprise_id')->constrained('enterprises');
             $table->foreignId('owner_user_id')->constrained('users');
             $table->foreignId('parent_workspace_id')->nullable()->constrained('workspaces')->nullOnDelete();
             $table->string('status')->default('active'); // active | archived | orphaned

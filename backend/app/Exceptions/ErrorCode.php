@@ -34,6 +34,7 @@ enum ErrorCode: string
     case WorkspaceDepthExceeded     = 'workspace.depth_exceeded';
     case WorkspaceOrphaned          = 'workspace.orphaned';
     case WorkspaceRoleBaseImmutable = 'workspace.role_base_immutable';
+    case WorkspaceRoleHasMembers   = 'workspace.role_has_members';
 
     // Assets
     case AssetNotFound             = 'asset.not_found';

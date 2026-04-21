@@ -132,7 +132,17 @@ return [
         'studio.export',
     ],
 
-    'guest_limits' => [],
+    'guest_limits' => [
+        'members'            => ['type' => 'permanent',  'max' => 1],
+        'workspaces'         => ['type' => 'permanent',  'max' => 5],
+        'workspace_depth'    => ['type' => 'permanent',  'max' => 1],
+        'storage_gb'         => ['type' => 'permanent',  'max' => 1],
+        'streams_concurrent' => ['type' => 'concurrent', 'max' => 0],
+        'stream_minutes'     => ['type' => 'monthly',    'max' => 0],
+        'rooms_concurrent'   => ['type' => 'concurrent', 'max' => 0],
+        'room_participants'  => ['type' => 'concurrent', 'max' => 0],
+        'room_guests'        => ['type' => 'concurrent', 'max' => 0],
+    ],
 
     // also check AppPageController and routes.ts (requiresAuth) when updating
     'guest_paths' => [

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\HasHashId;
+use App\Values\ResolvedLimits;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -48,5 +49,21 @@ class Subscription extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', 'active');
+    }
+
+    public function resolvedLimits(): ResolvedLimits
+    {
+        $base     = $this->plan->limits_json ?? [];
+        $override = $this->override_json ?? [];
+
+        $result = $base;
+
+        foreach ($override as $key => $values) {
+            if (isset($result[$key]) && is_array($values)) {
+                $result[$key] = array_merge($result[$key], $values);
+            }
+        }
+
+        return ResolvedLimits::from($result);
     }
 }

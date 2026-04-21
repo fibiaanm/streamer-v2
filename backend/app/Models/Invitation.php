@@ -44,6 +44,11 @@ class Invitation extends Model
         return $this->belongsTo(EnterpriseRole::class, 'enterprise_role_id');
     }
 
+    public function workspaceRole(): BelongsTo
+    {
+        return $this->belongsTo(WorkspaceRole::class, 'workspace_role_id');
+    }
+
     public function isPending(): bool
     {
         return $this->status === 'pending' && $this->expires_at->isFuture();

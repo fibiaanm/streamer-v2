@@ -20,6 +20,12 @@ use App\Domain\Enterprises\Listeners\PublishMemberRoleChanged;
 use App\Domain\Enterprises\Listeners\PublishRoleCreated;
 use App\Domain\Enterprises\Listeners\PublishRoleDeleted;
 use App\Domain\Enterprises\Listeners\PublishRoleUpdated;
+use App\Domain\Workspaces\Events\WorkspaceMemberAdded;
+use App\Domain\Workspaces\Events\WorkspaceMemberRemoved;
+use App\Domain\Workspaces\Events\WorkspaceMemberRoleChanged;
+use App\Domain\Workspaces\Listeners\PublishWorkspaceMemberAdded;
+use App\Domain\Workspaces\Listeners\PublishWorkspaceMemberRemoved;
+use App\Domain\Workspaces\Listeners\PublishWorkspaceMemberRoleChanged;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
@@ -47,5 +53,9 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(RoleCreated::class,          PublishRoleCreated::class);
         Event::listen(RoleUpdated::class,          PublishRoleUpdated::class);
         Event::listen(RoleDeleted::class,          PublishRoleDeleted::class);
+
+        Event::listen(WorkspaceMemberAdded::class,       PublishWorkspaceMemberAdded::class);
+        Event::listen(WorkspaceMemberRemoved::class,     PublishWorkspaceMemberRemoved::class);
+        Event::listen(WorkspaceMemberRoleChanged::class, PublishWorkspaceMemberRoleChanged::class);
     }
 }
