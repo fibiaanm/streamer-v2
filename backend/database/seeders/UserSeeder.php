@@ -10,31 +10,11 @@ use Illuminate\Support\Facades\Hash;
 class UserSeeder extends Seeder
 {
     private const USERS = [
-        [
-            'name'  => 'Free User',
-            'email' => 'free@test.com',
-            'plan'  => 'Free',
-        ],
-        [
-            'name'  => 'Pro User',
-            'email' => 'pro@test.com',
-            'plan'  => 'Pro',
-        ],
-        [
-            'name'  => 'Premium User',
-            'email' => 'premium@test.com',
-            'plan'  => 'Premium',
-        ],
-        [
-            'name'  => 'Teams User',
-            'email' => 'teams@test.com',
-            'plan'  => 'Teams',
-        ],
-        [
-            'name'  => 'Business User',
-            'email' => 'business@test.com',
-            'plan'  => 'Business',
-        ],
+        ['name' => 'Free User',     'email' => 'free@test.com',     'plan' => 'Free'],
+        ['name' => 'Pro User',      'email' => 'pro@test.com',      'plan' => 'Pro'],
+        ['name' => 'Premium User',  'email' => 'premium@test.com',  'plan' => 'Premium'],
+        ['name' => 'Teams User',    'email' => 'teams@test.com',    'plan' => 'Teams'],
+        ['name' => 'Business User', 'email' => 'business@test.com', 'plan' => 'Business'],
     ];
 
     public function run(): void
@@ -53,9 +33,8 @@ class UserSeeder extends Seeder
             }
 
             $plan       = Plan::where('name', $data['plan'])->firstOrFail();
-            $type       = $plan->type === 'individual' ? 'personal' : 'enterprise';
-            $enterprise = $user->createEnterprise($data['name'], $type);
-            $enterprise->createSubscription($plan);
+            $enterprise = $user->createEnterprise($data['name']);
+            $enterprise->createEnterpriseProduct($plan);
             $user->assignOwnerRole($enterprise);
         }
     }

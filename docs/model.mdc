@@ -114,32 +114,58 @@ Cubre invitaciones a empresa Y a workspace mediante diseño polimórfico.
 
 ---
 
-# SUSCRIPCIONES
+# PRODUCTOS Y SUSCRIPCIONES
 
-## `plans`
+## `products`
+
+Catálogo de productos independientes. Cada producto tiene sus propios planes con límites.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | bigint | |
 | `name` | string | |
-| `type` | enum | `individual`, `enterprise` |
-| `limits_json` | json | payload — no base de consulta |
-| `is_free` | boolean | |
+| `slug` | string unique | ej: `core`, `assistant` |
+| `description` | string nullable | |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
 
-> Ejemplo de `limits_json`: `{ "max_members": 25, "max_concurrent_streams": 2, "max_workspace_depth": 3, "storage_gb": 50 }`
-> `max_members`: cuántos usuarios pueden estar cobijados bajo el plan. `-1` = ilimitado.
+**Productos actuales:** `core` (workspaces + streaming + rooms), `assistant` (IA).
 
 ---
 
-## `subscriptions`
+## `plans`
+
+Cada plan pertenece a un producto y define sus límites y precio.
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | |
+| `product_id` | FK → products.id | |
+| `name` | string | |
+| `limits_json` | json | payload — no base de consulta |
+| `is_free` | boolean | |
+| `price_monthly_cents` | int nullable | |
+| `price_yearly_cents` | int nullable | |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+> `limits_json` estructura: `{ "members": { "type": "permanent", "max": 25 }, "workspaces": { "type": "permanent", "max": 100 }, ... }`
+> `members` — cuántos usuarios puede tener la empresa bajo este plan. `-1` = ilimitado.
+> Tipos de límite: `permanent` = techo absoluto, `concurrent` = máximo simultáneo, `monthly` = se resetea por ciclo.
+
+---
+
+## `enterprise_products`
+
+Una empresa puede contratar un plan de cada producto (máximo uno por producto).
+`product_id` está denormalizado para poder aplicar el `UNIQUE(enterprise_id, product_id)`.
 
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | bigint | |
 | `enterprise_id` | FK → enterprises.id | |
 | `plan_id` | FK → plans.id | |
+| `product_id` | FK → products.id | denormalizado de `plan.product_id` |
 | `status` | string | `active`, `trialing`, `past_due`, `canceled`, `expired` |
 | `starts_at` | timestamp | |
 | `ends_at` | timestamp nullable | |
@@ -148,9 +174,14 @@ Cubre invitaciones a empresa Y a workspace mediante diseño polimórfico.
 | `provider_customer_id` | string nullable | **reservado** Stripe |
 | `provider_subscription_id` | string nullable | **reservado** Stripe |
 | `override_json` | json nullable | overrides de contrato personalizado |
+| `amount_paid_cents` | int nullable | |
+| `currency` | char(3) nullable | |
+| `discount_pct` | tinyint nullable | 0-100 |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
 | `deleted_at` | timestamp nullable | |
+
+**Constraint:** `UNIQUE(enterprise_id, product_id)` — una empresa solo puede tener un plan activo por producto.
 
 ---
 
@@ -159,8 +190,8 @@ Cubre invitaciones a empresa Y a workspace mediante diseño polimórfico.
 | Campo | Tipo | Notas |
 |---|---|---|
 | `id` | bigint | |
-| `subscription_id` | FK → subscriptions.id | |
-| `metric_key` | string | `users_count`, `concurrent_streams`, `storage_bytes`, ... |
+| `enterprise_product_id` | FK → enterprise_products.id | |
+| `metric_key` | string | `members_count`, `concurrent_streams`, `storage_bytes`, ... |
 | `used_value` | bigint | |
 | `period_start` | date | |
 | `period_end` | date | |
@@ -490,8 +521,8 @@ users ↔ enterprises                 ── enterprise_user (membresías activa
 enterprises ────────────────────────── invitations (pendientes)
 workspaces  ────────────────────────── invitations (pendientes)
 
-enterprises ── subscriptions ── plans
-subscriptions ── subscription_usage
+enterprises ── enterprise_products ── plans ── products
+enterprise_products ── subscription_usage
 
 workspaces (ltree path) ──── jerarquía anidada
 workspaces ── workspace_roles (seeded al crear) ── workspace_role_permissions

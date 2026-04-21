@@ -4,7 +4,7 @@ use App\Exceptions\ErrorCode;
 use App\Models\Enterprise;
 use App\Models\EnterpriseMember;
 use App\Models\RefreshToken;
-use App\Models\Subscription;
+use App\Models\EnterpriseProduct;
 use App\Models\User;
 
 // ─── Happy path ───────────────────────────────────────────────────────────────
@@ -76,10 +76,10 @@ it('creates an active Free subscription for the new enterprise', function () {
     $user       = User::where('email', 'john@example.com')->firstOrFail();
     $enterprise = Enterprise::where('owner_id', $user->id)->firstOrFail();
 
-    $subscription = Subscription::where('enterprise_id', $enterprise->id)->firstOrFail();
+    $enterpriseProduct = EnterpriseProduct::where('enterprise_id', $enterprise->id)->firstOrFail();
 
-    expect($subscription->status)->toBe('active');
-    expect($subscription->plan->name)->toBe('Free');
+    expect($enterpriseProduct->status)->toBe('active');
+    expect($enterpriseProduct->plan->name)->toBe('Free');
 });
 
 it('stores a refresh token in the database', function () {

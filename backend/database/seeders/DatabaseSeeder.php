@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             EnterpriseRoleSeeder::class,
             EnterpriseRolePermissionSeeder::class,
             WorkspacePermissionSeeder::class,
+            ProductSeeder::class,
             PlanSeeder::class,
             UserSeeder::class,
             EnterpriseTeamSeeder::class,

@@ -25,16 +25,17 @@ class Enterprise extends Model
         return $this->hasMany(EnterpriseMember::class);
     }
 
-    public function subscriptions(): HasMany
+    public function enterpriseProducts(): HasMany
     {
-        return $this->hasMany(Subscription::class);
+        return $this->hasMany(EnterpriseProduct::class);
     }
 
-    public function createSubscription(Plan $plan): Subscription
+    public function createEnterpriseProduct(Plan $plan): EnterpriseProduct
     {
-        return Subscription::create([
+        return EnterpriseProduct::create([
             'enterprise_id' => $this->id,
             'plan_id'       => $plan->id,
+            'product_id'    => $plan->product_id,
             'status'        => 'active',
             'starts_at'     => now(),
         ]);

@@ -224,7 +224,7 @@ it('soft deletes workspace and marks direct children as orphaned', function () {
     [$owner, $enterprise, $token] = wsCtx();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parent = createWs($enterprise, $owner);
 
@@ -266,7 +266,7 @@ it('lists direct children of a workspace', function () {
     [$owner, $enterprise, $token] = wsCtx();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parent = createWs($enterprise, $owner);
 

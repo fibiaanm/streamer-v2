@@ -1,0 +1,29 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('subscription_usage', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('enterprise_product_id')->constrained('enterprise_products')->cascadeOnDelete();
+            $table->string('metric_key');
+            $table->unsignedBigInteger('used_value')->default(0);
+            $table->date('period_start');
+            $table->date('period_end');
+            $table->json('meta_json')->nullable();
+            $table->timestamps();
+
+            $table->unique(['enterprise_product_id', 'metric_key', 'period_start']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('subscription_usage');
+    }
+};

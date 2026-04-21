@@ -2,6 +2,7 @@
 
 namespace App\Domain\Auth\Http\Resources;
 
+use App\Services\LimitsResolver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,21 +10,17 @@ class UserResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $enterprise   = $request->attributes->get('active_enterprise');
-        $member       = $request->attributes->get('active_enterprise_member');
-        $subscription = $request->attributes->get('active_subscription');
+        $enterprise        = $request->attributes->get('active_enterprise');
+        $member            = $request->attributes->get('active_enterprise_member');
+        $enterpriseProducts = $request->attributes->get('active_enterprise_products');
 
         $permissions = $member->role
             ? $member->role->permissions->pluck('name')->all()
             : [];
 
-        $planData = null;
-        if ($subscription) {
-            $planData = [
-                'name'   => $subscription->plan->name,
-                'limits' => $subscription->resolvedLimits()->toArray(),
-            ];
-        }
+        $products = $enterpriseProducts->isNotEmpty()
+            ? app(LimitsResolver::class)->byProduct($enterpriseProducts)
+            : null;
 
         return [
             'id'         => $this->getHashId(),
@@ -36,7 +33,7 @@ class UserResource extends JsonResource
                 'type'        => $enterprise->type,
                 'role'        => $member->role?->name,
                 'permissions' => $permissions,
-                'plan'        => $planData,
+                'products'    => $products,
             ],
         ];
     }

@@ -36,8 +36,8 @@ class AcceptInvitationUseCase
                 ]);
 
                 $personal = $user->createEnterprise($user->name);
-                $freePlan = Plan::where('name', 'Free')->firstOrFail();
-                $personal->createSubscription($freePlan);
+                $freePlan = Plan::freeFor('core');
+                $personal->createEnterpriseProduct($freePlan);
                 $user->assignOwnerRole($personal);
             }
 

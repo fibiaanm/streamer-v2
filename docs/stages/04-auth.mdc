@@ -78,18 +78,26 @@ Sin empresa no hay contexto válido de sesión.
       "type":        "personal | enterprise",
       "role":        "owner | admin | member | billing",
       "permissions": ["enterprise.settings.view", ...],
-      "plan": {
-        "name": "Personal Free",
-        "limits": {
-          "members":            { "type": "permanent",  "max": 1 },
-          "workspaces":         { "type": "permanent",  "max": 3 },
-          "workspace_depth":    { "type": "permanent",  "max": 1 },
-          "storage_gb":         { "type": "permanent",  "max": 1 },
-          "streams_concurrent": { "type": "concurrent", "max": 0 },
-          "stream_minutes":     { "type": "monthly",    "max": 0 },
-          "rooms_concurrent":   { "type": "concurrent", "max": 1 },
-          "room_participants":  { "type": "concurrent", "max": 4 },
-          "room_guests":        { "type": "concurrent", "max": 0 }
+      "products": {
+        "core": {
+          "plan": "Free",
+          "limits": {
+            "members":            { "type": "permanent",  "max": 1 },
+            "workspaces":         { "type": "permanent",  "max": 2 },
+            "workspace_depth":    { "type": "permanent",  "max": 1 },
+            "storage_gb":         { "type": "permanent",  "max": 1 },
+            "streams_concurrent": { "type": "concurrent", "max": 0 },
+            "stream_minutes":     { "type": "monthly",    "max": 0 },
+            "rooms_concurrent":   { "type": "concurrent", "max": 1 },
+            "room_participants":  { "type": "concurrent", "max": 4 },
+            "room_guests":        { "type": "concurrent", "max": 0 }
+          }
+        },
+        "assistant": {
+          "plan": "Pro",
+          "limits": {
+            "messages_monthly": { "type": "monthly", "max": 1000 }
+          }
         }
       }
     }
@@ -98,7 +106,8 @@ Sin empresa no hay contexto válido de sesión.
 ```
 
 - `permissions` — array plano de strings; permisos del rol activo en esa empresa.
-- `plan.limits` — resueltos por `app/Services/LimitsResolver.php`: plan base + `override_json` de la suscripción.
+- `products` — objeto keyed por `product.slug`. Solo aparecen los productos que la empresa tiene activos.
+- `products.*.limits` — resueltos por `LimitsResolver::byProduct()`: `plan.limits_json` + `override_json` del `enterprise_product`.
 - Tipos de límite: `permanent` = techo absoluto, `concurrent` = máximo simultáneo, `monthly` = se resetea por ciclo. `-1` = sin límite.
 - `role` viene de `enterprise_members.role_id → enterprise_roles.name`.
 - IDs siempre en hash — nunca el ID numérico.
@@ -151,12 +160,12 @@ campos faltantes (422).
 - [x] `POST /auth/logout` — revoca refresh token actual
 - [x] `GET /auth/me` — devuelve user + enterprise + role + permissions + plan.limits
 - [x] Middleware `AuthenticateJWT` con DB lookup registrado
-- [x] Middleware `SetActiveEnterprise` cargando enterprise, member (role.permissions) y subscription activa
+- [x] Middleware `SetActiveEnterprise` cargando enterprise, member (role.permissions) y `active_enterprise_products` (collection)
 - [x] `RefreshToken` model con `const UPDATED_AT = null` y scope `active()`
 - [x] `TokenService` en `Application/` encapsulando toda la lógica de tokens
-- [x] `LimitsResolver` en `app/Services/` — merge de plan base + override de suscripción
+- [x] `LimitsResolver` en `app/Services/` — `resolve(Collection): ResolvedLimits` y `byProduct(Collection): array`
 - [x] Error codes en tests via `ErrorCode::X->value` — nunca strings literales
-- [x] Test: `GET /me` — 200 con user + enterprise + role + permissions + plan.name + plan.limits tipados + header `X-Request-ID`
+- [x] Test: `GET /me` — 200 con user + enterprise + role + permissions + `products.core.plan` + `products.core.limits` tipados + header `X-Request-ID`
 - [x] Test: `GET /me` — 401 sin token
 - [x] Test: `GET /me` — 401 con token malformado
 - [x] Test: `GET /me` — 401 con token firmado pero user_id inexistente en DB

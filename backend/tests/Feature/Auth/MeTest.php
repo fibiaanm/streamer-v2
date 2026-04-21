@@ -31,24 +31,26 @@ it('returns user with enterprise when fully authenticated', function () {
     $permissions = $response->json('data.enterprise.permissions');
     expect($permissions)->toBeArray()->not->toBeEmpty();
 
-    // plan limits are present with correct structure
+    // products are present with correct structure
     $response
-        ->assertJsonPath('data.enterprise.plan.name', 'Free')
+        ->assertJsonPath('data.enterprise.products.core.plan', 'Free')
         ->assertJsonStructure([
             'data' => [
                 'enterprise' => [
-                    'plan' => [
-                        'name',
-                        'limits' => [
-                            'members'            => ['type', 'max'],
-                            'workspaces'         => ['type', 'max'],
-                            'workspace_depth'    => ['type', 'max'],
-                            'storage_gb'         => ['type', 'max'],
-                            'streams_concurrent' => ['type', 'max'],
-                            'stream_minutes'     => ['type', 'max'],
-                            'rooms_concurrent'   => ['type', 'max'],
-                            'room_participants'  => ['type', 'max'],
-                            'room_guests'        => ['type', 'max'],
+                    'products' => [
+                        'core' => [
+                            'plan',
+                            'limits' => [
+                                'members'            => ['type', 'max'],
+                                'workspaces'         => ['type', 'max'],
+                                'workspace_depth'    => ['type', 'max'],
+                                'storage_gb'         => ['type', 'max'],
+                                'streams_concurrent' => ['type', 'max'],
+                                'stream_minutes'     => ['type', 'max'],
+                                'rooms_concurrent'   => ['type', 'max'],
+                                'room_participants'  => ['type', 'max'],
+                                'room_guests'        => ['type', 'max'],
+                            ],
                         ],
                     ],
                 ],

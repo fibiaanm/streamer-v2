@@ -3,19 +3,19 @@
 namespace App\Models;
 
 use App\Traits\HasHashId;
-use App\Values\ResolvedLimits;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Subscription extends Model
+class EnterpriseProduct extends Model
 {
     use HasHashId, SoftDeletes;
 
     protected $fillable = [
         'enterprise_id',
         'plan_id',
+        'product_id',
         'status',
         'starts_at',
         'ends_at',
@@ -46,24 +46,13 @@ class Subscription extends Model
         return $this->belongsTo(Plan::class);
     }
 
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', 'active');
-    }
-
-    public function resolvedLimits(): ResolvedLimits
-    {
-        $base     = $this->plan->limits_json ?? [];
-        $override = $this->override_json ?? [];
-
-        $result = $base;
-
-        foreach ($override as $key => $values) {
-            if (isset($result[$key]) && is_array($values)) {
-                $result[$key] = array_merge($result[$key], $values);
-            }
-        }
-
-        return ResolvedLimits::from($result);
     }
 }

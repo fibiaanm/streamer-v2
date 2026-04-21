@@ -6,8 +6,8 @@ use App\Domain\Enterprises\Exceptions\EnterpriseHeaderRequiredException;
 use App\Domain\Enterprises\Exceptions\EnterpriseNotFoundException;
 use App\Domain\Enterprises\Exceptions\EnterpriseNotMemberException;
 use App\Models\Enterprise;
+use App\Models\EnterpriseProduct;
 use App\Models\EnterpriseMember;
-use App\Models\Subscription;
 use App\Services\HashId;
 use Closure;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -22,7 +22,7 @@ class SetActiveEnterprise
         if ($request->attributes->get('is_guest')) {
             $request->attributes->set('active_enterprise', null);
             $request->attributes->set('active_enterprise_member', null);
-            $request->attributes->set('active_subscription', null);
+            $request->attributes->set('active_enterprise_products', collect());
             return $next($request);
         }
 
@@ -58,15 +58,14 @@ class SetActiveEnterprise
             throw new EnterpriseNotMemberException();
         }
 
-        $subscription = Subscription::where('enterprise_id', $enterprise->id)
+        $enterpriseProducts = EnterpriseProduct::where('enterprise_id', $enterprise->id)
             ->active()
-            ->with('plan')
-            ->latest('starts_at')
-            ->first();
+            ->with(['plan', 'product'])
+            ->get();
 
         $request->attributes->set('active_enterprise', $enterprise);
         $request->attributes->set('active_enterprise_member', $member);
-        $request->attributes->set('active_subscription', $subscription);
+        $request->attributes->set('active_enterprise_products', $enterpriseProducts);
 
         return $next($request);
     }

@@ -23,8 +23,8 @@ class RegisterUseCase
             ]);
 
             $enterprise = $user->createEnterprise($user->name);
-            $freePlan   = Plan::where('name', 'Free')->firstOrFail();
-            $enterprise->createSubscription($freePlan);
+            $freePlan   = Plan::freeFor('core');
+            $enterprise->createEnterpriseProduct($freePlan);
             $user->assignOwnerRole($enterprise);
 
             return $this->tokenService->issueTokens($user);

@@ -161,7 +161,7 @@ y que el usuario es miembro activo. Carga en `$request->attributes` (nunca `merg
 
 - `active_enterprise` — modelo `Enterprise`
 - `active_enterprise_member` — `EnterpriseMember` con `role.permissions` eager-loaded
-- `active_subscription` — `Subscription` activa con `plan` eager-loaded
+- `active_enterprise_products` — `Collection<EnterpriseProduct>` activos con `plan` y `product` eager-loaded
 
 > **Por qué `attributes`**: `merge()` añade al input del usuario y puede contaminar
 > `$request->validated()`. `attributes` es la bolsa de datos de framework, solo accesible

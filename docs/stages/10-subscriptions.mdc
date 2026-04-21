@@ -1,120 +1,99 @@
 ---
-description: Etapa 10 — Suscripciones, planes y validación de límites de uso
+description: Etapa 10 — Productos, planes y validación de límites de uso
 type: stage
 stage: 10
-status: pendiente
+status: en-progreso
 depends_on: 09
 ---
 
-# Etapa 10 — Suscripciones y planes
+# Etapa 10 — Productos y planes
 
 ## Objetivo
-Planes definidos por seeder, suscripciones asignables manualmente,
-sistema de validación de límites operativo.
+
+Sistema multi-producto donde cada producto tiene sus propios planes con límites.
+Una empresa puede contratar un plan de cada producto (máximo uno por producto).
 Billing real (Stripe) es fase posterior.
 
 ---
 
-## Planes base (seeder)
+## Modelo de datos
 
-`max_members` — cuántos usuarios pueden estar cobijados bajo el plan.
-Para planes individuales es el número de personas que pueden usar la cuenta.
-Para planes enterprise es el tope de miembros que puede tener la empresa.
-`-1` significa ilimitado.
+```
+products (slug: core | assistant | ...)
+  └── plans (is_free, limits_json, price_*)
+        └── enterprise_products (UNIQUE enterprise_id + product_id)
+              └── subscription_usage (enterprise_product_id, metric_key)
+```
+
+`product_id` está denormalizado en `enterprise_products` para poder aplicar
+el constraint `UNIQUE(enterprise_id, product_id)` directamente en DB.
+
+---
+
+## Productos actuales (ProductSeeder)
+
+| Slug | Descripción |
+|---|---|
+| `core` | Workspaces, streaming y rooms |
+| `assistant` | Asistente de IA |
+
+---
+
+## Planes del producto `core` (PlanSeeder)
+
+| Plan | `members` | `workspaces` | `workspace_depth` | `storage_gb` | `streams_concurrent` | `stream_minutes` | `rooms_concurrent` | `room_participants` |
+|---|---|---|---|---|---|---|---|---|
+| Free | 1 | 2 | 1 | 1 | 0 | 0 | 1 | 4 |
+| Pro | 1 | 15 | 3 | 20 | 1 | 600 | 3 | 12 |
+| Premium | 5 | 50 | 5 | 100 | 2 | 3000 | 5 | 30 |
+| Teams | 25 | 100 | 5 | 250 | 5 | 10000 | 10 | 100 |
+| Business | -1 | -1 | -1 | -1 | -1 | -1 | -1 | -1 |
+
+`members` — cuántos usuarios puede tener la empresa bajo este plan. `-1` = ilimitado.
+Tipos de límite: `permanent` = techo absoluto, `concurrent` = máximo simultáneo, `monthly` = se resetea por ciclo.
+
+---
+
+## LimitsResolver — `app/Services/LimitsResolver.php`
 
 ```php
-// PlanSeeder
-[
-    // ── Planes individuales ──────────────────────────────────────────────────
-    [
-        'name'        => 'Personal Free',
-        'type'        => 'individual',
-        'is_free'     => true,
-        'limits_json' => [
-            'max_members'             => 1,    // solo el propietario
-            'max_concurrent_streams'  => 0,    // sin streaming
-            'max_workspace_depth'     => 1,    // solo workspaces raíz
-            'storage_gb'              => 1,
-        ],
-    ],
-    [
-        'name'        => 'Personal Pro',
-        'type'        => 'individual',
-        'is_free'     => false,
-        'limits_json' => [
-            'max_members'             => 3,    // propietario + 2 personas
-            'max_concurrent_streams'  => 1,
-            'max_workspace_depth'     => 3,
-            'storage_gb'              => 20,
-        ],
-    ],
+// Límites efectivos fusionados de todos los productos activos
+// Para claves compartidas (ej: members) toma el valor más alto
+// Devuelve ResolvedLimits con métodos tipados: maxWorkspaces(), maxDepth(), etc.
+public function resolve(Collection $enterpriseProducts): ResolvedLimits
 
-    // ── Planes enterprise ────────────────────────────────────────────────────
-    [
-        'name'        => 'Enterprise Free',
-        'type'        => 'enterprise',
-        'is_free'     => true,
-        'limits_json' => [
-            'max_members'             => 5,
-            'max_concurrent_streams'  => 1,
-            'max_workspace_depth'     => 2,
-            'storage_gb'              => 5,
-        ],
-    ],
-    [
-        'name'        => 'Enterprise Pro',
-        'type'        => 'enterprise',
-        'is_free'     => false,
-        'limits_json' => [
-            'max_members'             => 25,
-            'max_concurrent_streams'  => 3,
-            'max_workspace_depth'     => 5,
-            'storage_gb'              => 50,
-        ],
-    ],
-    [
-        'name'        => 'Enterprise',
-        'type'        => 'enterprise',
-        'is_free'     => false,
-        'limits_json' => [
-            'max_members'             => -1,   // ilimitado
-            'max_concurrent_streams'  => -1,
-            'max_workspace_depth'     => -1,
-            'storage_gb'              => -1,
-        ],
-    ],
-]
+// Límites por producto — para la respuesta de /me
+// Retorna: ['core' => ['plan' => 'Free', 'limits' => [...]], ...]
+public function byProduct(Collection $enterpriseProducts): array
+```
+
+**Resolución cuando hay múltiples productos con la misma clave:**
+```php
+// -1 (ilimitado) siempre gana; de lo contrario, toma el máximo
+$merged[$key]['max'] = ($a === -1 || $b === -1) ? -1 : max($a, $b);
+```
+
+**Override por contrato** (`enterprise_products.override_json`):
+```php
+// plan base + override (solo sobreescribe lo especificado)
+// 'type' siempre viene del plan; override solo puede cambiar 'max'
+{ "members": { "max": 100 } }  // override parcial válido
 ```
 
 ---
 
-## Servicio de límites
+## Integración con dominios
+
+`LimitsResolver::resolve()` se llama en los controllers que necesitan validar límites:
 
 ```php
-// app/Domain/Subscriptions/Services/LimitService.php
+$enterpriseProducts = $request->attributes->get('active_enterprise_products');
+$limits = app(LimitsResolver::class)->resolve($enterpriseProducts);
 
-class LimitService
-{
-    public function getLimit(Enterprise $enterprise, string $key): int
-    // Resuelve el límite: override_json > plan.limits_json
-    // Retorna -1 si es ilimitado
-
-    public function check(Enterprise $enterprise, string $key): bool
-    // Compara el uso actual contra el límite
-    // Retorna true si está dentro del límite
-
-    public function increment(Enterprise $enterprise, string $key, int $by = 1): void
-    // Incrementa subscription_usage para el período actual
-
-    public function decrement(Enterprise $enterprise, string $key, int $by = 1): void
-    // Decrementa subscription_usage
-}
-```
-
-**Resolución de límites (override > plan):**
-```php
-$override = $subscription->override_json[$key] ?? null;
-$limit    = $override ?? $plan->limits_json[$key] ?? 0;
+// Workspace domain
+$limits->maxWorkspaces()    // límite de workspaces raíz
+$limits->maxDepth()         // profundidad máxima de anidado
+$limits->maxMembers()       // máximo de miembros
 ```
 
 ---
@@ -127,36 +106,11 @@ $limit    = $override ?? $plan->limits_json[$key] ?? 0;
 | `concurrent_streams` | stream pasa a `live` | stream pasa a `ended` |
 | `storage_bytes` | asset sube archivo a S3 | asset se elimina definitivamente |
 
-Más métricas se añaden según el producto crece.
-
----
-
-## Integración con dominios
-
-`LimitService::check()` se llama **antes** de crear entidades que consumen recursos:
-
-```php
-// Al añadir miembro a empresa
-if (!$limitService->check($enterprise, 'members_count')) {
-    throw new PlanLimitExceededException('members_count');
-}
-
-// Al crear workspace anidado
-if (!$limitService->check($enterprise, 'max_workspace_depth')) {
-    throw new PlanLimitExceededException('max_workspace_depth');
-}
-
-// Al iniciar stream
-if (!$limitService->check($enterprise, 'concurrent_streams')) {
-    throw new PlanLimitExceededException('concurrent_streams');
-}
-```
-
 ---
 
 ## Reservado — billing real (fase posterior)
 
-Los campos en `subscriptions` están preparados:
+Los campos en `enterprise_products` están preparados:
 - `provider` (null en v1, `stripe` cuando se implemente)
 - `provider_customer_id`
 - `provider_subscription_id`
@@ -164,29 +118,34 @@ Los campos en `subscriptions` están preparados:
 Cuando se implemente Stripe:
 1. Instalar `laravel/cashier`
 2. Webhook handler para `invoice.payment_failed`, `customer.subscription.deleted`, etc.
-3. Sincronización de estado entre Stripe y tabla `subscriptions`
+3. Sincronización de estado entre Stripe y tabla `enterprise_products`
 
 ---
 
 ## Endpoints
 
 ```
-GET  /api/v1/plans                                    ListPlansController          [público]
-GET  /api/v1/enterprises/current/subscription         ShowSubscriptionController   [enterprise]
-GET  /api/v1/enterprises/current/subscription/usage   ShowUsageController          [enterprise]
+GET  /api/v1/products                                         ListProductsController       [público]
+GET  /api/v1/enterprises/current/products                     ListEnterpriseProductsController [enterprise]
+GET  /api/v1/enterprises/current/products/{slug}/usage        ShowUsageController          [enterprise]
 ```
 
 ---
 
 ## Checklist
 
-- [ ] `PlanSeeder` con planes Personal Free, Personal Pro, Enterprise Free, Enterprise Pro, Enterprise
-- [ ] `AdminUserSeeder` con empresa y suscripción Enterprise Pro asignada
-- [ ] `LimitService` con `getLimit`, `check`, `increment`, `decrement`
-- [ ] Resolución de overrides sobre plan base
-- [ ] Métricas `members_count`, `concurrent_streams`, `storage_bytes`
-- [ ] `LimitService::check($enterprise, 'members_count')` al añadir miembro
-- [ ] `LimitService::check($enterprise, 'max_members')` compara `members_count` vs `limits_json.max_members`
-- [ ] Excepción `PlanLimitExceededException` con código `subscription.limit_exceeded`
-- [ ] `GET /api/v1/plans` y `GET /api/v1/enterprises/current/subscription` operativos
-- [ ] Tests: límites, overrides, incremento/decremento de métricas
+- [x] `ProductSeeder` con `core` y `assistant`
+- [x] `PlanSeeder` con planes del producto `core` (Free, Pro, Premium, Teams, Business)
+- [x] `Plan::freeFor(string $productSlug)` — obtiene el plan free de un producto
+- [x] `Enterprise::createEnterpriseProduct(Plan)` — crea enterprise_product activo
+- [x] `LimitsResolver::resolve(Collection): ResolvedLimits` — límites fusionados
+- [x] `LimitsResolver::byProduct(Collection): array` — keyed por slug para /me
+- [x] `SetActiveEnterprise` carga `active_enterprise_products` (collection con plan + product)
+- [x] `UserResource` devuelve `enterprise.products` keyed por slug
+- [x] `RegisterUseCase` y `AcceptInvitationUseCase` usan `Plan::freeFor('core')` + `createEnterpriseProduct()`
+- [x] `UserFactory` usa `Plan::freeFor('core')` + `createEnterpriseProduct()`
+- [x] `CreateWorkspaceController` y `RootQuotaController` usan `active_enterprise_products`
+- [ ] `PlanLimitExceededException` con código `subscription.limit_exceeded` (ya existe el error code)
+- [ ] `GET /api/v1/products` operativo
+- [ ] `GET /api/v1/enterprises/current/products` operativo
+- [ ] Tests: límites, overrides, múltiples productos

@@ -10,6 +10,7 @@ use App\Domain\Workspaces\Http\Resources\WorkspaceResource;
 use App\Exceptions\PlanLimitExceededException;
 use App\Http\Formatters\ResponseFormatter;
 use App\Models\Workspace;
+use App\Services\LimitsResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -27,9 +28,9 @@ class CreateWorkspaceController
         ]);
 
         try {
-            $enterprise   = $request->attributes->get('active_enterprise');
-            $subscription = $request->attributes->get('active_subscription');
-            $limits       = $subscription->resolvedLimits();
+            $enterprise        = $request->attributes->get('active_enterprise');
+            $enterpriseProducts = $request->attributes->get('active_enterprise_products');
+            $limits            = app(LimitsResolver::class)->resolve($enterpriseProducts);
 
             $parent = null;
             if ($request->filled('parent_workspace_id')) {

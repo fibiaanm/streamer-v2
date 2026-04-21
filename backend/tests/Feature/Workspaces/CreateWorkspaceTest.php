@@ -100,7 +100,7 @@ it('creates child workspace with correct ltree path', function () {
 
     // Pro plan allows depth > 1
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parentRes = $this->withHeaders(wsHeaders($token, $enterprise))
         ->postJson('/api/v1/workspaces', ['name' => 'Parent'])
@@ -126,7 +126,7 @@ it('copies parent members to child preserving roles', function () {
     [$owner, $enterprise, $ownerToken] = createContext();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parentRes = $this->withHeaders(wsHeaders($ownerToken, $enterprise))
         ->postJson('/api/v1/workspaces', ['name' => 'Parent'])
@@ -168,7 +168,7 @@ it('copies parent custom roles with permissions to child', function () {
     [$owner, $enterprise, $token] = createContext();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parentRes = $this->withHeaders(wsHeaders($token, $enterprise))
         ->postJson('/api/v1/workspaces', ['name' => 'Parent'])
@@ -245,7 +245,7 @@ it('unlimited plan (-1) allows unlimited root workspaces', function () {
     [, $enterprise, $token] = createContext();
 
     $business = \App\Models\Plan::where('name', 'Business')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $business->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $business->id]);
 
     foreach (range(1, 5) as $i) {
         $this->withHeaders(wsHeaders($token, $enterprise))
@@ -260,7 +260,7 @@ it('returns 403 when user lacks create_child permission in parent', function () 
     [$owner, $enterprise, $ownerToken] = createContext();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parentRes = $this->withHeaders(wsHeaders($ownerToken, $enterprise))
         ->postJson('/api/v1/workspaces', ['name' => 'Parent'])
@@ -293,7 +293,7 @@ it('returns 403 when user is not a member of parent workspace', function () {
     [$owner, $enterprise, $ownerToken] = createContext();
 
     $pro = \App\Models\Plan::where('name', 'Pro')->first();
-    $enterprise->subscriptions()->latest()->first()->update(['plan_id' => $pro->id]);
+    $enterprise->enterpriseProducts()->latest()->first()->update(['plan_id' => $pro->id]);
 
     $parentRes = $this->withHeaders(wsHeaders($ownerToken, $enterprise))
         ->postJson('/api/v1/workspaces', ['name' => 'Parent'])

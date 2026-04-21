@@ -25,8 +25,8 @@ class UserFactory extends Factory
     {
         return $this->afterCreating(function (User $user) {
             $enterprise = $user->createEnterprise($user->name);
-            $freePlan   = Plan::where('name', 'Free')->firstOrFail();
-            $enterprise->createSubscription($freePlan);
+            $freePlan   = Plan::freeFor('core');
+            $enterprise->createEnterpriseProduct($freePlan);
             $user->assignOwnerRole($enterprise);
         });
     }

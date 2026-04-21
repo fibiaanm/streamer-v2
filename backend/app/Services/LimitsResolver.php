@@ -2,23 +2,53 @@
 
 namespace App\Services;
 
-use App\Models\Subscription;
+use App\Models\EnterpriseProduct;
+use App\Values\ResolvedLimits;
+use Illuminate\Support\Collection;
 
 class LimitsResolver
 {
-    /**
-     * Devuelve los límites efectivos: plan base mergeado con el override de la suscripción.
-     * El override solo sobreescribe lo que especifica; el 'type' siempre viene del plan.
-     *
-     * Ejemplo:
-     *   plan:     { "members": { "type": "permanent", "max": 25 } }
-     *   override: { "members": { "max": 100 } }
-     *   efectivo: { "members": { "type": "permanent", "max": 100 } }
-     */
-    public function resolve(Subscription $subscription): array
+    public function resolve(Collection $enterpriseProducts): ResolvedLimits
     {
-        $base     = $subscription->plan->limits_json ?? [];
-        $override = $subscription->override_json ?? [];
+        $merged = [];
+
+        foreach ($enterpriseProducts as $ep) {
+            foreach ($this->resolveOne($ep) as $key => $value) {
+                if (!isset($merged[$key])) {
+                    $merged[$key] = $value;
+                    continue;
+                }
+
+                // For overlapping keys take the highest max (-1 = unlimited always wins)
+                if (isset($value['max'], $merged[$key]['max'])) {
+                    if ($value['max'] === -1 || $merged[$key]['max'] === -1) {
+                        $merged[$key]['max'] = -1;
+                    } else {
+                        $merged[$key]['max'] = max($merged[$key]['max'], $value['max']);
+                    }
+                }
+            }
+        }
+
+        return ResolvedLimits::from($merged);
+    }
+
+    public function byProduct(Collection $enterpriseProducts): array
+    {
+        return $enterpriseProducts
+            ->mapWithKeys(fn (EnterpriseProduct $ep) => [
+                $ep->product->slug => [
+                    'plan'   => $ep->plan->name,
+                    'limits' => $this->resolveOne($ep),
+                ],
+            ])
+            ->all();
+    }
+
+    private function resolveOne(EnterpriseProduct $ep): array
+    {
+        $base     = $ep->plan->limits_json ?? [];
+        $override = $ep->override_json ?? [];
 
         $result = $base;
 

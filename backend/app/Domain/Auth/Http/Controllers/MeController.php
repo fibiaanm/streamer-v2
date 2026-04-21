@@ -25,10 +25,7 @@ class MeController
                         'type'        => 'personal',
                         'role'        => 'guest',
                         'permissions' => config('auth.guest_permissions', []),
-                        'plan'        => [
-                            'name'   => 'guest',
-                            'limits' => config('auth.guest_limits', []),
-                        ],
+                        'products'    => config('auth.guest_limits', []),
                     ],
                 ]);
             }

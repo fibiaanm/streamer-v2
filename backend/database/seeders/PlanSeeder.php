@@ -3,16 +3,18 @@
 namespace Database\Seeders;
 
 use App\Models\Plan;
+use App\Models\Product;
 use Illuminate\Database\Seeder;
 
 class PlanSeeder extends Seeder
 {
     public function run(): void
     {
+        $core = Product::where('slug', 'core')->firstOrFail();
+
         $plans = [
             [
                 'name'                => 'Free',
-                'type'                => 'individual',
                 'is_free'             => true,
                 'price_monthly_cents' => null,
                 'price_yearly_cents'  => null,
@@ -30,7 +32,6 @@ class PlanSeeder extends Seeder
             ],
             [
                 'name'                => 'Pro',
-                'type'                => 'individual',
                 'is_free'             => false,
                 'price_monthly_cents' => 1200,
                 'price_yearly_cents'  => 11520,
@@ -48,7 +49,6 @@ class PlanSeeder extends Seeder
             ],
             [
                 'name'                => 'Premium',
-                'type'                => 'individual',
                 'is_free'             => false,
                 'price_monthly_cents' => 2500,
                 'price_yearly_cents'  => 24000,
@@ -66,7 +66,6 @@ class PlanSeeder extends Seeder
             ],
             [
                 'name'                => 'Teams',
-                'type'                => 'enterprise',
                 'is_free'             => false,
                 'price_monthly_cents' => 4900,
                 'price_yearly_cents'  => 47040,
@@ -84,7 +83,6 @@ class PlanSeeder extends Seeder
             ],
             [
                 'name'                => 'Business',
-                'type'                => 'enterprise',
                 'is_free'             => false,
                 'price_monthly_cents' => null,
                 'price_yearly_cents'  => null,
@@ -103,7 +101,10 @@ class PlanSeeder extends Seeder
         ];
 
         foreach ($plans as $plan) {
-            Plan::firstOrCreate(['name' => $plan['name']], $plan);
+            Plan::firstOrCreate(
+                ['name' => $plan['name'], 'product_id' => $core->id],
+                $plan + ['product_id' => $core->id],
+            );
         }
     }
 }
