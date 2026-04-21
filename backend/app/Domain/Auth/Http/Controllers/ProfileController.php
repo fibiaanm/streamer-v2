@@ -28,6 +28,7 @@ class ProfileController
                 'id'          => $user->getHashId(),
                 'name'        => $user->name,
                 'email'       => $user->email,
+                'avatar_url'  => $user->getAvatarUrls(),
                 'enterprises' => $enterprises,
             ]);
 

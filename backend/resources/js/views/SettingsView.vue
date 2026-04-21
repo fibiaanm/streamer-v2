@@ -10,12 +10,10 @@
 
       <!-- Content -->
       <div class="flex-1 rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
-        <EnterprisePanel v-if="activeNav === 'enterprise'" />
+        <GeneralPanel   v-if="activeNav === 'general'" />
+        <EnterprisePanel v-else-if="activeNav === 'enterprise'" />
         <MembersPanel   v-else-if="activeNav === 'members'" />
         <RolesPanel     v-else-if="activeNav === 'roles'" />
-        <div v-else class="h-full flex items-center justify-center">
-          <p class="text-sm text-white/25">{{ activeNav }}</p>
-        </div>
       </div>
 
     </div>
@@ -29,6 +27,7 @@ import { usePermissions } from '@/composables/core/usePermissions'
 import AppLayout       from '@/components/AppLayout.vue'
 import UserMenu        from '@/components/UserMenu.vue'
 import SettingsSidebar  from './Settings/SettingsSidebar.vue'
+import GeneralPanel     from './Settings/GeneralPanel.vue'
 import EnterprisePanel  from './Settings/EnterprisePanel.vue'
 import MembersPanel     from './Settings/MembersPanel.vue'
 import RolesPanel       from './Settings/RolesPanel.vue'

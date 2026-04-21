@@ -32,10 +32,16 @@ export interface Enterprise {
   plan: Plan
 }
 
+export interface AvatarUrl {
+  jpeg: string
+  webp: string
+}
+
 export interface SessionUser {
   id: string
   name: string
   email: string
+  avatar_url: AvatarUrl
   enterprise: Enterprise
 }
 
@@ -74,8 +80,8 @@ export interface MemberRoleChangedPayload {
 export interface MemberAddedPayload {
   member: {
     id:     string
-    status: string
-    user:   { id: string; name: string; email: string }
+    status: 'active' | 'suspended'
+    user:   { id: string; name: string; email: string; avatar_url: AvatarUrl }
     role:   { id: string; name: string }
   }
   invitation_id: string

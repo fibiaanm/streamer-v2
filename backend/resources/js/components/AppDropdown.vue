@@ -1,8 +1,6 @@
 <template>
-  <div class="relative inline-block" ref="containerRef">
-    <div @click="toggle" class="cursor-pointer">
-      <slot name="trigger" />
-    </div>
+  <div class="relative inline-block" ref="containerRef" @click="toggle">
+    <slot name="trigger" />
 
     <Teleport to="body">
       <Transition

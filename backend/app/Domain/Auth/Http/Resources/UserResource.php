@@ -28,9 +28,10 @@ class UserResource extends JsonResource
         }
 
         return [
-            'id'    => $this->getHashId(),
-            'name'  => $this->name,
-            'email' => $this->email,
+            'id'         => $this->getHashId(),
+            'name'       => $this->name,
+            'email'      => $this->email,
+            'avatar_url' => $this->getAvatarUrls(),
             'enterprise' => [
                 'id'          => $enterprise->getHashId(),
                 'name'        => $enterprise->name,

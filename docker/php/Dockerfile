@@ -4,14 +4,14 @@ FROM php:8.3-fpm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl zip unzip \
     libzip-dev \
-    libpng-dev libjpeg-dev libfreetype6-dev \
+    libpng-dev libjpeg-dev libfreetype6-dev libwebp-dev \
     libpq-dev \
     libicu-dev \
     libexif-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ─── PHP extensions ───────────────────────────────────────────────────────────
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) \
         pdo pdo_pgsql pgsql \
         gd intl bcmath zip exif pcntl sockets opcache
@@ -31,7 +31,7 @@ WORKDIR /var/www/html
 # ─── Permisos de storage ──────────────────────────────────────────────────────
 # www-data (php-fpm) necesita escribir en storage y bootstrap/cache.
 # Se ejecuta en build time; el volumen montado en runtime hereda el ownership.
-RUN mkdir -p storage/framework/{sessions,views,cache} storage/logs bootstrap/cache \
+RUN mkdir -p storage/framework/{sessions,views,cache} storage/logs storage/app/media-tmp bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 

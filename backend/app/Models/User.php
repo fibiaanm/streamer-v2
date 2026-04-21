@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
-class User extends Authenticatable implements JWTSubject
+class User extends Authenticatable implements JWTSubject, HasMedia
 {
-    use HasFactory, HasHashId, SoftDeletes;
+    use HasFactory, HasHashId, InteractsWithMedia, SoftDeletes;
 
     protected $fillable = ['name', 'email', 'password'];
 
@@ -29,6 +32,36 @@ class User extends Authenticatable implements JWTSubject
     public function getJWTCustomClaims(): array
     {
         return [];
+    }
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('avatar')->singleFile();
+    }
+
+    public function registerMediaConversions(?Media $media = null): void
+    {
+        $this->addMediaConversion('thumb')
+            ->width(50)
+            ->height(50)
+            ->format('jpg')
+            ->nonQueued()
+            ->performOnCollections('avatar');
+
+        $this->addMediaConversion('thumb_webp')
+            ->width(50)
+            ->height(50)
+            ->format('webp')
+            ->nonQueued()
+            ->performOnCollections('avatar');
+    }
+
+    public function getAvatarUrls(): array
+    {
+        return [
+            'jpeg' => $this->getFirstMediaUrl('avatar', 'thumb'),
+            'webp' => $this->getFirstMediaUrl('avatar', 'thumb_webp'),
+        ];
     }
 
     public function refreshTokens(): HasMany

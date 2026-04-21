@@ -13,9 +13,10 @@ class MemberResource extends JsonResource
             'id'     => $this->getHashId(),
             'status' => $this->status,
             'user'   => [
-                'id'    => $this->user->getHashId(),
-                'name'  => $this->user->name,
-                'email' => $this->user->email,
+                'id'         => $this->user->getHashId(),
+                'name'       => $this->user->name,
+                'email'      => $this->user->email,
+                'avatar_url' => $this->user->getAvatarUrls(),
             ],
             'role'   => [
                 'id'   => $this->role->getHashId(),

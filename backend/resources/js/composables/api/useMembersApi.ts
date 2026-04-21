@@ -1,10 +1,11 @@
+import type { AvatarUrl } from '@/types'
 import { useApi } from '@/lib/api'
 
 export interface MemberUser {
   id:         string
   name:       string
   email:      string
-  avatar_url?: string | null
+  avatar_url: AvatarUrl
 }
 
 export interface MemberRole {

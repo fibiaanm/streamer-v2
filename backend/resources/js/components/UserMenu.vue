@@ -14,15 +14,8 @@
   <!-- Auth: menú completo -->
   <AppDropdown v-else align="right">
     <template #trigger>
-      <button
-        class="w-8 h-8 rounded-full bg-white/10 border border-white/15
-               flex items-center justify-center
-               text-xs font-semibold text-white/70 uppercase tracking-wide
-               hover:bg-white/15 hover:border-white/25 transition-colors
-               focus:outline-none cursor-pointer"
-        :title="user?.name"
-      >
-        {{ initials }}
+      <button class="flex items-center justify-center rounded-full focus:outline-none cursor-pointer hover:opacity-80 transition-opacity" :title="user?.name">
+        <UserAvatar v-if="user" :user="user" size="sm" />
       </button>
     </template>
 
@@ -62,6 +55,7 @@ import { useRouter } from 'vue-router'
 import AppDropdown     from '@/components/AppDropdown.vue'
 import AppDropdownItem from '@/components/AppDropdownItem.vue'
 import SunMoonIcon     from '@/components/SunMoonIcon.vue'
+import UserAvatar      from '@/components/UserAvatar.vue'
 import { useSession }        from '@/composables/core/useSession'
 import { useEnterpriseStore } from '@/stores/enterpriseStore'
 import { usePermissions }    from '@/composables/core/usePermissions'
@@ -76,16 +70,6 @@ const { isDark, toggle } = useTheme()
 const { isGuest }        = usePermissions()
 
 const user = session.user
-
-const initials = computed(() => {
-  const name = user.value?.name ?? ''
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map(w => w[0] ?? '')
-    .join('')
-    .toUpperCase()
-})
 
 const goToSettings = () => router.push('/app/settings')
 

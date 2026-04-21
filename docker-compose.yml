@@ -151,6 +151,7 @@ services:
     volumes:
       - minio_data:/data
     ports:
+      - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     networks:
       - backend
@@ -174,6 +175,7 @@ services:
       /bin/sh -c "
       /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
       /usr/bin/mc mb local/$$AWS_BUCKET --ignore-existing &&
+      /usr/bin/mc anonymous set public local/$$AWS_BUCKET &&
       echo 'MinIO: bucket $$AWS_BUCKET listo.'
       "
     networks:

@@ -20,7 +20,7 @@ class ListMembersController
             $status  = $request->query('status', 'active');
             $members = EnterpriseMember::where('enterprise_id', $enterprise->id)
                 ->where('status', $status)
-                ->with(['user', 'role'])
+                ->with(['user.media', 'role'])
                 ->get();
 
             return ResponseFormatter::success(MemberResource::collection($members));

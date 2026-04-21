@@ -24,7 +24,7 @@
         @mouseleave="hoveredMemberId = null"
       >
         <template #avatar>
-          <MemberAvatar :user="m.user" />
+          <UserAvatar :user="m.user" />
         </template>
         <template #badge>
           <AppBadge :variant="roleBadgeVariant(m.role.name)" size="sm">
@@ -117,7 +117,7 @@
               class="opacity-50"
             >
               <template #avatar>
-                <MemberAvatar :user="m.user" />
+                <UserAvatar :user="m.user" />
               </template>
               <template #badge>
                 <AppBadge variant="neutral" size="sm">inactivo</AppBadge>
@@ -159,7 +159,7 @@ import AppBadge           from '@/components/AppBadge.vue'
 import AppIcon            from '@/components/AppIcon.vue'
 import AppDropdown        from '@/components/AppDropdown.vue'
 import AppDropdownItem    from '@/components/AppDropdownItem.vue'
-import MemberAvatar       from '@/components/MemberAvatar.vue'
+import UserAvatar         from '@/components/UserAvatar.vue'
 import MemberRow          from '@/views/Settings/MemberRow.vue'
 import InviteMembersModal from '@/views/Settings/InviteMembersModal.vue'
 import AssignRoleModal    from '@/views/Settings/AssignRoleModal.vue'
