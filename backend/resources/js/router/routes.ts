@@ -16,6 +16,10 @@ const routes: RouteRecordRaw[] = [
   // also check config/auth.php (guest_paths) when updating auth requirements
   {
     path: '/app',
+    component: () => import('@/views/AppView.vue'),
+  },
+  {
+    path: '/app/workspaces',
     component: () => import('@/views/WorkspacesView.vue'),
     meta: { appName: 'Workspaces', appIcon: 'ui/building', appMenu: true },
   },
@@ -29,7 +33,17 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/Pages/ImageStudio.vue'),
     meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true },
   },
-  // Workspaces, rooms y streams se añaden en sus etapas respectivas
+  {
+    path: '/app/workspaces/:id',
+    component: () => import('@/views/WorkspaceView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/app/workspaces/:id/settings',
+    component: () => import('@/views/WorkspaceSettingsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  // rooms y streams se añaden en sus etapas respectivas
   {
     path: '/design-test',
     component: () => import('@/Pages/DesignTest.vue'),

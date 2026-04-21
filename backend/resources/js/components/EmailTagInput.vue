@@ -1,18 +1,33 @@
 <template>
   <div
-    class="min-h-[44px] w-full flex flex-wrap gap-1.5 px-3 py-2 rounded-xl border transition-colors cursor-text"
+    class="relative w-full flex flex-wrap gap-1.5 px-3 rounded-lg border transition-all cursor-text"
     :class="[
       isFocused
-        ? 'border-white/30 bg-white/6'
-        : 'border-white/12 bg-white/4',
+        ? 'border-brand-400/40 bg-white/5 ring-2 ring-brand-400/15'
+        : 'border-white/10 bg-white/5',
+      label ? 'min-h-[52px] pt-7 pb-2' : 'min-h-[44px] py-2',
     ]"
     @click="focusInput"
   >
+    <!-- Floating label -->
+    <label
+      v-if="label"
+      class="absolute left-3 pointer-events-none transition-all duration-150 leading-none"
+      :class="isFloated
+        ? [
+            'top-2.5 translate-y-0 text-xs font-medium',
+            isFocused ? 'text-brand-400' : 'text-white/40',
+          ]
+        : 'top-1/2 -translate-y-1/2 text-sm font-normal text-white/30'"
+    >
+      {{ label }}
+    </label>
+
     <!-- Tags -->
     <span
       v-for="(tag, i) in tags"
       :key="i"
-      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium"
+      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium self-center"
       :class="isValidEmail(tag)
         ? 'bg-brand-500/15 text-brand-300 border border-brand-500/25'
         : 'bg-rose-500/15 text-rose-300 border border-rose-500/25'"
@@ -34,8 +49,8 @@
       ref="inputRef"
       v-model="inputValue"
       type="text"
-      :placeholder="tags.length === 0 ? placeholder : ''"
-      class="flex-1 min-w-[140px] bg-transparent text-sm text-white/80 placeholder:text-white/25 outline-none py-0.5"
+      :placeholder="!label && tags.length === 0 ? placeholder : ''"
+      class="flex-1 min-w-[140px] bg-transparent text-sm text-white/80 placeholder:text-white/25 outline-none py-0.5 self-center"
       @keydown="onKeydown"
       @blur="onBlur"
       @focus="isFocused = true"
@@ -53,7 +68,8 @@
 import { ref, computed } from 'vue'
 
 const props = withDefaults(defineProps<{
-  modelValue: string[]
+  modelValue:   string[]
+  label?:       string
   placeholder?: string
 }>(), {
   placeholder: 'email@ejemplo.com, otro@ejemplo.com…',
@@ -67,11 +83,14 @@ const inputRef   = ref<HTMLInputElement | null>(null)
 const inputValue = ref('')
 const isFocused  = ref(false)
 
-// Internal tag list mirrors modelValue
 const tags = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val),
 })
+
+const isFloated = computed(() =>
+  isFocused.value || tags.value.length > 0 || inputValue.value !== '',
+)
 
 const isValidEmail = (email: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())

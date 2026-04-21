@@ -23,26 +23,30 @@ class AppPageController extends Controller
         }
 
         try {
-            AuthPayload::from($token);
+            $payload = AuthPayload::from($token);
         } catch (TokenExpiredException) {
             return $this->tryRefresh($request, $tokenService);
         } catch (Throwable) {
             return $this->clearAndRedirect();
         }
 
+        if ($payload->isGuest() && !$this->isGuestAllowed($request->path())) {
+            return redirect('/login');
+        }
+
         return Inertia::render('App');
+    }
+
+    private function isGuestAllowed(string $path): bool
+    {
+        return collect(config('auth.guest_paths', []))->contains(
+            fn (string $pattern) => $path === ltrim($pattern, '/'),
+        );
     }
 
     private function handleNoToken(Request $request, TokenService $tokenService): Response|RedirectResponse
     {
-        $path       = $request->path();
-        $guestPaths = config('auth.guest_paths', []);
-
-        $isGuestAllowed = collect($guestPaths)->contains(
-            fn (string $pattern) => $path === ltrim($pattern, '/'),
-        );
-
-        if (!$isGuestAllowed) {
+        if (!$this->isGuestAllowed($request->path())) {
             return redirect('/login');
         }
 

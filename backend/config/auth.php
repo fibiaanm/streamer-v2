@@ -152,6 +152,8 @@ return [
     // also check AppPageController and routes.ts (requiresAuth) when updating
     'guest_paths' => [
         'app',
+        'app/image-studio',
+        'app/workspaces',
     ],
 
 ];

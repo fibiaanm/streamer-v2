@@ -18,18 +18,18 @@ export interface PlanLimits {
   room_guests: LimitValue
 }
 
-export interface Plan {
-  name: string
+export interface ProductInfo {
+  plan:   string
   limits: PlanLimits
 }
 
 export interface Enterprise {
-  id: string
-  name: string
-  type: EnterpriseType
-  role: string
+  id:          string | null
+  name:        string | null
+  type:        EnterpriseType
+  role:        string
   permissions: string[]
-  plan: Plan
+  products:    Record<string, ProductInfo> | null
 }
 
 export interface AvatarUrl {
@@ -110,3 +110,58 @@ export interface ApiError {
 export interface ApiResponse<T> {
   data: T
 }
+
+// ── Workspaces ───────────────────────────────────────────────────────────────
+
+export interface WorkspaceOwner {
+  id:   string
+  name: string
+}
+
+export interface Workspace {
+  id:         string
+  name:       string
+  status:     'active' | 'archived' | 'orphaned'
+  path:       string
+  owner:      WorkspaceOwner
+  parent_id:  string | null
+  created_at: string
+}
+
+export interface WorkspaceQuota {
+  used:  number
+  limit: number
+}
+
+export interface WorkspaceCapabilities {
+  permissions: string[]
+}
+
+export interface WorkspaceMemberUser {
+  id:         string
+  name:       string
+  email:      string
+  avatar_url: AvatarUrl
+}
+
+export interface WorkspaceMemberRole {
+  id:   string
+  name: string
+}
+
+export interface WorkspaceMember {
+  id:   string
+  user: WorkspaceMemberUser
+  role: WorkspaceMemberRole
+}
+
+export interface WorkspaceRole {
+  id:          string
+  name:        string
+  is_base:     boolean
+  permissions: string[]
+}
+
+export interface WsMemberAddedPayload        { member: WorkspaceMember }
+export interface WsMemberRemovedPayload      { member_id: string }
+export interface WsMemberRoleChangedPayload  { member_id: string; role: WorkspaceMemberRole }

@@ -6,14 +6,14 @@ export const usePermissions = () => {
 
   const enterprise  = computed(() => user.value?.enterprise ?? null)
   const permissions = computed(() => enterprise.value?.permissions ?? [])
-  const limits      = computed(() => enterprise.value?.plan?.limits ?? null)
+  const coreLimits      = computed(() => enterprise.value?.products?.core?.limits ?? null)
 
   const can = (p: string) => permissions.value.includes(p)
 
   const isGuest      = computed(() => user.value?.enterprise?.role === 'guest')
   const isEnterprise = computed(() => enterprise.value?.type === 'enterprise')
-  const haveATeam    = computed(() => (limits.value?.members.max ?? 0) > 1)
-  const membersMax   = computed(() => limits.value?.members.max ?? null)
+  const haveATeam    = computed(() => (coreLimits.value?.members.max ?? 0) > 1)
+  const membersMax   = computed(() => coreLimits.value?.members.max ?? null)
 
   const canViewSettings  = computed(() => isEnterprise.value && can('enterprise.settings.view'))
   const canEditSettings  = computed(() => can('enterprise.settings.edit'))
@@ -29,6 +29,7 @@ export const usePermissions = () => {
 
   return {
     permissions,
+    coreLimits,
     isGuest,
     isEnterprise,
     haveATeam,

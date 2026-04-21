@@ -41,7 +41,7 @@
 import { computed } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 
-type MaxWidth = 'sm' | 'md' | 'lg' | 'xl'
+type MaxWidth = 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 
 const props = withDefaults(defineProps<{
   isOpen:   boolean
@@ -53,10 +53,11 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ close: [] }>()
 
 const maxWidthClasses: Record<MaxWidth, string> = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-xl',
+  sm:  'max-w-sm',
+  md:  'max-w-md',
+  lg:  'max-w-lg',
+  xl:  'max-w-xl',
+  '2xl': 'max-w-2xl',
 }
 const maxWidthClass = computed(() => maxWidthClasses[props.maxWidth])
 </script>

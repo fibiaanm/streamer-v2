@@ -11,15 +11,9 @@
     </template>
 
     <div class="space-y-4">
-      <div>
-        <label class="block text-xs text-white/40 mb-2">Correos electrónicos</label>
-        <EmailTagInput v-model="emails" />
-      </div>
+      <EmailTagInput v-model="emails" label="Correos electrónicos" />
 
-      <div>
-        <label class="block text-xs text-white/40 mb-2">Rol</label>
-        <AppSelect v-model="selected" :options="roleOptions" :disabled="roleOptions.length === 0" />
-      </div>
+      <AppSelect v-model="selected" :options="roleOptions" label="Rol" :disabled="roleOptions.length === 0" />
 
       <p v-if="errorMessage" class="text-xs text-rose-400">{{ errorMessage }}</p>
     </div>
