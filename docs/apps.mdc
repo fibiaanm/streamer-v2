@@ -1,0 +1,41 @@
+---
+description: Aplicaciones disponibles en la plataforma — rutas, acceso y meta del router
+type: reference
+---
+
+# Apps
+
+Las apps se registran en `router/routes.ts` con `meta.appName` y `meta.appIcon`.
+`AppMenuSwitcher` las descubre automáticamente vía `router.getRoutes()`.
+
+## Flags de meta relevantes
+
+| Flag | Tipo | Descripción |
+|---|---|---|
+| `appName` | `string` | Nombre visible de la app (requerido para aparecer en el switcher) |
+| `appIcon` | `string` | Ícono en formato `ui/<nombre>` (requerido para el switcher) |
+| `appMenu` | `boolean` | `true` si aparece en el dropdown del `AppMenuSwitcher` |
+| `requiresAuth` | `boolean` | `true` si requiere usuario autenticado (no guest) |
+
+## Apps actuales
+
+| App | Ruta | appMenu | requiresAuth |
+|---|---|---|---|
+| Workspaces | `/app` | ✅ | — |
+| Image Studio | `/app/image-studio` | ✅ | — |
+| Configuración | `/app/settings` | — | ✅ |
+
+## Añadir una nueva app
+
+1. Añadir la ruta en `router/routes.ts` con los flags correspondientes:
+
+```typescript
+{
+  path: '/app/nueva-app',
+  component: () => import('@/Pages/NuevaApp.vue'),
+  meta: { appName: 'Nueva App', appIcon: 'ui/icono', appMenu: true },
+}
+```
+
+2. Añadir `<AppMenuSwitcher />` en el `#header-left` del layout de la vista.
+3. Si el ícono no existe, crearlo en `resources/js/icons/ui/` — ver `docs/icons.mdc`.

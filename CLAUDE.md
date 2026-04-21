@@ -31,3 +31,5 @@ docs/            Documentación del proyecto (no tocar sin motivo)
 - Plan de etapas       → `docs/plan.mdc`
 - Estándares de tests  → `docs/testing.mdc`
 - Etapa actual         → `docs/stages/NN-nombre.mdc`
+- Íconos SVG           → `docs/icons.mdc`
+- Apps y rutas         → `docs/apps.mdc`

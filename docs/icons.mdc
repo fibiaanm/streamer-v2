@@ -1,0 +1,75 @@
+---
+description: Sistema de íconos SVG — cómo usar AppIcon y cómo añadir íconos nuevos
+type: reference
+---
+
+# Íconos
+
+Componente: `AppIcon.vue`. Carga todos los SVG de `resources/js/icons/**/*.svg` via `import.meta.glob` como strings raw.
+
+```vue
+<AppIcon name="ui/check" size="sm" />
+```
+
+## Tamaños
+
+| Prop `size` | px |
+|---|---|
+| `xs` | 12 |
+| `sm` | 16 |
+| `md` | 20 (default) |
+| `lg` | 24 |
+| `xl` | 32 |
+
+## Añadir un ícono
+
+1. Crear `resources/js/icons/<categoría>/<nombre>.svg` (kebab-case)
+2. Usar la plantilla estándar — `stroke="currentColor"` es obligatorio para heredar el color:
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="..."/>
+</svg>
+```
+
+3. Usarlo con `<AppIcon name="<categoría>/<nombre>" />` — el glob lo detecta sin configuración adicional.
+
+> El glob usa ruta relativa (`../icons/**/*.svg`), no el alias `@/`. Vite no resuelve aliases en `import.meta.glob` de forma fiable.
+
+## Íconos disponibles — `icons/ui/`
+
+| Nombre | Uso |
+|---|---|
+| `ui/alert-triangle` | Advertencias |
+| `ui/arrows-swap` | Intercambio |
+| `ui/building` | Empresa / Workspaces |
+| `ui/check-circle` | Éxito / confirmación |
+| `ui/check` | Selección / tick |
+| `ui/chevron-left` | Navegación atrás |
+| `ui/crop` | Herramienta de recorte |
+| `ui/cursor` | Herramienta de selección |
+| `ui/download` | Descargar |
+| `ui/eye-off` | Ocultar contraseña |
+| `ui/eye` | Mostrar contraseña |
+| `ui/gallery` | Galería de imágenes |
+| `ui/image` | Imagen / Image Studio |
+| `ui/info` | Información |
+| `ui/lock-open` | Desbloqueado |
+| `ui/lock` | Bloqueado / privado |
+| `ui/log-out` | Cerrar sesión |
+| `ui/menu` | Hamburger / menú |
+| `ui/more-horizontal` | Más opciones (···) |
+| `ui/open-editor` | Abrir editor |
+| `ui/pencil` | Editar |
+| `ui/plus` | Añadir |
+| `ui/repeat` | Repetir / reintentar |
+| `ui/rotate-ccw` | Rotar izquierda |
+| `ui/rotate-cw` | Rotar derecha |
+| `ui/settings` | Configuración |
+| `ui/shield` | Seguridad / permisos |
+| `ui/switch-enterprise` | Cambiar empresa |
+| `ui/user-x` | Eliminar usuario |
+| `ui/users` | Usuarios / miembros |
+| `ui/x-circle` | Error / cancelar |
+| `ui/x` | Cerrar |
