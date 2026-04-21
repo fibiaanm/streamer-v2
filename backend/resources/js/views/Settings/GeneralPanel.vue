@@ -119,8 +119,8 @@ async function handleAvatarChange(event: Event) {
 async function handleDeleteAvatar() {
   deletingAvatar.value = true
   try {
-    await deleteAvatar()
-    if (user.value) user.value.avatar_url = null
+    const { avatar_url } = await deleteAvatar()
+    if (user.value) user.value.avatar_url = avatar_url
     addToast({ type: 'success', title: 'Foto eliminada', duration: 3000 })
   } catch {
     addToast({ type: 'error', title: 'No se pudo eliminar la foto', duration: 5000 })

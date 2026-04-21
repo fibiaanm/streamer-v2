@@ -18,8 +18,9 @@ export function useProfileApi() {
     return res.data.data.avatar_url
   }
 
-  async function deleteAvatar(): Promise<void> {
-    await api.delete('/auth/profile/avatar')
+  async function deleteAvatar(): Promise<{ avatar_url: AvatarUrl }> {
+    const res = await api.delete<{ data: { avatar_url: AvatarUrl } }>('/auth/profile/avatar')
+    return res.data.data
   }
 
   return { updateProfile, uploadAvatar, deleteAvatar }

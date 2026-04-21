@@ -52,12 +52,13 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
-const maxWidthClass: Record<MaxWidth, string> = {
+const maxWidthClasses: Record<MaxWidth, string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-xl',
-}[props.maxWidth]
+}
+const maxWidthClass = computed(() => maxWidthClasses[props.maxWidth])
 </script>
 
 <style scoped>
