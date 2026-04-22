@@ -258,6 +258,65 @@ expense: food, transport, entertainment, health, education, subscriptions, gener
 
 ---
 
+## AssistantUserSeeder
+
+Tres usuarios para desarrollo, con suscripción al assistant anclada a su personal enterprise.
+
+```php
+// user1 — Free, amigo de user2
+$user1 = User::factory()->create([
+    'name'             => 'User One',
+    'email'            => 'user1@test.com',
+    'password'         => bcrypt('password'),
+    'username'         => 'user1',
+    'timezone'         => 'America/Bogota',
+    'default_currency' => 'COP',
+]);
+
+// user2 — Pro, amigo de user1
+$user2 = User::factory()->create([
+    'name'             => 'User Two',
+    'email'            => 'user2@test.com',
+    'password'         => bcrypt('password'),
+    'username'         => 'user2',
+    'timezone'         => 'America/Bogota',
+    'default_currency' => 'COP',
+]);
+
+// user3 — Free, sin amigos
+$user3 = User::factory()->create([
+    'name'             => 'User Three',
+    'email'            => 'user3@test.com',
+    'password'         => bcrypt('password'),
+    'username'         => 'user3',
+    'timezone'         => 'America/Bogota',
+    'default_currency' => 'COP',
+]);
+
+// Suscripciones al assistant
+$freePlan = Plan::whereHas('product', fn($q) => $q->where('slug', 'assistant'))
+    ->where('is_free', true)->first();
+$proPlan  = Plan::whereHas('product', fn($q) => $q->where('slug', 'assistant'))
+    ->where('is_free', false)->first();
+
+foreach ([$user1, $user3] as $user) {
+    $user->personalEnterprise->createEnterpriseProduct($freePlan);
+}
+$user2->personalEnterprise->createEnterpriseProduct($proPlan);
+
+// Amistad user1 <-> user2
+Friendship::create([
+    'requester_id' => $user1->id,
+    'addressee_id' => $user2->id,
+    'status'       => 'accepted',
+]);
+
+FriendLabel::create(['user_id' => $user1->id, 'friend_user_id' => $user2->id, 'label' => 'user2']);
+FriendLabel::create(['user_id' => $user2->id, 'friend_user_id' => $user1->id, 'label' => 'user1']);
+```
+
+---
+
 ## Tests
 
 - Migration rollback limpio (up/down)
