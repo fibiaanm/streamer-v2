@@ -30,7 +30,7 @@
             :key="ws.id"
             :workspace="ws"
             :is-active="selected === ws.id"
-            @select="selected = ws.id"
+            @select="selectWorkspace(ws.id)"
           />
         </div>
 
@@ -148,7 +148,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter }      from 'vue-router'
 import AppLayout                  from '@/components/AppLayout.vue'
 import AppMenuSwitcher            from '@/components/AppMenuSwitcher.vue'
 import AppIcon                    from '@/components/AppIcon.vue'
@@ -164,11 +165,13 @@ import type { Workspace, WorkspaceQuota } from '@/types'
 
 const api              = useWorkspacesApi()
 const { add: addToast } = useToasts()
+const route            = useRoute()
+const router           = useRouter()
 
 // ── Workspaces list (sidebar) ─────────────────────────────────────────────────
 
-const workspaces    = ref<Workspace[]>([])
-const quota         = ref<WorkspaceQuota>({ used: 0, limit: -1 })
+const workspaces     = ref<Workspace[]>([])
+const quota          = ref<WorkspaceQuota>({ used: 0, limit: -1 })
 const sidebarLoading = ref(true)
 
 // Storage is not yet in the API — kept as static until assets stage
@@ -192,11 +195,29 @@ onMounted(async () => {
     ])
     workspaces.value = wsRes.data.data
     quota.value      = quotaRes.data.data
-    if (workspaces.value.length) selected.value = workspaces.value[0].id
   } catch {
     addToast({ type: 'error', title: 'No se pudieron cargar los workspaces', duration: 4000 })
   } finally {
     sidebarLoading.value = false
+  }
+
+  const folderId = route.query.folder as string | undefined
+
+  if (folderId) {
+    try {
+      const [folder, ancestors] = await Promise.all([
+        api.getWorkspace(folderId).then(r => r.data.data),
+        api.getAncestors(folderId).then(r => r.data.data),
+      ])
+      folderStack.value = [...ancestors, folder]
+      selected.value    = ancestors[0]?.id ?? folder.id
+      await loadChildren(folder.id)
+    } catch {
+      addToast({ type: 'error', title: 'No se pudo restaurar la navegación', duration: 3000 })
+      router.replace({ query: {} })
+    }
+  } else if (workspaces.value.length) {
+    await selectWorkspace(workspaces.value[0].id)
   }
 })
 
@@ -227,29 +248,36 @@ async function loadChildren(id: string) {
   }
 }
 
-watch(selected, async (id) => {
+async function selectWorkspace(id: string | null) {
+  selected.value    = id
   folderStack.value = []
-  if (!id) return
+  if (!id) {
+    router.replace({ query: {} })
+    return
+  }
   const ws = workspaces.value.find(w => w.id === id)
   if (!ws) return
   folderStack.value = [ws]
+  router.replace({ query: { folder: id } })
   await loadChildren(id)
-})
+}
 
 async function navigateInto(ws: Workspace) {
   folderStack.value = [...folderStack.value, ws]
+  router.replace({ query: { folder: ws.id } })
   await loadChildren(ws.id)
 }
 
 async function navigateToCrumb(id: string) {
   if (id === '__root__') {
-    selected.value = null
+    await selectWorkspace(null)
     return
   }
   const idx = folderStack.value.findIndex(w => w.id === id)
   if (idx === -1) return
   folderStack.value = folderStack.value.slice(0, idx + 1)
-  await loadChildren(folderStack.value[idx].id)
+  router.replace({ query: { folder: id } })
+  await loadChildren(id)
 }
 
 // ── Create folder modal ───────────────────────────────────────────────────────
@@ -275,7 +303,7 @@ async function onFolderCreated(name: string) {
     } else {
       workspaces.value.push(newWs)
       quota.value.used++
-      selected.value = newWs.id
+      await selectWorkspace(newWs.id)
     }
   } catch (err: any) {
     const code = err?.response?.data?.error?.code
@@ -326,12 +354,14 @@ async function onWorkspaceArchived(id: string) {
     if (stackIdx !== -1) {
       folderStack.value = folderStack.value.slice(0, stackIdx)
       if (folderStack.value.length === 0) {
-        selected.value = workspaces.value[0]?.id ?? null
+        await selectWorkspace(workspaces.value[0]?.id ?? null)
       } else {
-        await loadChildren(folderStack.value[folderStack.value.length - 1].id)
+        const newLeaf = folderStack.value[folderStack.value.length - 1]
+        router.replace({ query: { folder: newLeaf.id } })
+        await loadChildren(newLeaf.id)
       }
     } else if (selected.value === id) {
-      selected.value = workspaces.value[0]?.id ?? null
+      await selectWorkspace(workspaces.value[0]?.id ?? null)
     }
     showSettings.value = false
     quota.value.used = Math.max(0, quota.value.used - 1)

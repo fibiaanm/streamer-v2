@@ -20,6 +20,7 @@ export const useWorkspaceSource = (): WorkspaceDataSource => {
     updateWorkspace:  async (id, name)            => (await api.updateWorkspace(id, name)).data.data,
     deleteWorkspace:  async (id)                  => { await api.deleteWorkspace(id) },
     archiveWorkspace: async (id)                  => (await api.archiveWorkspace(id)).data.data,
+    getAncestors:     async (id)                  => (await api.getAncestors(id)).data.data,
     listChildren:     async (id)                  => (await api.listChildren(id)).data.data,
     getCapabilities:  async (id)                  => ({ permissions: (await api.getCapabilities(id)).data.data }),
     listMembers:      async (id)                  => (await api.listMembers(id)).data.data,

@@ -8,6 +8,7 @@ export interface WorkspaceDataSource {
   updateWorkspace (id: string, name: string): Promise<Workspace>
   deleteWorkspace (id: string): Promise<void>
   archiveWorkspace(id: string): Promise<Workspace>
+  getAncestors    (id: string): Promise<Workspace[]>
   listChildren    (id: string): Promise<Workspace[]>
   getCapabilities (id: string): Promise<WorkspaceCapabilities>
   listMembers     (id: string): Promise<WorkspaceMember[]>

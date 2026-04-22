@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Workspaces\Http\Controllers\AcceptWorkspaceInvitationController;
+use App\Domain\Workspaces\Http\Controllers\AncestorsController;
 use App\Domain\Workspaces\Http\Controllers\ArchiveWorkspaceController;
 use App\Domain\Workspaces\Http\Controllers\AssignRoleController;
 use App\Domain\Workspaces\Http\Controllers\CapabilitiesController;
@@ -39,6 +40,7 @@ Route::prefix('workspaces')->middleware(['auth.jwt', 'enterprise'])->group(funct
         Route::delete('/',     DeleteWorkspaceController::class);
         Route::patch('archive', ArchiveWorkspaceController::class);
 
+        Route::get('ancestors',    AncestorsController::class);
         Route::get('children',     ListChildrenController::class);
         Route::get('capabilities', CapabilitiesController::class);
 

@@ -32,6 +32,7 @@ export const useLocalWorkspaceSource = (): WorkspaceDataSource => {
   updateWorkspace:  () => notSupported(),
   deleteWorkspace:  () => notSupported(),
   archiveWorkspace: () => notSupported(),
+  getAncestors:     () => Promise.resolve<Workspace[]>([]),
   listChildren:     () => Promise.resolve<Workspace[]>([]),
   getCapabilities:  () => Promise.resolve<WorkspaceCapabilities>({ permissions: LOCAL_PERSONAL_PERMISSIONS }),
   listMembers:      () => Promise.resolve<WorkspaceMember[]>([]),

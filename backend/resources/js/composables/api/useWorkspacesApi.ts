@@ -11,6 +11,7 @@ export const useWorkspacesApi = () => {
   const updateWorkspace  = (id: string, name: string)                                  => api.patch<{ data: Workspace }>(`/workspaces/${id}`, { name })
   const deleteWorkspace  = (id: string)                                                => api.delete(`/workspaces/${id}`)
   const archiveWorkspace = (id: string)                                                => api.patch<{ data: Workspace }>(`/workspaces/${id}/archive`)
+  const getAncestors     = (id: string)                                                => api.get<{ data: Workspace[] }>(`/workspaces/${id}/ancestors`)
   const listChildren     = (id: string)                                                => api.get<{ data: Workspace[] }>(`/workspaces/${id}/children`)
   const getCapabilities  = (id: string)                                                => api.get<{ data: string[] }>(`/workspaces/${id}/capabilities`)
   const listMembers      = (id: string)                                                => api.get<{ data: WorkspaceMember[] }>(`/workspaces/${id}/members`)
@@ -30,6 +31,7 @@ export const useWorkspacesApi = () => {
     deleteWorkspace,
     archiveWorkspace,
     listChildren,
+    getAncestors,
     getCapabilities,
     listMembers,
     inviteMember,
