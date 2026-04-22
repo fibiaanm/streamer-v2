@@ -16,6 +16,7 @@
           ref="panelRef"
           :style="dropdownStyle"
           class="fixed z-[9999] min-w-[200px] rounded-2xl bg-white/6 backdrop-blur-xs"
+          :class="panelClass"
         >
           <div class="overflow-hidden rounded-2xl py-1.5">
             <slot />
@@ -30,7 +31,8 @@
 import { ref, computed, onMounted, onUnmounted, provide } from 'vue'
 
 const props = withDefaults(defineProps<{
-  align?: 'left' | 'right'
+  align?:      'left' | 'right'
+  panelClass?: string
 }>(), {
   align: 'right',
 })

@@ -162,6 +162,13 @@ export interface WorkspaceRole {
   permissions: string[]
 }
 
+export interface WorkspaceDetail {
+  workspace: Workspace
+  ancestors: Workspace[]
+  children:  Workspace[]
+  mode:      'my' | 'shared'
+}
+
 export interface WsMemberAddedPayload        { member: WorkspaceMember }
 export interface WsMemberRemovedPayload      { member_id: string }
 export interface WsMemberRoleChangedPayload  { member_id: string; role: WorkspaceMemberRole }

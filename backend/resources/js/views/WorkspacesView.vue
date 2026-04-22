@@ -11,16 +11,29 @@
 
       <!-- Sidebar -->
       <div class="w-56 shrink-0 h-full flex flex-col rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
+
+        <!-- Mode selector + create button -->
         <div class="px-4 py-3 border-b border-white/6 shrink-0 flex items-center justify-between">
-          <span class="text-[11px] font-semibold uppercase tracking-widest text-white/35">Workspaces</span>
+          <AppDropdown align="left" panel-class="backdrop-blur-xl backdrop-saturate-150 shadow-glass border border-white/8">
+            <template #trigger>
+              <span class="text-[11px] font-semibold uppercase tracking-widest text-white/35 hover:text-white/55 transition-colors cursor-pointer flex items-center gap-1 select-none">
+                {{ mode === 'my' ? 'Propios' : 'Compartidos' }}
+                <AppIcon name="ui/chevron-down" size="xs" class="opacity-50" />
+              </span>
+            </template>
+            <AppDropdownItem @click="switchMode('my')">Propios</AppDropdownItem>
+            <AppDropdownItem @click="switchMode('shared')">Compartidos</AppDropdownItem>
+          </AppDropdown>
           <button
-            class="w-5 h-5 flex items-center justify-center rounded-md text-white/30 hover:text-white/60 hover:bg-white/6 transition-colors cursor-pointer"
+            v-if="mode === 'my'"
+            class="w-5 h-5 flex items-center justify-center rounded-md text-white/30 hover:text-white/60 hover:bg-white/6 transition-colors cursor-pointer shrink-0"
             @click="openCreateFolder()"
           >
             <AppIcon name="ui/plus" size="xs" />
           </button>
         </div>
 
+        <!-- List -->
         <div class="flex-1 overflow-y-auto py-1.5">
           <template v-if="sidebarLoading">
             <div v-for="i in 3" :key="i" class="mx-2 my-0.5 h-9 rounded-xl bg-white/4 animate-pulse" />
@@ -34,21 +47,24 @@
           />
         </div>
 
-        <div class="px-3 py-2.5 border-t border-white/6 shrink-0 flex flex-col gap-1.5">
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] text-white/25">Workspaces</span>
-            <span class="text-[10px] text-white/35">
-              {{ workspaces.length }} / {{ quota.limit === -1 ? '∞' : quota.limit }}
-            </span>
+        <!-- Quota (propios only) -->
+        <template v-if="mode === 'my'">
+          <div class="px-3 py-2.5 border-t border-white/6 shrink-0 flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-white/25">Workspaces</span>
+              <span class="text-[10px] text-white/35">
+                {{ quota.used }} / {{ quota.limit === -1 ? '∞' : quota.limit }}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-white/25">Almacenamiento</span>
+              <span class="text-[10px] text-white/35">{{ storageLabel }}</span>
+            </div>
+            <div class="mt-0.5 h-0.5 rounded-full bg-white/6 overflow-hidden">
+              <div class="h-full rounded-full bg-white/20 transition-all" :style="{ width: storagePct + '%' }" />
+            </div>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] text-white/25">Almacenamiento</span>
-            <span class="text-[10px] text-white/35">{{ storageLabel }}</span>
-          </div>
-          <div class="mt-0.5 h-0.5 rounded-full bg-white/6 overflow-hidden">
-            <div class="h-full rounded-full bg-white/20 transition-all" :style="{ width: storagePct + '%' }" />
-          </div>
-        </div>
+        </template>
       </div>
 
       <!-- Main -->
@@ -72,6 +88,7 @@
               <div class="flex items-center justify-between mb-3">
                 <span class="text-xs font-semibold text-white/40 uppercase tracking-wide">Folders</span>
                 <button
+                  v-if="mode === 'my'"
                   class="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1 cursor-pointer"
                   @click="openCreateFolder(currentFolder ?? undefined)"
                 >
@@ -103,7 +120,10 @@
             <div>
               <div class="flex items-center justify-between mb-3">
                 <span class="text-xs font-semibold text-white/40 uppercase tracking-wide">Assets</span>
-                <button class="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1 cursor-pointer">
+                <button
+                  v-if="mode === 'my'"
+                  class="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1 cursor-pointer"
+                >
                   <AppIcon name="ui/plus" size="xs" />
                   Subir
                 </button>
@@ -121,7 +141,9 @@
             </div>
             <div class="space-y-1.5 max-w-[220px]">
               <p class="text-sm font-medium text-white/25">Selecciona un workspace</p>
-              <p class="text-xs text-white/15 leading-relaxed">O crea uno nuevo para empezar</p>
+              <p class="text-xs text-white/15 leading-relaxed">
+                {{ mode === 'my' ? 'O crea uno nuevo para empezar' : 'Los workspaces compartidos contigo aparecen aquí' }}
+              </p>
             </div>
           </div>
         </template>
@@ -149,10 +171,12 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter }      from 'vue-router'
+import { useRoute, useRouter }     from 'vue-router'
 import AppLayout                  from '@/components/AppLayout.vue'
 import AppMenuSwitcher            from '@/components/AppMenuSwitcher.vue'
 import AppIcon                    from '@/components/AppIcon.vue'
+import AppDropdown                from '@/components/AppDropdown.vue'
+import AppDropdownItem            from '@/components/AppDropdownItem.vue'
 import UserMenu                   from '@/components/UserMenu.vue'
 import WorkspaceSidebarItem       from './Workspaces/WorkspaceSidebarItem.vue'
 import WorkspaceChildCard         from './Workspaces/WorkspaceChildCard.vue'
@@ -163,18 +187,21 @@ import { useWorkspacesApi }       from '@/composables/api/useWorkspacesApi'
 import { useToasts }              from '@/composables/core/useToasts'
 import type { Workspace, WorkspaceQuota } from '@/types'
 
-const api              = useWorkspacesApi()
+const api               = useWorkspacesApi()
 const { add: addToast } = useToasts()
-const route            = useRoute()
-const router           = useRouter()
+const route             = useRoute()
+const router            = useRouter()
 
-// ── Workspaces list (sidebar) ─────────────────────────────────────────────────
+// ── Mode ──────────────────────────────────────────────────────────────────────
+
+const mode = ref<'my' | 'shared'>('my')
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
 
 const workspaces     = ref<Workspace[]>([])
 const quota          = ref<WorkspaceQuota>({ used: 0, limit: -1 })
-const sidebarLoading = ref(true)
+const sidebarLoading = ref(false)
 
-// Storage is not yet in the API — kept as static until assets stage
 const storage = { used: 0, limit: 1 }
 
 const storageLabel = computed(() => {
@@ -187,41 +214,61 @@ const storagePct = computed(() =>
   storage.limit === -1 ? 0 : Math.min((storage.used / storage.limit) * 100, 100),
 )
 
-onMounted(async () => {
+async function loadWorkspaceList() {
+  sidebarLoading.value = true
   try {
-    const [wsRes, quotaRes] = await Promise.all([
-      api.listWorkspaces(),
-      api.getQuota(),
-    ])
-    workspaces.value = wsRes.data.data
-    quota.value      = quotaRes.data.data
+    workspaces.value = (await api.listWorkspaces(mode.value === 'my' ? 'owned' : 'shared')).data.data
   } catch {
     addToast({ type: 'error', title: 'No se pudieron cargar los workspaces', duration: 4000 })
   } finally {
     sidebarLoading.value = false
   }
+}
 
+async function loadQuota() {
+  try {
+    quota.value = (await api.getQuota()).data.data
+  } catch { /* non-critical */ }
+}
+
+async function switchMode(newMode: 'my' | 'shared') {
+  if (newMode === mode.value) return
+  mode.value        = newMode
+  selected.value    = null
+  folderStack.value = []
+  children.value    = []
+  router.replace({ query: {} })
+  await loadWorkspaceList()
+  if (newMode === 'my') await loadQuota()
+}
+
+// ── Mount ─────────────────────────────────────────────────────────────────────
+
+onMounted(async () => {
   const folderId = route.query.folder as string | undefined
 
   if (folderId) {
     try {
-      const [folder, ancestors] = await Promise.all([
-        api.getWorkspace(folderId).then(r => r.data.data),
-        api.getAncestors(folderId).then(r => r.data.data),
-      ])
-      folderStack.value = [...ancestors, folder]
-      selected.value    = ancestors[0]?.id ?? folder.id
-      await loadChildren(folder.id)
+      const detail      = (await api.getDetail(folderId)).data.data
+      mode.value        = detail.mode
+      folderStack.value = [...detail.ancestors, detail.workspace]
+      selected.value    = detail.ancestors[0]?.id ?? detail.workspace.id
+      children.value    = detail.children
     } catch {
       addToast({ type: 'error', title: 'No se pudo restaurar la navegación', duration: 3000 })
       router.replace({ query: {} })
     }
-  } else if (workspaces.value.length) {
-    await selectWorkspace(workspaces.value[0].id)
+    await loadWorkspaceList()
+    if (mode.value === 'my') await loadQuota()
+  } else {
+    await Promise.all([loadWorkspaceList(), loadQuota()])
+    if (workspaces.value.length) {
+      await selectWorkspace(workspaces.value[0].id)
+    }
   }
 })
 
-// ── Selection + navigation ────────────────────────────────────────────────────
+// ── Navigation ────────────────────────────────────────────────────────────────
 
 const selected        = ref<string | null>(null)
 const folderStack     = ref<Workspace[]>([])
@@ -236,36 +283,39 @@ const breadcrumbs = computed(() =>
     : [],
 )
 
-async function loadChildren(id: string) {
+async function selectWorkspace(id: string | null) {
+  selected.value    = id
+  folderStack.value = []
+  children.value    = []
+  if (!id) {
+    router.replace({ query: {} })
+    return
+  }
+  router.replace({ query: { folder: id } })
   childrenLoading.value = true
-  children.value = []
   try {
-    children.value = (await api.listChildren(id)).data.data
+    const detail      = (await api.getDetail(id)).data.data
+    folderStack.value = [detail.workspace]
+    children.value    = detail.children
   } catch {
-    addToast({ type: 'error', title: 'No se pudieron cargar las carpetas', duration: 3000 })
+    addToast({ type: 'error', title: 'No se pudo cargar el workspace', duration: 3000 })
   } finally {
     childrenLoading.value = false
   }
 }
 
-async function selectWorkspace(id: string | null) {
-  selected.value    = id
-  folderStack.value = []
-  if (!id) {
-    router.replace({ query: {} })
-    return
-  }
-  const ws = workspaces.value.find(w => w.id === id)
-  if (!ws) return
-  folderStack.value = [ws]
-  router.replace({ query: { folder: id } })
-  await loadChildren(id)
-}
-
 async function navigateInto(ws: Workspace) {
-  folderStack.value = [...folderStack.value, ws]
   router.replace({ query: { folder: ws.id } })
-  await loadChildren(ws.id)
+  childrenLoading.value = true
+  try {
+    const detail      = (await api.getDetail(ws.id)).data.data
+    folderStack.value = [...folderStack.value, detail.workspace]
+    children.value    = detail.children
+  } catch {
+    addToast({ type: 'error', title: 'No se pudo cargar la carpeta', duration: 3000 })
+  } finally {
+    childrenLoading.value = false
+  }
 }
 
 async function navigateToCrumb(id: string) {
@@ -275,9 +325,18 @@ async function navigateToCrumb(id: string) {
   }
   const idx = folderStack.value.findIndex(w => w.id === id)
   if (idx === -1) return
+  const targetId    = folderStack.value[idx].id
   folderStack.value = folderStack.value.slice(0, idx + 1)
-  router.replace({ query: { folder: id } })
-  await loadChildren(id)
+  router.replace({ query: { folder: targetId } })
+  childrenLoading.value = true
+  try {
+    const detail   = (await api.getDetail(targetId)).data.data
+    children.value = detail.children
+  } catch {
+    addToast({ type: 'error', title: 'No se pudo cargar la carpeta', duration: 3000 })
+  } finally {
+    childrenLoading.value = false
+  }
 }
 
 // ── Create folder modal ───────────────────────────────────────────────────────
@@ -349,7 +408,7 @@ async function onWorkspaceArchived(id: string) {
     await api.archiveWorkspace(id)
     workspaces.value = workspaces.value.filter(ws => ws.id !== id)
     children.value   = children.value.filter(c => c.id !== id)
-    // If archived folder is in the nav stack, pop back to its parent
+
     const stackIdx = folderStack.value.findIndex(w => w.id === id)
     if (stackIdx !== -1) {
       folderStack.value = folderStack.value.slice(0, stackIdx)
@@ -358,13 +417,19 @@ async function onWorkspaceArchived(id: string) {
       } else {
         const newLeaf = folderStack.value[folderStack.value.length - 1]
         router.replace({ query: { folder: newLeaf.id } })
-        await loadChildren(newLeaf.id)
+        childrenLoading.value = true
+        try {
+          children.value = (await api.getDetail(newLeaf.id)).data.data.children
+        } finally {
+          childrenLoading.value = false
+        }
       }
     } else if (selected.value === id) {
       await selectWorkspace(workspaces.value[0]?.id ?? null)
     }
+
     showSettings.value = false
-    quota.value.used = Math.max(0, quota.value.used - 1)
+    if (mode.value === 'my') quota.value.used = Math.max(0, quota.value.used - 1)
   } catch {
     addToast({ type: 'error', title: 'No se pudo archivar el workspace', duration: 4000 })
   }

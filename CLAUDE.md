@@ -19,6 +19,9 @@ services/        Código fuente de servicios independientes (socketio, composito
 docs/            Documentación del proyecto (no tocar sin motivo)
 ```
 
+## Repo management
+No commits sin aprobación previa, hacer un commit no es permiso para hacer commits de todo lo posterior
+
 ## Convenciones de código
 
 - **`use Throwable;` siempre** — nunca `\Throwable` inline en catch blocks ni en type hints.

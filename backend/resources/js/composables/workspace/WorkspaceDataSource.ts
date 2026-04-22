@@ -1,8 +1,9 @@
-import type { Workspace, WorkspaceCapabilities, WorkspaceMember, WorkspaceQuota, WorkspaceRole } from '@/types'
+import type { Workspace, WorkspaceCapabilities, WorkspaceDetail, WorkspaceMember, WorkspaceQuota, WorkspaceRole } from '@/types'
 
 export interface WorkspaceDataSource {
   getQuota        (): Promise<WorkspaceQuota>
-  listWorkspaces  (): Promise<Workspace[]>
+  listWorkspaces  (type: 'owned' | 'shared'): Promise<Workspace[]>
+  getDetail       (id: string): Promise<WorkspaceDetail>
   createWorkspace (name: string, parent_workspace_id?: string): Promise<Workspace>
   getWorkspace    (id: string): Promise<Workspace>
   updateWorkspace (id: string, name: string): Promise<Workspace>

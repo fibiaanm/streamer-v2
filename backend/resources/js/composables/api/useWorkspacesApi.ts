@@ -1,11 +1,12 @@
-import type { Workspace, WorkspaceCapabilities, WorkspaceMember, WorkspaceQuota, WorkspaceRole } from '@/types'
+import type { Workspace, WorkspaceCapabilities, WorkspaceDetail, WorkspaceMember, WorkspaceQuota, WorkspaceRole } from '@/types'
 import { useApi } from '@/lib/api'
 
 export const useWorkspacesApi = () => {
   const api = useApi()
 
   const getQuota         = ()                                                          => api.get<{ data: WorkspaceQuota }>('/workspaces/root-quota')
-  const listWorkspaces   = ()                                                          => api.get<{ data: Workspace[] }>('/workspaces')
+  const listWorkspaces   = (type: 'owned' | 'shared')                                 => api.get<{ data: Workspace[] }>(`/workspaces?type=${type}`)
+  const getDetail        = (id: string)                                                => api.get<{ data: WorkspaceDetail }>(`/workspaces/${id}/detail`)
   const createWorkspace  = (name: string, parent_workspace_id?: string)                => api.post<{ data: Workspace }>('/workspaces', { name, parent_workspace_id })
   const getWorkspace     = (id: string)                                                => api.get<{ data: Workspace }>(`/workspaces/${id}`)
   const updateWorkspace  = (id: string, name: string)                                  => api.patch<{ data: Workspace }>(`/workspaces/${id}`, { name })
@@ -25,6 +26,7 @@ export const useWorkspacesApi = () => {
   return {
     getQuota,
     listWorkspaces,
+    getDetail,
     createWorkspace,
     getWorkspace,
     updateWorkspace,

@@ -14,7 +14,8 @@ export const useWorkspaceSource = (): WorkspaceDataSource => {
 
   return {
     getQuota:         async ()                    => (await api.getQuota()).data.data,
-    listWorkspaces:   async ()                    => (await api.listWorkspaces()).data.data,
+    listWorkspaces:   async (type)                => (await api.listWorkspaces(type)).data.data,
+    getDetail:        async (id)                  => (await api.getDetail(id)).data.data,
     createWorkspace:  async (name, pid)           => (await api.createWorkspace(name, pid)).data.data,
     getWorkspace:     async (id)                  => (await api.getWorkspace(id)).data.data,
     updateWorkspace:  async (id, name)            => (await api.updateWorkspace(id, name)).data.data,

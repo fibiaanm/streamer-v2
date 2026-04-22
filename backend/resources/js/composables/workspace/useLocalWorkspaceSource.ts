@@ -25,9 +25,10 @@ export const useLocalWorkspaceSource = (): WorkspaceDataSource => {
   const maxWorkspaces = computed(() => coreLimits.value?.workspaces?.max ?? -1)
 
   return {
-  getQuota: () => Promise.resolve<WorkspaceQuota>({ used: 0, limit: maxWorkspaces.value }),
-  listWorkspaces:   () => Promise.resolve<Workspace[]>([]),
-  createWorkspace:  () => notSupported(),
+  getQuota:       () => Promise.resolve<WorkspaceQuota>({ used: 0, limit: maxWorkspaces.value }),
+  listWorkspaces: () => Promise.resolve<Workspace[]>([]),
+  getDetail:      () => notSupported(),
+  createWorkspace: () => notSupported(),
   getWorkspace:     () => notSupported(),
   updateWorkspace:  () => notSupported(),
   deleteWorkspace:  () => notSupported(),

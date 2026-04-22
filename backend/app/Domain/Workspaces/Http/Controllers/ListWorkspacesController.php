@@ -18,11 +18,15 @@ class ListWorkspacesController
             $enterprise = $request->attributes->get('active_enterprise');
             $user       = $request->user();
 
+            $type = $request->query('type');
+
             $workspaces = Workspace::where('enterprise_id', $enterprise->id)
                 ->whereNull('parent_workspace_id')
                 ->whereIn('id', function ($q) use ($user) {
                     $q->select('workspace_id')->from('workspace_members')->where('user_id', $user->id);
                 })
+                ->when($type === 'owned',  fn ($q) => $q->where('owner_user_id', $user->id))
+                ->when($type === 'shared', fn ($q) => $q->where('owner_user_id', '!=', $user->id))
                 ->with('owner')
                 ->get();
 
