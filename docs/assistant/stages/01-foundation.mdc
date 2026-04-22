@@ -52,6 +52,7 @@ assistant_06_create_type_catalogs_table
   user_id FK nullable
   domain  enum: event | list | expense
   name    string
+  INDEX(domain)
   UNIQUE(user_id, domain, name)
 
 assistant_07_create_events_table
