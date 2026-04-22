@@ -1,0 +1,265 @@
+---
+description: Etapa 01 — Migraciones, modelos, planes y skeleton del worker
+type: stage
+stage: "assistant-01"
+status: pendiente
+depends_on: streamer-03, streamer-10
+---
+
+# Etapa 01 — Fundación
+
+## Objetivo
+Base de datos completa del assistant, modelos Eloquent, planes seeder y skeleton del servicio Node. Al terminar esta etapa existe todo el andamiaje de datos y el servicio puede levantarse en Docker.
+
+---
+
+## Migraciones — orden y campos clave
+
+```
+assistant_01_add_fields_to_users
+  + timezone          string IANA, default 'UTC'
+  + default_currency  string ISO 4217, default 'USD'
+  + username          string unique nullable
+  + friend_code       string unique           — generado en UserObserver o RegisterUseCase
+
+assistant_02_create_conversations_table
+  id, user_id FK users, created_at
+
+assistant_03_create_sessions_table
+  id, conversation_id FK, started_at, last_message_at
+
+assistant_04_create_messages_table
+  id, conversation_id FK, session_id FK
+  role          enum: user | assistant | system | tool_call | tool_result
+  channel       enum: web | whatsapp, default web
+  content       text
+  actions_json  json nullable
+  metadata_json json nullable
+  memory_processed bool default false
+  created_at
+  -- media via Spatie (morphs)
+
+assistant_05_create_memories_table
+  id, user_id FK
+  category    string
+  description string
+  content     text
+  updated_at, created_at
+  UNIQUE(user_id, category)
+
+assistant_06_create_type_catalogs_table
+  id
+  user_id FK nullable
+  domain  enum: event | list | expense
+  name    string
+  UNIQUE(user_id, domain, name)
+
+assistant_07_create_events_table
+  id, user_id FK
+  content         text
+  event_at        timestamp UTC
+  event_end       timestamp UTC nullable
+  type            string
+  recurrence_rule string nullable
+  status          enum: active | cancelled | completed, default active
+  sender_id       FK users nullable
+  created_at, updated_at
+  softDeletes
+
+assistant_08_create_event_reminders_table
+  id, event_id FK
+  fire_at   timestamp UTC
+  message   string
+  status    enum: pending | fired | failed, default pending
+  fired_at  timestamp nullable
+  created_at
+
+assistant_09_create_lists_table
+  id, user_id FK
+  name    string
+  type    string nullable
+  created_at, updated_at
+  softDeletes
+
+assistant_10_create_list_items_table
+  id, list_id FK
+  content           string
+  status            enum: pending | done, default pending
+  position          integer default 0
+  added_by_user_id  FK users
+  created_at, updated_at
+
+assistant_11_create_expenses_table
+  id, user_id FK
+  amount_cents  integer
+  currency      string ISO 4217
+  description   string
+  type          string nullable
+  spent_at      timestamp UTC
+  created_at, updated_at
+
+assistant_12_create_friendships_table
+  id
+  requester_id FK users
+  addressee_id FK users
+  status  enum: pending | accepted | declined | blocked, default pending
+  created_at, updated_at
+  UNIQUE(requester_id, addressee_id)
+
+assistant_13_create_friend_labels_table
+  id
+  user_id        FK users
+  friend_user_id FK users
+  label          string
+  created_at, updated_at
+  UNIQUE(user_id, friend_user_id)
+
+assistant_14_create_list_shares_table
+  id
+  list_id              FK lists
+  shared_with_user_id  FK users
+  invited_by_user_id   FK users
+  permission           enum: read | write, default read
+  accepted_at          timestamp nullable
+  created_at
+
+assistant_15_create_reminder_requests_table
+  id
+  sender_id          FK users
+  receiver_id        FK users
+  content            string
+  suggested_event_at timestamp nullable
+  status             enum: pending | accepted | declined, default pending
+  event_id           FK events nullable
+  message_id         FK messages nullable
+  created_at, updated_at
+```
+
+---
+
+## Modelos Eloquent
+
+Dominio: `app/Domain/Assistant/Models/`
+
+| Modelo | Tabla | Notas |
+|---|---|---|
+| `Conversation` | conversations | hasMany sessions, hasMany messages |
+| `Session` | sessions | belongsTo conversation, hasMany messages |
+| `AssistantMessage` | messages | belongsTo conversation + session; morphMedia (Spatie) |
+| `Memory` | memories | belongsTo user |
+| `TypeCatalog` | type_catalogs | belongsTo user nullable |
+| `AssistantEvent` | events | belongsTo user; hasMany eventReminders |
+| `EventReminder` | event_reminders | belongsTo event |
+| `AssistantList` | lists | belongsTo user; hasMany listItems; hasMany listShares |
+| `ListItem` | list_items | belongsTo list |
+| `Expense` | expenses | belongsTo user |
+| `Friendship` | friendships | belongsTo requester (user), addressee (user) |
+| `FriendLabel` | friend_labels | belongsTo user, belongsTo friendUser |
+| `ListShare` | list_shares | belongsTo list; belongsTo sharedWith (user) |
+| `ReminderRequest` | reminder_requests | belongsTo sender, receiver (user); belongsTo event nullable |
+
+---
+
+## Plans seeder — assistant
+
+```php
+// PlanSeeder o AssistantPlanSeeder
+$product = Product::where('slug', 'assistant')->first();
+
+Plan::firstOrCreate(['name' => 'Free', 'product_id' => $product->id], [
+    'is_free' => true,
+    'limits_json' => [
+        'friends_count'                => ['type' => 'permanent', 'max' => 5],
+        'send_reminders_to_friends'    => ['type' => 'boolean',   'value' => false],
+        'reminders_per_month'          => ['type' => 'monthly',   'max' => 30],
+        'memories_count'               => ['type' => 'permanent', 'max' => 10],
+        'model_tier'                   => ['type' => 'string',    'value' => 'basic'],
+    ],
+]);
+
+Plan::firstOrCreate(['name' => 'Pro', 'product_id' => $product->id], [
+    'is_free' => false,
+    'price_monthly_cents' => 799,
+    'price_yearly_cents'  => 7670,
+    'limits_json' => [
+        'friends_count'                => ['type' => 'permanent', 'max' => -1],
+        'send_reminders_to_friends'    => ['type' => 'boolean',   'value' => true],
+        'reminders_per_month'          => ['type' => 'monthly',   'max' => -1],
+        'memories_count'               => ['type' => 'permanent', 'max' => -1],
+        'model_tier'                   => ['type' => 'string',    'value' => 'standard'],
+    ],
+]);
+```
+
+---
+
+## LimitsResolver — soporte boolean y string
+
+Extender `LimitsResolver` para manejar dos nuevos tipos en `limits_json`:
+- `boolean` → retorna `value` directamente (no tiene `max`)
+- `string`  → retorna `value` directamente (no tiene `max`)
+
+---
+
+## `friend_code` — generación
+
+En `RegisterUseCase` (o `UserObserver`), al crear un usuario, generar un código único de 8 chars alfanumérico:
+
+```php
+do {
+    $code = strtoupper(Str::random(8));
+} while (User::where('friend_code', $code)->exists());
+$user->friend_code = $code;
+```
+
+---
+
+## Docker — nuevo servicio
+
+Añadir en `docker-compose.yml`:
+
+```yaml
+assistant-worker:
+  build:
+    context: ./services/assistant-worker
+    dockerfile: Dockerfile
+  depends_on:
+    redis: { condition: service_healthy }
+    postgres: { condition: service_healthy }
+  env_file: .env
+  networks: [backend]
+  restart: unless-stopped
+```
+
+Crear `services/assistant-worker/` con estructura mínima:
+```
+services/assistant-worker/
+  src/
+    index.ts
+  package.json
+  tsconfig.json
+  Dockerfile
+```
+
+El `index.ts` solo conecta a Redis y logea "assistant-worker ready". La lógica real llega en etapa 03.
+
+---
+
+## Type catalog seeds
+
+Seeds de tipos globales en `TypeCatalogSeeder`:
+
+```
+event: birthday, appointment, task, reminder, deadline, meeting, class, habit
+list:  shopping, todo, reading, watchlist, travel, general
+expense: food, transport, entertainment, health, education, subscriptions, general
+```
+
+---
+
+## Tests
+
+- Migration rollback limpio (up/down)
+- `User` factory genera `friend_code` único
+- `LimitsResolver` resuelve correctamente límites `boolean` y `string`
+- `AssistantPlanSeeder` idempotente (firstOrCreate)

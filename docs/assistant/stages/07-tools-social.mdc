@@ -1,0 +1,189 @@
+---
+description: Etapa 07 — Tools sociales: amistades, recordatorios entre amigos, look_at_image
+type: stage
+stage: "assistant-07"
+status: pendiente
+depends_on: assistant-05, assistant-06
+---
+
+# Etapa 07 — Tools — Social
+
+## Objetivo
+Red de amigos completa: solicitudes, apodos, recordatorios entre amigos, listas compartidas (tools del worker) y procesamiento de imágenes con visión. Al terminar esta etapa el producto tiene todas sus features colaborativas.
+
+---
+
+## Rutas Laravel
+
+```
+GET    /api/v1/assistant/friends                          — lista amigos aceptados
+POST   /api/v1/assistant/friends/request                  — envía solicitud (email | username | friend_code)
+GET    /api/v1/assistant/friends/pending                  — solicitudes entrantes pendientes
+PATCH  /api/v1/assistant/friends/{friendship}/respond     — acepta o rechaza solicitud
+PATCH  /api/v1/assistant/friends/{friend}/label           — establece apodo
+DELETE /api/v1/assistant/friends/{friend}                 — elimina amistad
+
+POST   /api/v1/assistant/reminder-requests                — envía recordatorio a amigo
+PATCH  /api/v1/assistant/reminder-requests/{req}/respond  — acepta o rechaza recordatorio
+
+POST   /api/v1/assistant/lists/{list}/share               — (ya en etapa 05)
+PATCH  /api/v1/assistant/list-shares/{share}/respond      — (ya en etapa 05)
+
+POST   /api/v1/assistant/internal/look-at-image           — visión (solo service token)
+```
+
+---
+
+## Controladores
+
+`app/Domain/Assistant/Http/Friends/`
+
+### `GetFriendsController`
+- Retorna amistades con `status = accepted` donde el usuario es requester O addressee
+- Para cada amigo, incluye el `friend_label` que el usuario le ha puesto (si existe)
+- Incluye `id`, `name`, `username`, `friend_code`
+
+### `SendFriendRequestController`
+- Recibe `identifier` (email | username | friend_code)
+- Busca al usuario por cualquiera de los tres campos
+- Verifica que no existe ya una amistad activa o pendiente
+- Verifica límite del plan (`friends_count`) — solo cuenta amistades aceptadas
+- Crea `Friendship` con `status = pending`
+- Crea mensaje en la conversación del receptor (role: system):
+  ```
+  "[Nombre] quiere añadirte como amigo."
+  actions_json: [{ label: "Aceptar", value: "accept_friend:{friendship_id}" }, { label: "Rechazar", value: "decline_friend:{friendship_id}" }]
+  ```
+- Broadcast al canal del receptor
+
+### `RespondToFriendRequestController`
+- Recibe `accept: bool`
+- Si acepta: `status = accepted`
+- Si rechaza: `status = declined`
+- Notifica al solicitante via mensaje en su conversación
+
+### `SetFriendLabelController`
+- Crea o actualiza `FriendLabel` para `(user_id, friend_user_id)`
+
+### `RemoveFriendController`
+- Marca friendship como `blocked` o la elimina físicamente
+- Elimina el `FriendLabel` mutuo
+- No elimina listas compartidas (quedan activas pero sin sincronización de nuevos ítems — decisión: revocar acceso automáticamente)
+
+---
+
+### `SendReminderRequestController`
+- Verifica que el sender tiene `send_reminders_to_friends = true` en su plan
+- Verifica que `receiver_id` es amigo aceptado
+- Crea `ReminderRequest` con `status = pending`
+- Crea mensaje en la conversación del receptor (role: system):
+  ```
+  "[Juan Carro] quiere recordarte: [content]. ¿Deseas añadirlo? [suggested_at si aplica]"
+  actions_json: [{ label: "Añadir recordatorio", value: "accept_reminder:{req_id}" }, { label: "No, gracias", value: "decline_reminder:{req_id}" }]
+  ```
+- Broadcast al canal del receptor
+
+### `RespondToReminderRequestController`
+- Si acepta:
+  - Crea `Event` en los eventos del receptor con `sender_id = request.sender_id`
+  - El evento no tiene disparos aún — el receptor debe configurarlos
+    (el assistant propone: *"¿Cuándo quieres que te avise?"* via actions_json)
+  - Actualiza `ReminderRequest.event_id` y `status = accepted`
+- Si rechaza: `status = declined`
+- Notifica al sender via mensaje en su conversación
+
+---
+
+## Tool `look_at_image` — worker Node
+
+```ts
+async function lookAtImage(mediaId: string, userId: string): Promise<string> {
+  // 1. Obtiene URL firmada del archivo via LaravelClient
+  const { signedUrl } = await laravelClient.post('/api/v1/assistant/internal/signed-url', { media_id: mediaId })
+
+  // 2. Llama al LLM con la imagen como contenido visual
+  const response = await llmClient.call({
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'url', url: signedUrl } },
+        { type: 'text',  text: 'Describe this image in detail. If it contains dates, amounts, or structured data, extract them explicitly.' }
+      ]
+    }],
+    model: resolveModel(user.planTier, 'vision'),
+    maxTokens: 1024,
+  })
+
+  return response.content
+}
+```
+
+La tool en el sistema:
+```ts
+{
+  name: 'look_at_image',
+  description: 'Analiza una imagen adjunta y retorna su descripción. Usa cuando el usuario envió una imagen y necesitas entender su contenido.',
+  parameters: {
+    type: 'object',
+    required: ['media_id'],
+    properties: {
+      media_id: { type: 'string', description: 'ID del adjunto en el mensaje del usuario' }
+    }
+  }
+}
+```
+
+---
+
+## Worker Node — todas las tools sociales
+
+```ts
+const SOCIAL_TOOLS: StandardTool[] = [
+  { name: 'get_friends', ... },
+  { name: 'send_friend_request', ... },
+  { name: 'respond_to_friend_request', ... },
+  { name: 'set_friend_label', ... },
+  { name: 'send_reminder_to_friend', ... },
+  { name: 'respond_to_reminder_request', ... },
+  { name: 'share_list', ... },
+  { name: 'respond_to_list_share', ... },
+  { name: 'look_at_image', ... },
+]
+```
+
+---
+
+## Endpoint interno — URL firmada
+
+```
+POST /api/v1/assistant/internal/signed-url
+Body: { media_id: string }
+Retorna: { signed_url: string, expires_in: 300 }
+Auth: ASSISTANT_SERVICE_TOKEN
+```
+
+---
+
+## Lógica del `friend_code` regenerable
+
+```
+POST /api/v1/assistant/profile/regenerate-friend-code
+Auth: JWT usuario (solo desde web, no via LLM)
+→ genera nuevo código único, guarda en users.friend_code
+→ retorna { friend_code, qr_data: "https://app/add-friend/{code}" }
+```
+
+---
+
+## Tests
+
+- `SendFriendRequestController`: busca correctamente por email, username y friend_code
+- `SendFriendRequestController`: rechaza si ya existe amistad pendiente o aceptada (422)
+- `SendFriendRequestController`: rechaza si usuario free ya tiene 5 amigos aceptados (422)
+- `SendFriendRequestController`: crea mensaje con actions_json en conversación del receptor
+- `RespondToFriendRequestController`: aceptar → status=accepted; rechazar → status=declined
+- `SendReminderRequestController`: rechaza si sender tiene `send_reminders_to_friends=false` (403)
+- `SendReminderRequestController`: rechaza si receiver no es amigo aceptado (422)
+- `RespondToReminderRequestController`: aceptar → crea Event con sender_id correcto
+- `look_at_image`: retorna descripción estructurada para imagen con datos financieros
+- Regenerar friend_code: nuevo código es único y distinto al anterior

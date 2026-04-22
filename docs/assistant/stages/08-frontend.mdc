@@ -1,0 +1,165 @@
+---
+description: Etapa 08 — Frontend del asistente: chat UI, vistas y settings
+type: stage
+stage: "assistant-08"
+status: pendiente
+depends_on: assistant-07
+---
+
+# Etapa 08 — Frontend
+
+## Objetivo
+Interfaz web completa del asistente: chat conversacional, vistas de eventos/listas/gastos y gestión de amigos. El chat es la entrada principal; las vistas secundarias permiten gestión y visualización.
+
+---
+
+## Rutas del frontend
+
+```
+/assistant                    → AssistantView (chat + sidebar)
+/assistant/events             → EventsView
+/assistant/lists              → ListsView
+/assistant/lists/:id          → ListDetailView
+/assistant/expenses           → ExpensesView
+/assistant/friends            → FriendsView
+/assistant/settings           → AssistantSettingsView
+```
+
+---
+
+## Composables
+
+`resources/js/composables/assistant/`
+
+### `useAssistantChat`
+- Estado: `messages`, `isTyping`, `actions`
+- Conecta al WebSocket `assistant.{conversation_id}`
+- `sendMessage(content, mediaFile?)` — sube media si existe, luego POST al endpoint
+- Maneja `MessageReceived` y `MessageProcessing` (typing indicator)
+- Renderiza `actions_json` como botones y envía el `value` al hacer click como un nuevo mensaje
+
+### `useAssistantEvents`
+- `events`, `loading`
+- `fetchEvents(filters?)`, `cancelEvent(id, series?)`, `snoozeEvent(id, until)`
+
+### `useAssistantLists`
+- `lists`, `sharedLists`, `loading`
+- `fetchLists()`, `createList(...)`, `deleteList(id)`
+- `addItem(listId, items)`, `toggleItem(itemId)`, `clearCompleted(listId)`
+
+### `useAssistantExpenses`
+- `expenses`, `summary`, `loading`
+- `fetchExpenses(filters?)`, `fetchSummary(period?)`
+- `deleteExpense(id)`
+
+### `useAssistantFriends`
+- `friends`, `pendingRequests`, `loading`
+- `fetchFriends()`, `respondToRequest(id, accept)`
+- `setLabel(friendId, label)`
+
+### `useAssistantSettings`
+- Lee y actualiza: `timezone`, `default_currency`, `username`, `friend_code`
+- `regenerateFriendCode()` → genera QR desde la respuesta
+
+---
+
+## Vistas principales
+
+### `AssistantView`
+Layout dividido: sidebar izquierdo con navegación + área central de chat.
+
+**Chat area:**
+- Lista de mensajes ordenados por `created_at ASC`
+- Mensajes del usuario (`role: user`) alineados a la derecha
+- Mensajes del assistant (`role: assistant | system`) alineados a la izquierda
+- Mensajes de sistema con estilo diferenciado (notificaciones de amigos, disparos de recordatorio)
+- Indicador de "escribiendo" cuando `isTyping = true`
+- `actions_json`: renderiza botones bajo el mensaje; al pulsar envía el valor como mensaje de usuario
+
+**Input area:**
+- Textarea con auto-resize
+- Botón de adjunto: abre selector de archivo (audio, imagen, documento)
+- Preview del adjunto antes de enviar
+- Enter envía, Shift+Enter nueva línea
+
+### `EventsView`
+- Lista de eventos activos agrupados por fecha
+- Card de evento: content, type badge, event_at, disparos próximos
+- Acciones inline: posponer, cancelar
+
+### `ListsView` + `ListDetailView`
+- Grid de listas con conteo pending/done
+- Badge "compartida" en listas con `ListShare`
+- `ListDetailView`: ítems con checkbox, inline add, drag para reordenar, botón clear completed
+
+### `ExpensesView`
+- Tabla de gastos recientes + widget de resumen del mes por tipo
+- Selector de período para el summary
+
+### `FriendsView`
+- Lista de amigos con sus labels
+- Sección de solicitudes pendientes (aceptar/rechazar)
+- Input para buscar y añadir amigo (email, username o friend_code)
+
+### `AssistantSettingsView`
+- Timezone selector (lista IANA)
+- Currency selector (ISO 4217 principales)
+- Username input
+- Friend code display + botón regenerar + QR code (librería `qrcode`)
+
+---
+
+## Integración WebSocket
+
+El assistant usa el mismo Socket.io del proyecto. Canal nuevo:
+
+```ts
+// useAssistantChat
+socket.on(`assistant.${conversationId}`, (event) => {
+  if (event.type === 'MessageProcessing') isTyping.value = true
+  if (event.type === 'MessageReceived')   {
+    isTyping.value = false
+    messages.value.push(event.message)
+  }
+})
+```
+
+---
+
+## Manejo de `actions_json`
+
+```vue
+<!-- MessageBubble.vue -->
+<div v-if="message.actions?.length" class="actions">
+  <button
+    v-for="action in message.actions"
+    :key="action.value"
+    @click="sendMessage(action.value)"
+    :disabled="actionsUsed"
+  >
+    {{ action.label }}
+  </button>
+</div>
+```
+
+Al pulsar un botón: el `value` se envía como mensaje de texto del usuario. Los botones quedan deshabilitados (`actionsUsed = true`) para evitar doble envío.
+
+---
+
+## Permisos de plan en frontend
+
+El composable `useAssistantPlan` expone los límites del plan activo:
+- `canSendRemindersToFriends` — oculta o deshabilita el botón correspondiente
+- `maxFriends` — muestra el contador en FriendsView
+- `planTier` — para mostrar CTA de upgrade cuando corresponde
+
+---
+
+## Tests
+
+- `useAssistantChat`: `sendMessage` con adjunto sube el archivo antes de POST
+- `useAssistantChat`: botones de `actions_json` quedan disabled tras pulsar
+- `MessageBubble`: mensajes de sistema tienen clase CSS diferenciada
+- Typing indicator aparece ante `MessageProcessing` y desaparece ante `MessageReceived`
+- `AssistantSettingsView`: regenerar friend_code actualiza el QR displayed
+- `FriendsView`: solicitud pendiente desaparece tras responder (acepta/rechaza)

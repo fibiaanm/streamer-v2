@@ -1,0 +1,182 @@
+---
+description: Etapa 06 — Tools de gastos: CRUD y resumen por período
+type: stage
+stage: "assistant-06"
+status: pendiente
+depends_on: assistant-04
+---
+
+# Etapa 06 — Tools — Gastos
+
+## Objetivo
+CRUD completo de gastos con detección automática de moneda. El LLM puede registrar, consultar, modificar y eliminar gastos, y generar resúmenes por período y tipo.
+
+---
+
+## Rutas Laravel
+
+```
+GET    /api/v1/assistant/expenses            — lista gastos (filtros: type, from, to, currency)
+GET    /api/v1/assistant/expenses/summary    — totales agrupados por tipo y moneda
+POST   /api/v1/assistant/expenses            — registra gasto
+PATCH  /api/v1/assistant/expenses/{expense}  — modifica gasto
+DELETE /api/v1/assistant/expenses/{expense}  — elimina gasto
+```
+
+---
+
+## Controladores
+
+`app/Domain/Assistant/Http/Expenses/`
+
+### `GetExpensesController`
+- Filtros: `type` (string), `from` (date), `to` (date), `currency` (ISO 4217)
+- Ordenado por `spent_at DESC`
+- Paginado: 50 por página
+
+### `GetExpenseSummaryController`
+- Recibe `period`: `this_month` | `last_month` | `this_year` | `custom` (requiere `from` + `to`)
+- Agrupa por `(type, currency)` — monedas distintas no se mezclan
+- Retorna:
+```json
+{
+  "period": { "from": "2026-04-01", "to": "2026-04-30" },
+  "totals": [
+    { "type": "food",      "currency": "COP", "total_cents": 250000, "count": 8 },
+    { "type": "transport", "currency": "EUR", "total_cents": 4500,   "count": 3 }
+  ],
+  "grand_total_by_currency": [
+    { "currency": "COP", "total_cents": 350000 },
+    { "currency": "EUR", "total_cents": 4500 }
+  ]
+}
+```
+
+### `CreateExpenseController`
+- Recibe: `amount_cents`, `currency?`, `description`, `type?`, `spent_at?`
+- Si `currency` omitido → usa `user.default_currency`
+- Si `spent_at` omitido → `now()` en UTC
+- Auto-crea `TypeCatalog` si el tipo no existe
+
+### `UpdateExpenseController`
+- Campos modificables: `amount_cents`, `currency`, `description`, `type`, `spent_at`
+- Solo el dueño puede modificar
+
+### `DeleteExpenseController`
+- Soft delete o hard delete — dado que gastos no tienen dependencias críticas, hard delete es aceptable
+
+---
+
+## Lógica de moneda
+
+```
+Entrada del LLM:
+  "gasté 50000" → amount_cents: 50000, currency: user.default_currency
+  "gasté 50 EUR" → amount_cents: 5000, currency: "EUR"
+  "gasté $50" → amount_cents: 5000, currency: user.default_currency (el LLM infiere)
+```
+
+El LLM es responsable de convertir el importe a centavos y detectar la moneda del texto. No hay conversión de divisas — los gastos se guardan en la moneda en que se expresaron.
+
+---
+
+## Worker Node — tools
+
+```ts
+const EXPENSE_TOOLS: StandardTool[] = [
+  {
+    name: 'create_expense',
+    description: 'Registra un gasto. amount en centavos. currency ISO 4217 — si se omite usa la moneda por defecto del usuario.',
+    parameters: {
+      type: 'object',
+      required: ['amount_cents', 'description'],
+      properties: {
+        amount_cents: { type: 'integer' },
+        currency:     { type: 'string', description: 'ISO 4217, ej: COP, EUR, USD' },
+        description:  { type: 'string' },
+        type:         { type: 'string' },
+        spent_at:     { type: 'string', description: 'ISO 8601 UTC. Si no se especifica, se usa la hora actual.' },
+      }
+    }
+  },
+  {
+    name: 'get_expenses',
+    description: 'Consulta gastos del usuario',
+    parameters: {
+      type: 'object',
+      properties: {
+        type:     { type: 'string' },
+        from:     { type: 'string' },
+        to:       { type: 'string' },
+        currency: { type: 'string' },
+      }
+    }
+  },
+  {
+    name: 'get_expense_summary',
+    description: 'Totales de gastos agrupados por tipo y moneda',
+    parameters: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['this_month', 'last_month', 'this_year', 'custom'] },
+        from:   { type: 'string' },
+        to:     { type: 'string' },
+      }
+    }
+  },
+  {
+    name: 'update_expense',
+    description: 'Modifica un gasto existente',
+    parameters: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id:           { type: 'string' },
+        amount_cents: { type: 'integer' },
+        currency:     { type: 'string' },
+        description:  { type: 'string' },
+        type:         { type: 'string' },
+        spent_at:     { type: 'string' },
+      }
+    }
+  },
+  {
+    name: 'delete_expense',
+    description: 'Elimina un gasto',
+    parameters: {
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'string' } }
+    }
+  },
+]
+```
+
+---
+
+## Resource
+
+### `ExpenseResource`
+```json
+{
+  "id": "...",
+  "amount_cents": 45000,
+  "currency": "COP",
+  "amount_formatted": "$ 450",
+  "description": "Almuerzo",
+  "type": "food",
+  "spent_at": "2026-04-21T14:30:00Z"
+}
+```
+
+---
+
+## Tests
+
+- `CreateExpenseController`: currency omitida → usa `user.default_currency`
+- `CreateExpenseController`: currency explícita → usa la provista, ignora default
+- `CreateExpenseController`: auto-crea TypeCatalog para tipo nuevo
+- `GetExpenseSummaryController`: `this_month` calcula rango correcto según timezone del usuario
+- `GetExpenseSummaryController`: monedas distintas no se mezclan en totales
+- `UpdateExpenseController`: usuario no dueño recibe 403
+- `DeleteExpenseController`: elimina correctamente, no aparece en listado posterior

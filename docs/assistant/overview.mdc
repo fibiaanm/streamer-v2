@@ -1,0 +1,492 @@
+---
+description: Visión, arquitectura y decisiones de diseño del Asistente Inteligente Personal
+type: context
+status: diseño-cerrado
+---
+
+# Asistente Inteligente de Recordatorios y Organización Personal
+
+> Documento vivo. Se actualiza a medida que se itera el diseño del sistema.
+
+---
+
+## Visión
+
+Un acompañante inteligente que entiende el contexto del usuario, aprende de sus hábitos y sugiere acciones útiles en el momento adecuado. **El usuario no organiza su vida para la app, la app se adapta a la vida del usuario.**
+
+---
+
+## MVP — Scope inicial
+
+Tres features core que demuestran el diferencial:
+
+1. **Recordatorios en lenguaje natural** — interpretación automática de fechas y contexto
+2. **Flujo interactivo** — Chat web como interfaz principal (WhatsApp en fase 2)
+3. **Listas inteligentes** — agrupación automática, alta recurrencia diaria
+
+**Fuera del MVP:** respuestas por voz, alarmas nativas, app móvil, sugerencias proactivas, logros e hitos.
+
+---
+
+## Entrada principal — Chat Web (antes de WhatsApp)
+
+Antes de conectar WhatsApp Business API (costo operativo + administrativo), se construye una interfaz de chat web que simula exactamente el formato de mensajes que llegaría de WhatsApp. El core no sabe si viene de WhatsApp o del chat web.
+
+```
+[WhatsApp]  ──┐
+              ├──> [Normalize] ──> [Core Engine] ──> [Response]
+[Web Chat]  ──┘
+```
+
+---
+
+## Arquitectura de servicios
+
+```
+[Chat Web UI]
+      │
+      ▼
+[Laravel API]  ──────────────────────────  DB
+      │                                     │
+      │  Queue (Redis)                       │
+      ▼                                     │
+[Node Worker]  ──> LLMClient ──> Provider  ─┘
+      │
+      └──> respuesta ──> Laravel ──> WebSocket ──> Cliente
+```
+
+**Laravel:** capa administrativa, endpoints, persistencia, broadcast por WebSocket.
+**Node Worker:** llamadas a LLM, orquestación, async. PHP bloquea workers, Node es más flexible.
+**LLMClient:** adapter unificado para todos los providers — el worker nunca llama SDKs directamente.
+**Templates de system prompts:** Nunjucks (equivalente a Blade para Node).
+
+---
+
+## LLM Adapter — arquitectura multi-provider
+
+El worker usa un cliente único con adapters por provider. Nunca llama SDKs directamente.
+
+```ts
+LLMClient.call({
+  messages: StandardMessage[],
+  tools?: StandardTool[],
+  model: { provider, modelId },
+  maxTokens?,
+  temperature?,
+}) → StandardResponse
+```
+
+Cada adapter traduce el formato estándar ↔ formato del provider:
+
+| Adapter | Cubre |
+|---|---|
+| `AnthropicAdapter` | Claude (formato propio de tools y mensajes) |
+| `OpenAIAdapter` | OpenAI + Grok (xAI usa API compatible, distinto base URL) |
+| `GeminiAdapter` | Gemini (`contents[]` y `functionDeclarations`) |
+
+El `ModelResolver` decide `{ provider, modelId }` según `user.plan_tier` y el contexto de la llamada.
+
+### Estrategia de modelos por plan
+
+| Uso | Free | Paid |
+|---|---|---|
+| Main LLM | `claude-haiku-4-5` | `claude-sonnet-4-6` |
+| Memory Worker | `claude-haiku-4-5` | `claude-haiku-4-5` |
+
+El Memory Worker siempre usa Haiku — corre async, sin impacto en UX, y el costo importa.
+La escalada a otros providers (Gemini, Grok, OpenAI) queda pendiente de definir por contexto de uso.
+
+### Conteo de tokens
+
+Estimación universal por caracteres: `Math.ceil(chars / 4)`. No hay librería cross-provider confiable. El límite tiene margen suficiente para que la aproximación sea válida. Conteo exacto por provider se añade solo si se requiere para billing.
+
+---
+
+## Suscripción — producto individual
+
+El assistant es un **producto individual**, independiente del producto Core. Cada usuario tiene una "personal enterprise" creada en el registro — la suscripción al assistant se ancla ahí, reutilizando la tabla `enterprise_products` y el `LimitsResolver` existentes.
+
+### Planes del assistant
+
+| Límite | Free | Paid |
+|---|---|---|
+| Amigos | 5 | Ilimitado |
+| Enviar recordatorios a amigos | No | Sí |
+| Recordatorios por mes | Limitado | Ilimitado |
+| Memorias | Limitado | Ilimitado |
+| Modelo LLM | Haiku | Sonnet |
+| Features colaborativas | Reducidas | Completas |
+
+Los límites booleanos (ej. `send_reminders_to_friends`) se almacenan en `limits_json` como `{ "type": "boolean", "value": false }`. El `LimitsResolver` debe soportar este tipo además de numéricos.
+
+> El límite de amigos aplica a **envío** de solicitudes, no a recepción. Un usuario free puede recibir recordatorios de amigos, no enviarlos.
+
+---
+
+## Zona horaria
+
+- `users.timezone` — string IANA (ej. `"America/Bogota"`), default `UTC`
+- Se solicita en el **registro** (campo obligatorio del onboarding)
+- **Canal web:** se actualiza automáticamente desde el timezone del browser en cada inicio de sesión
+- **Canal WhatsApp:** el LLM infiere desde señales de contexto ("son las 3pm aquí", menciones de ciudad) y actualiza vía tool `update_user_timezone`. Si no hay timezone guardado y no hay señales, pregunta una vez en la primera sesión
+- Los eventos pasados no se modifican — están en UTC y se renderizan siempre en la zona vigente
+
+---
+
+## Modelo de conversación
+
+- **Una sola conversación continua por usuario** — no múltiples chats independientes.
+- **Sesiones** delimitadas por inactividad: si el usuario lleva más de 24h sin enviar un mensaje, la próxima interacción inicia sesión nueva.
+- El historial completo nunca se envía al LLM — se gestiona con memoria.
+
+### Contexto que recibe el LLM en cada llamada
+
+- Nombre del usuario, timezone y moneda default
+- Fecha y hora actual en la zona del usuario
+- Lista de memorias del usuario (category + description, sin contenido)
+- Últimos N mensajes de la sesión actual, incluyendo tool_call y tool_result
+
+### Agentic loop
+
+El LLM puede encadenar múltiples tool calls antes de emitir una respuesta al usuario. Cada tool_call y su tool_result se almacenan en `messages` (`role: tool_call | tool_result`) y forman parte del contexto de la sesión. El usuario solo recibe el mensaje final de texto. Límite: **10 tool calls por turno** — si se supera, el worker fuerza una respuesta de error.
+
+Ejemplo: usuario busca a "juan universidad" → LLM llama `get_friends(query="juan universidad")` → evalúa resultados → emite respuesta con el amigo encontrado. El usuario nunca ve las llamadas intermedias.
+
+### Límite de contexto
+
+- **Últimos 20 mensajes** de la sesión actual (incluyendo tool_call/tool_result)
+- Si esos 20 mensajes superan **~6 000 tokens** (estimado por caracteres), se recortan desde el más antiguo
+- El recorte nunca elimina el mensaje más reciente del usuario
+
+### Sesión inicial (sin memorias)
+
+No hay onboarding forzado. El system prompt detecta `memories = []` e indica al LLM que es el primer intercambio, sin contexto previo. El LLM responde natural al primer mensaje y el Memory Worker empieza a construir memoria orgánicamente.
+
+---
+
+## Mandato de optimización de tokens
+
+**Principio:** el sistema nunca almacena texto verbatim del usuario. Todo lo que se persiste pasa por un proceso de compresión.
+
+- El **Memory Worker** siempre **reescribe** el contenido de cada memoria — nunca hace append de texto crudo
+- La `description` de cada memoria: máximo 2 frases
+- El `content` de cada memoria: markdown comprimido, denso en información, sin relleno conversacional
+- Los `messages.metadata_json`: mínimo necesario para referencias, no dumps de datos
+- El LLM principal recibe solo `category + description` por default — el contenido completo solo via `read_memory(category)`
+
+---
+
+## Sistema de Memoria
+
+### Principio
+Memoria **lazy**: el LLM no carga todo el contexto por defecto, consulta lo que necesita.
+
+### Tabla única
+
+```
+memories
+  id, user_id
+  category     — nombre corto ("trabajo", "salud", "preferencias")
+  description  — 1-2 frases; el LLM la usa para decidir si vale leerla
+  content      — markdown comprimido; el Worker reescribe, nunca appends
+  updated_at, created_at
+```
+
+Las categorías son **dinámicas**: el Memory Worker las crea orgánicamente. Antes de crear una nueva, verifica que ninguna existente cubra ese dominio. El LLM principal solo tiene acceso de **lectura**; escritura es exclusiva del Memory Worker.
+
+### Memory Worker
+
+- Corre **async** — no bloquea la respuesta al usuario
+- Se dispara cuando:
+  - 8-10 mensajes acumulados con `memory_processed = false`
+  - 30 min desde el último procesamiento
+- Toma todos los mensajes `memory_processed = false`, analiza, reescribe memorias afectadas y los marca como procesados
+- Usa `claude-haiku-4-5` siempre (costo + async)
+
+---
+
+## Tools del Main LLM
+
+### Memoria (solo lectura)
+| Tool | Descripción |
+|---|---|
+| `read_memory(category)` | Trae el contenido completo de una memoria |
+
+### Multimodal
+| Tool | Descripción |
+|---|---|
+| `look_at_image(media_id)` | Envía la imagen al LLM como contexto visual y retorna su descripción estructurada |
+
+### Eventos y recordatorios
+| Tool | Descripción |
+|---|---|
+| `get_events(filters?)` | Lista eventos — filtros: `type`, `status`, `from`, `to` |
+| `create_event(content, event_at, type, reminders[], recurrence_rule?, event_end?)` | Crea evento con sus disparos. `reminders` son offsets relativos: `[{ offset: "-7 days", message: "..." }]` — el worker los convierte a UTC |
+| `update_event(id, changes)` | Modifica campos: `content`, `event_at`, `event_end`, `type`, `recurrence_rule` |
+| `cancel_event(id, series?)` | Cancela esta ocurrencia (`series=false`) o toda la serie (`series=true`) |
+| `snooze_event(id, until)` | Pospone hasta una fecha |
+
+### Listas
+| Tool | Descripción |
+|---|---|
+| `get_lists(include_shared?)` | Obtiene todas las listas propias; con `include_shared=true` incluye las compartidas conmigo |
+| `get_list(id)` | Obtiene una lista con sus ítems |
+| `create_list(name, type, items[])` | Crea una lista nueva |
+| `delete_list(id)` | Elimina una lista y sus ítems |
+| `add_to_list(list_id, items[])` | Agrega ítems |
+| `update_list_item(item_id, changes)` | Modifica campos: `content`, `status`, `position` |
+| `remove_from_list(item_id)` | Elimina un ítem |
+| `clear_completed_items(list_id)` | Elimina todos los ítems con `status=done` |
+
+### Gastos
+| Tool | Descripción |
+|---|---|
+| `create_expense(amount, currency?, description, type?, spent_at?)` | Registra un gasto. `amount` en centavos. `currency` ISO 4217 — si omitido usa `users.default_currency` |
+| `get_expenses(filters?)` | Consulta gastos — filtros: `type`, `from`, `to` |
+| `get_expense_summary(period?)` | Totales agrupados por tipo — útil para "cuánto gasté este mes" |
+| `update_expense(id, changes)` | Modifica campos: `amount`, `description`, `type`, `spent_at` |
+| `delete_expense(id)` | Elimina un gasto |
+
+### Amigos
+| Tool | Descripción |
+|---|---|
+| `get_friends()` | Lista amigos aceptados con su label y datos básicos |
+| `send_friend_request(identifier)` | Envía solicitud por email, username o friend_code. QR (solo web) encapsula el friend_code |
+| `respond_to_friend_request(friendship_id, accept)` | Acepta o rechaza una solicitud entrante |
+| `set_friend_label(friend_id, label)` | Establece o actualiza el apodo del amigo |
+| `send_reminder_to_friend(friend_id, content, suggested_at?)` | Envía solicitud de recordatorio a un amigo |
+| `respond_to_reminder_request(request_id, accept)` | Acepta o rechaza un recordatorio recibido de un amigo |
+| `share_list(list_id, friend_id, permission)` | Comparte una lista — `permission: read \| write` |
+| `respond_to_list_share(share_id, accept)` | Acepta o rechaza una lista compartida |
+
+### Usuario
+| Tool | Descripción |
+|---|---|
+| `update_user_timezone(timezone)` | Actualiza la zona horaria del usuario |
+
+---
+
+> **Tipos personalizados:** cuando el LLM usa un `type` string que no existe en `type_catalogs` para ese usuario, el sistema lo crea automáticamente como efecto secundario. No hay tool explícita.
+
+---
+
+## Sistema de Eventos y Disparos
+
+### Principio
+Un evento es la cosa que el usuario quiere recordar. Los disparos son las notificaciones asociadas. El LLM decide cuántos disparos crear y cuándo, basándose en el tipo de evento y el tiempo disponible hasta que ocurra.
+
+### Tipos de evento
+
+Los tipos son strings con referencia soft a `type_catalogs`. Hay tipos globales del sistema (`user_id = null`) y tipos personalizados por usuario. El LLM puede crear un tipo nuevo cuando detecta un patrón que el usuario repite y ningún tipo existente lo cubre.
+
+Tipos globales de ejemplo: `birthday`, `appointment`, `task`, `reminder`, `deadline`, `meeting`.
+
+### Ejemplo
+```
+Usuario: "Cumpleaños de Carlos el 15 de mayo"
+LLM detecta: type=birthday, event_at=mayo 15, tiempo=~3 semanas
+LLM crea el evento con 3 disparos:
+  → mayo 8  — "En una semana es el cumpleaños de Carlos"
+  → mayo 13 — "En 2 días es el cumpleaños de Carlos"
+  → mayo 15 — "Hoy es el cumpleaños de Carlos"
+```
+
+### Recurrencia
+- Cada ocurrencia es su propia fila en `events` — solo existe **una a la vez**
+- `recurrence_rule` usa formato **iCal RRULE** (ej. `FREQ=WEEKLY;BYDAY=MO,WE`, `FREQ=MONTHLY;BYMONTHDAY=15`)
+- El cálculo de la siguiente ocurrencia usa la librería **`rrule.js`** en el Node worker
+- La `recurrence_rule` viaja con cada fila
+- Cuando todos los disparos de un evento se ejecutan, el sistema calcula el siguiente `event_at` y crea una nueva fila
+
+```
+Último disparo fired
+        │
+        ▼
+¿tiene recurrence_rule?
+    sí ──> calcula next event_at desde recurrence_rule
+           crea nuevo evento (mismo content, type, recurrence_rule)
+           LLM genera los disparos para esa nueva ocurrencia
+    no ──> termina
+```
+
+### Acciones sobre eventos recurrentes
+
+| Acción | Comportamiento |
+|---|---|
+| **Cancelar solo esta** | `status = cancelled` → sistema crea la siguiente ocurrencia normalmente |
+| **Cancelar serie** | `status = cancelled` → no se crea nada más |
+| **Posponer hasta X** | Calcula la ocurrencia cuyo `event_at` cae después de X → crea ese evento directamente |
+
+### Dispatch de disparos
+- Al crear cada ocurrencia se despacha un **delayed job** (Redis) por cada `event_reminder`
+- Un **cron cada minuto** (Laravel Scheduler) barre como safety net los disparos que no hayan corrido
+- Cuando un disparo se ejecuta, crea un mensaje en la conversación del usuario y hace broadcast por WebSocket
+
+---
+
+## Red de Amigos
+
+### Principio
+Cada usuario puede tener una red de amigos con la que compartir listas y enviarse recordatorios. La amistad es **bidireccional** — ambos deben aceptar. Cada usuario tiene su propio apodo para cada amigo (puede haber dos "Juan" → "Juan Carro", "Juan Universidad").
+
+### Límites por plan
+- **Free:** máximo 5 amigos, puede **recibir** recordatorios de amigos pero **no enviarlos**
+- **Paid:** amigos ilimitados, colaboración completa
+
+### Flujo de amistad
+1. A envía solicitud → `friendships` con `status = pending`
+2. B recibe mensaje en su conversación: el assistant notifica la solicitud
+3. B acepta o rechaza en lenguaje natural → el assistant actualiza el status
+4. Al aceptar, A y B pueden definir sus apodos mutuos
+
+### Flujo de recordatorio entre amigos
+1. A le dice al assistant "recuérdame a Juan que llame al dentista mañana"
+2. Se crea un `reminder_request` con `status = pending`
+3. B recibe mensaje del assistant: *"Juan Carro quiere recordarte que llames al dentista mañana. ¿Deseas añadirlo?"*
+4. B responde sí/no → si acepta, se crea un `event` en los eventos de B con `sender_id = A`
+5. El límite de envío aplica a A (plan free no puede enviar), no a B (siempre puede recibir)
+
+### Flujo de lista compartida
+1. A comparte una lista con B → se crea `list_share` con `accepted_at = null`
+2. B recibe mensaje del assistant pidiendo confirmación
+3. B acepta → `accepted_at` se llena; B puede ver y editar la lista según el permiso asignado
+4. Cada ítem registra `added_by_user_id` para saber quién añadió qué
+
+---
+
+## Esquema de BD — 14 tablas
+
+### Modificadas
+```
+users
+  + timezone          string IANA, default 'UTC'
+  + default_currency  string ISO 4217, default 'USD'  — moneda cuando el usuario no especifica
+  + username          string unique nullable            — para descubrimiento de amigos
+  + friend_code       string unique                    — hash corto auto-generado, regenerable desde web
+  + whatsapp_phone    string nullable (fase 2)
+```
+
+### Nuevas
+
+```
+-- Conversación
+conversations
+  id, user_id FK, created_at
+
+sessions
+  id, conversation_id FK, started_at, last_message_at
+
+messages
+  id, conversation_id FK, session_id FK
+  role: user | assistant | system | tool_call | tool_result
+  channel: web | whatsapp
+  content
+  actions_json      — opciones clickeables que el frontend renderiza como botones
+                      ej: [{ label: "El mismo día", value: "same_day" }, ...]
+  metadata_json     — refs mínimas (reminder_request_id, event_id, etc.)
+                      para mensajes de audio: { transcription: "..." }
+                      para mensajes de imagen: { description: "...", media_id: "..." }
+  memory_processed  bool default false
+  created_at
+  -- adjuntos (audio, imagen, documento) via Spatie Media Library (morphs)
+
+  -- Procesamiento multimodal (ocurre antes de pasar al LLM):
+  -- Audio  → el worker transcribe y guarda transcripción en metadata_json.transcription
+  -- Imagen → el worker extrae descripción vía vision y la guarda en metadata_json.description;
+  --           el LLM puede llamar look_at_image(media_id) para ver la imagen directamente
+
+-- Memoria
+memories
+  id, user_id FK
+  category     string
+  description  string (max 2 frases)
+  content      text (markdown comprimido)
+  updated_at, created_at
+
+-- Eventos
+events
+  id, user_id FK
+  content, event_at datetime UTC
+  event_end     datetime UTC nullable  — para bloques de tiempo con duración (ej: clase 2-4pm)
+  type          string (ref soft a type_catalogs)
+  recurrence_rule string nullable
+  status        enum: active | cancelled | completed
+  sender_id     FK users nullable (si lo envió un amigo)
+  created_at, updated_at
+
+event_reminders
+  id, event_id FK
+  fire_at datetime UTC
+  message string
+  status  enum: pending | fired | failed
+  fired_at datetime nullable
+
+-- Listas
+lists
+  id, user_id FK (dueño)
+  name, type    string (ref soft a type_catalogs)
+  created_at, updated_at
+
+list_items
+  id, list_id FK
+  content, status enum: pending | done
+  position int
+  added_by_user_id FK users
+  created_at, updated_at
+
+-- Catálogo de tipos
+type_catalogs
+  id
+  user_id FK nullable   — null = tipo global del sistema
+  domain  enum: event | list | expense
+  name    string
+  UNIQUE(user_id, domain, name)
+
+-- Gastos
+expenses
+  id, user_id FK
+  amount_cents  integer            — almacenado en centavos
+  currency      string ISO 4217    — detectada del mensaje; si no se especifica, usa users.default_currency
+  description   string
+  type          string nullable     — ref soft a type_catalogs (domain=expense)
+  spent_at      datetime UTC
+  created_at, updated_at
+
+-- Red de amigos
+friendships
+  id
+  requester_id FK users
+  addressee_id FK users
+  status enum: pending | accepted | declined | blocked
+  created_at, updated_at
+  UNIQUE(requester_id, addressee_id)
+
+friend_labels
+  id
+  user_id        FK users   — quien pone el apodo
+  friend_user_id FK users   — a quién se lo pone
+  label string
+  created_at, updated_at
+  UNIQUE(user_id, friend_user_id)
+
+-- Colaboración
+list_shares
+  id
+  list_id              FK lists
+  shared_with_user_id  FK users
+  invited_by_user_id   FK users
+  permission           enum: read | write
+  accepted_at          datetime nullable
+  created_at
+
+reminder_requests
+  id
+  sender_id        FK users
+  receiver_id      FK users
+  content          string
+  suggested_event_at datetime nullable
+  status           enum: pending | accepted | declined
+  event_id         FK events nullable   — se llena al aceptar
+  message_id       FK messages nullable — el mensaje mostrado al receptor
+  created_at, updated_at
+```

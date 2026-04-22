@@ -36,6 +36,14 @@ status: activo
 
 ---
 
+## Producto Assistant (paralelo)
+
+Plan independiente en `docs/assistant/plan.mdc` — 8 etapas (assistant-01 a assistant-08).
+Puede correr en paralelo con las etapas pendientes del streamer desde la etapa 13.
+Comparte infraestructura base (Laravel, BD, Redis, Socket.io, S3).
+
+---
+
 ## Fases del producto
 
 ### Fase 1 — Fundación (etapas 01–08)

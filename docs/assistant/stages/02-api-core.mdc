@@ -1,0 +1,148 @@
+---
+description: Etapa 02 — API de conversación, mensajes, sesiones y preprocessing multimodal
+type: stage
+stage: "assistant-02"
+status: pendiente
+depends_on: assistant-01, streamer-05
+---
+
+# Etapa 02 — API Core
+
+## Objetivo
+Endpoints para enviar y recibir mensajes, gestión de sesiones, broadcast por WebSocket y preprocessing de adjuntos multimodales. Al final de esta etapa el cliente puede enviar un mensaje al backend y recibir la respuesta via WebSocket (aunque el LLM aún no esté en etapa 03).
+
+---
+
+## Rutas
+
+```
+/api/v1/assistant/conversation          GET    — obtiene o crea la conversación del usuario autenticado
+/api/v1/assistant/conversation/messages GET    — lista mensajes (paginado, últimos primero)
+/api/v1/assistant/messages              POST   — envía un mensaje (texto o con adjunto)
+```
+
+Todas autenticadas con JWT. No requieren `X-Enterprise-ID` — el assistant es personal.
+
+---
+
+## Controladores
+
+`app/Domain/Assistant/Http/`
+
+### `GetConversationController`
+- Retorna o crea `Conversation` para `auth()->user()`
+- Incluye la sesión activa (la más reciente con `last_message_at` dentro de 24h)
+- Si no hay sesión activa, crea una nueva
+
+### `GetMessagesController`
+- Lista mensajes de la conversación del usuario
+- Solo roles `user | assistant | system` — excluye `tool_call | tool_result`
+- Paginado: 30 mensajes por página, orden DESC
+- Incluye `actions_json` y `metadata_json`
+
+### `SendMessageController`
+- Crea el mensaje del usuario (`role: user`)
+- Si hay adjunto: dispara `ProcessMessageAttachment` job (preprocessing async)
+- Si no hay adjunto: dispara `ProcessAssistantMessage` job directamente
+- Retorna `{ message_id, status: 'queued' }` — la respuesta llega por WebSocket
+
+---
+
+## Jobs
+
+### `ProcessMessageAttachment` (Redis queue)
+Pre-procesa el adjunto antes de pasar al worker principal:
+
+**Audio:**
+1. Descarga el archivo desde S3
+2. Llama a la API de transcripción (Whisper / provider configurado)
+3. Guarda la transcripción en `messages.metadata_json.transcription`
+4. Despacha `ProcessAssistantMessage`
+
+**Imagen:**
+1. Genera URL firmada del archivo en S3
+2. Llama al LLM con vision para obtener descripción estructurada
+3. Guarda en `messages.metadata_json.description` y `metadata_json.media_id`
+4. Despacha `ProcessAssistantMessage`
+
+### `ProcessAssistantMessage` (Redis queue)
+Publica el job al worker Node via Redis:
+```json
+{
+  "type": "process_message",
+  "conversation_id": "...",
+  "message_id": "...",
+  "user_id": "..."
+}
+```
+
+---
+
+## WebSocket — canales
+
+El worker Node publica la respuesta via Redis pub/sub. Laravel escucha y hace broadcast:
+
+| Canal | Evento | Payload |
+|---|---|---|
+| `assistant.{conversation_id}` | `MessageReceived` | `{ message: AssistantMessageResource }` |
+| `assistant.{conversation_id}` | `MessageProcessing` | `{ status: 'typing' }` — mientras el LLM trabaja |
+
+---
+
+## Resources
+
+### `AssistantMessageResource`
+```json
+{
+  "id": "...",
+  "role": "assistant",
+  "content": "...",
+  "actions": [...],
+  "metadata": {...},
+  "created_at": "..."
+}
+```
+
+### `ConversationResource`
+```json
+{
+  "id": "...",
+  "session_id": "...",
+  "created_at": "..."
+}
+```
+
+---
+
+## Sesión — lógica de creación
+
+```
+Al recibir un mensaje:
+  1. Busca sesión del usuario con last_message_at > now() - 24h
+  2. Si existe → usa esa sesión, actualiza last_message_at
+  3. Si no → crea nueva Session con started_at = now()
+  4. El message_id se asocia a la sesión encontrada/creada
+```
+
+---
+
+## Multimodal — tipos de adjunto soportados
+
+| Tipo | MIME | Procesamiento |
+|---|---|---|
+| Audio | audio/mpeg, audio/ogg, audio/webm | Transcripción → metadata.transcription |
+| Imagen | image/jpeg, image/png, image/webp | Descripción vision → metadata.description |
+| Documento | application/pdf | Extracción de texto → metadata.text_content |
+
+El adjunto se sube via Spatie al bucket S3 antes de llamar al endpoint.
+
+---
+
+## Tests
+
+- `GetConversationController`: crea conversación si no existe, reutiliza si existe
+- `GetConversationController`: crea sesión nueva si la última tiene >24h de inactividad
+- `SendMessageController`: mensaje se crea con role=user, job se despacha
+- `SendMessageController`: rechaza adjuntos con MIME no soportado (422)
+- `ProcessMessageAttachment`: audio sin adjunto no falla, salta a ProcessAssistantMessage
+- WebSocket: `MessageReceived` se emite al canal correcto

@@ -1,0 +1,208 @@
+---
+description: Etapa 03 — Node Worker: LLMClient, adapters, loop principal y Memory Worker
+type: stage
+stage: "assistant-03"
+status: pendiente
+depends_on: assistant-02
+---
+
+# Etapa 03 — Node Worker — Texto
+
+## Objetivo
+Worker Node completamente funcional para conversación de texto (sin tools). LLMClient con adapters multi-provider, system prompt, agentic loop base y Memory Worker async. Al terminar esta etapa existe una conversación de texto real end-to-end.
+
+---
+
+## Estructura del servicio
+
+```
+services/assistant-worker/
+  src/
+    index.ts                  — entry point, conecta Redis, arranca workers
+    llm/
+      LLMClient.ts            — cliente unificado
+      ModelResolver.ts        — selección de modelo por plan
+      adapters/
+        AnthropicAdapter.ts
+        OpenAIAdapter.ts      — cubre también Grok (distinto base URL)
+        GeminiAdapter.ts
+      types.ts                — StandardMessage, StandardTool, StandardResponse
+    workers/
+      ConversationWorker.ts   — procesa mensajes entrantes, loop principal
+      MemoryWorker.ts         — procesamiento async de memorias
+    prompts/
+      system.njk              — system prompt principal (Nunjucks)
+      memory-worker.njk       — system prompt del Memory Worker
+    api/
+      LaravelClient.ts        — HTTP client para llamar al Laravel API
+    redis/
+      subscriber.ts           — escucha jobs de Laravel
+      publisher.ts            — publica respuestas a Laravel
+  package.json
+  tsconfig.json
+  Dockerfile
+```
+
+---
+
+## LLMClient
+
+```ts
+interface LLMCallParams {
+  messages: StandardMessage[]
+  tools?: StandardTool[]
+  model: { provider: 'anthropic' | 'openai' | 'gemini' | 'grok', modelId: string }
+  maxTokens?: number
+  temperature?: number
+}
+
+interface StandardResponse {
+  content: string | null
+  toolCalls?: ToolCall[]
+  usage: { inputTokens: number, outputTokens: number }
+  stopReason: 'end_turn' | 'tool_use' | 'max_tokens'
+}
+```
+
+Cada adapter traduce `StandardMessage[]` y `StandardTool[]` al formato del provider, hace la llamada HTTP, y normaliza la respuesta a `StandardResponse`.
+
+### AnthropicAdapter
+- Usa `@anthropic-ai/sdk`
+- Mapea `tool_use` / `tool_result` a roles de Anthropic
+
+### OpenAIAdapter
+- Usa `openai` SDK
+- `baseURL` configurable para Grok (`https://api.x.ai/v1`)
+
+### GeminiAdapter
+- Usa `@google/generative-ai`
+- Traduce `contents[]` y `functionDeclarations`
+
+---
+
+## ModelResolver
+
+```ts
+function resolveModel(userPlanTier: 'free' | 'paid', context: 'main' | 'memory'): Model {
+  if (context === 'memory') return { provider: 'anthropic', modelId: 'claude-haiku-4-5' }
+  if (userPlanTier === 'paid') return { provider: 'anthropic', modelId: 'claude-sonnet-4-6' }
+  return { provider: 'anthropic', modelId: 'claude-haiku-4-5' }
+}
+```
+
+---
+
+## System Prompt (`system.njk`)
+
+```nunjucks
+Eres un asistente personal inteligente. Ayudas a {{ user.name }} a recordar, organizar y gestionar su día a día.
+
+Fecha y hora actual: {{ currentDatetime }} ({{ user.timezone }})
+Moneda por defecto: {{ user.defaultCurrency }}
+
+{% if memories.length > 0 %}
+## Memorias disponibles
+Puedes leer el contenido completo de cualquier categoría con read_memory(category).
+{% for memory in memories %}
+- **{{ memory.category }}**: {{ memory.description }}
+{% endfor %}
+{% else %}
+Es el primer intercambio con este usuario. No hay memorias previas.
+{% endif %}
+```
+
+---
+
+## ConversationWorker — agentic loop
+
+```
+1. Recibe job { conversation_id, message_id, user_id } desde Redis
+2. Publica MessageProcessing (typing) al canal WebSocket
+3. Carga contexto:
+   a. User (name, timezone, default_currency, plan_tier)
+   b. Memories (category + description, sin content)
+   c. Últimos 20 mensajes de la sesión (roles: user|assistant|system|tool_call|tool_result)
+   d. Trunca si supera ~6000 tokens estimados (Math.ceil(chars/4))
+4. Loop (máx 10 iteraciones):
+   a. Llama LLMClient.call({ messages, tools, model })
+   b. Si stopReason = 'tool_use':
+      - Guarda tool_call en messages (role: tool_call)
+      - Ejecuta tool via LaravelClient
+      - Guarda tool_result en messages (role: tool_result)
+      - Continúa loop
+   c. Si stopReason = 'end_turn':
+      - Guarda respuesta en messages (role: assistant)
+      - Publica MessageReceived al canal WebSocket
+      - Termina loop
+5. Si se alcanzan 10 iteraciones sin end_turn:
+   - Guarda mensaje de error genérico (role: assistant)
+   - Publica MessageReceived
+```
+
+En esta etapa (sin tools) el loop siempre termina en la primera iteración.
+
+---
+
+## LaravelClient
+
+```ts
+class LaravelClient {
+  private baseURL: string
+  private serviceToken: string   // JWT de servicio generado en Laravel
+
+  async get(path: string, params?: object): Promise<any>
+  async post(path: string, body: object): Promise<any>
+  async patch(path: string, body: object): Promise<any>
+  async delete(path: string): Promise<any>
+}
+```
+
+El `serviceToken` es un JWT de larga duración (`ASSISTANT_SERVICE_TOKEN` en `.env`) que Laravel valida como un token de sistema con permisos elevados.
+
+---
+
+## Memory Worker
+
+Corre en paralelo al ConversationWorker. Se activa cuando:
+- Un usuario acumula 8–10 mensajes con `memory_processed = false`
+- Han pasado 30 min desde el último procesamiento
+
+```
+1. Llama GET /api/v1/assistant/internal/unprocessed-messages/{user_id}
+2. Construye prompt con mensajes no procesados + memorias actuales
+3. Llama LLMClient con modelo Haiku (siempre)
+4. Analiza qué memorias crear/actualizar (reescribir, nunca append)
+5. Para cada memoria afectada: PATCH /api/v1/assistant/internal/memories/{user_id}
+6. Marca mensajes como procesados: POST /api/v1/assistant/internal/mark-processed
+```
+
+El system prompt del Memory Worker (`memory-worker.njk`) instruye a:
+- Nunca almacenar texto verbatim
+- Reescribir el content completo de cada memoria afectada
+- Crear nueva categoría solo si ninguna existente la cubre
+- Mantener descriptions en máximo 2 frases
+- Comprimir al máximo sin perder información relevante
+
+---
+
+## Endpoints internos de Laravel (solo para el worker)
+
+```
+GET  /api/v1/assistant/internal/unprocessed-messages/{userId}
+GET  /api/v1/assistant/internal/memories/{userId}
+PUT  /api/v1/assistant/internal/memories/{userId}/{category}
+POST /api/v1/assistant/internal/mark-processed
+```
+
+Autenticados con `ASSISTANT_SERVICE_TOKEN`. Middleware `AssistantServiceAuth`.
+
+---
+
+## Tests
+
+- `LLMClient` con adapter mock retorna `StandardResponse` normalizado
+- `ModelResolver` retorna Haiku para free y para memory context, Sonnet para paid main
+- `ConversationWorker` trunca mensajes si supera 6000 tokens estimados
+- `ConversationWorker` fuerza respuesta de error al alcanzar 10 iteraciones
+- `MemoryWorker` solo se activa con ≥8 mensajes no procesados O ≥30 min desde último run
+- Endpoints internos rechazan requests sin `ASSISTANT_SERVICE_TOKEN` (401)

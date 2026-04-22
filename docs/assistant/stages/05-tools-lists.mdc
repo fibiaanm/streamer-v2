@@ -1,0 +1,140 @@
+---
+description: Etapa 05 — Tools de listas: CRUD de listas, ítems y listas compartidas
+type: stage
+stage: "assistant-05"
+status: pendiente
+depends_on: assistant-04
+---
+
+# Etapa 05 — Tools — Listas
+
+## Objetivo
+CRUD completo de listas y sus ítems, con soporte para listas compartidas entre amigos. El LLM puede crear, editar y eliminar listas; gestionar ítems; y manejar invitaciones de compartición.
+
+---
+
+## Rutas Laravel
+
+```
+GET    /api/v1/assistant/lists                        — lista todas las listas (propias + shared)
+GET    /api/v1/assistant/lists/{list}                 — lista con sus ítems
+POST   /api/v1/assistant/lists                        — crea lista
+DELETE /api/v1/assistant/lists/{list}                 — elimina lista (solo dueño)
+POST   /api/v1/assistant/lists/{list}/items           — añade ítems
+PATCH  /api/v1/assistant/lists/{list}/items/{item}    — modifica ítem
+DELETE /api/v1/assistant/lists/{list}/items/{item}    — elimina ítem
+DELETE /api/v1/assistant/lists/{list}/items/completed — limpia ítems done
+POST   /api/v1/assistant/lists/{list}/share           — comparte lista con amigo
+PATCH  /api/v1/assistant/list-shares/{share}/respond  — acepta o rechaza invitación
+```
+
+---
+
+## Controladores
+
+`app/Domain/Assistant/Http/Lists/`
+
+### `GetListsController`
+- Retorna listas propias del usuario
+- Con `include_shared=true`: incluye también `ListShare` donde `shared_with_user_id = user` y `accepted_at != null`
+- Cada lista incluye conteo de ítems pending/done
+
+### `GetListController`
+- Retorna lista con todos sus ítems ordenados por `position`
+- Verifica que el usuario es dueño O tiene `ListShare` aceptado
+
+### `CreateListController`
+- Auto-crea `TypeCatalog` si el tipo no existe
+- Primer ítem recibe `position = 0`, siguientes incrementan
+
+### `DeleteListController`
+- Solo el dueño puede eliminar
+- Soft delete en la lista → orphan en los ítems
+- Si la lista tiene `ListShare`, los shares se eliminan y se notifica a los compartidos
+
+### `AddToListController`
+- Añade uno o varios ítems
+- `added_by_user_id = auth()->id()` (relevante en listas compartidas)
+- Recalcula posiciones automáticamente (append al final)
+
+### `UpdateListItemController`
+- Campos: `content`, `status`, `position`
+- Cualquier usuario con acceso (dueño o write-share) puede modificar
+
+### `RemoveFromListController`
+- Dueño puede eliminar cualquier ítem
+- Usuario con write-share puede eliminar solo los ítems que él añadió
+
+### `ClearCompletedItemsController`
+- Elimina físicamente todos los ítems con `status = done`
+- Solo el dueño puede ejecutarlo
+
+### `ShareListController`
+- Verifica que `friend_id` es amigo aceptado del usuario
+- Verifica que no existe ya un share activo con ese usuario para esa lista
+- Crea `ListShare` con `accepted_at = null`
+- Crea mensaje en la conversación del receptor (role: system):
+  ```
+  "[Nombre] quiere compartir la lista "[nombre de lista]" contigo. ¿Deseas aceptarla?"
+  actions_json: [{ label: "Aceptar", value: "accept_share:{share_id}" }, { label: "Rechazar", value: "decline_share:{share_id}" }]
+  ```
+- Broadcast al canal del receptor
+
+### `RespondToListShareController`
+- Recibe `accept: bool`
+- Si acepta: `accepted_at = now()`
+- Si rechaza: elimina el share
+- Crea mensaje de confirmación en la conversación del solicitante
+
+---
+
+## Worker Node — tools
+
+```ts
+const LIST_TOOLS: StandardTool[] = [
+  { name: 'get_lists',            description: 'Obtiene todas las listas del usuario', ... },
+  { name: 'get_list',             description: 'Obtiene una lista con sus ítems', ... },
+  { name: 'create_list',          description: 'Crea una lista nueva', ... },
+  { name: 'delete_list',          description: 'Elimina una lista (solo si eres dueño)', ... },
+  { name: 'add_to_list',          description: 'Añade ítems a una lista', ... },
+  { name: 'update_list_item',     description: 'Modifica content, status o position de un ítem', ... },
+  { name: 'remove_from_list',     description: 'Elimina un ítem', ... },
+  { name: 'clear_completed_items',description: 'Elimina todos los ítems completados de una lista', ... },
+]
+```
+
+Las tools de share (`share_list`, `respond_to_list_share`) se implementan en etapa 07 junto al resto del social.
+
+---
+
+## Resource
+
+### `AssistantListResource`
+```json
+{
+  "id": "...",
+  "name": "Supermercado",
+  "type": "shopping",
+  "owner_id": "...",
+  "is_shared_with_me": false,
+  "my_permission": "write",
+  "items_count": { "pending": 5, "done": 2 },
+  "items": [
+    { "id": "...", "content": "Leche", "status": "pending", "position": 0, "added_by": "..." }
+  ]
+}
+```
+
+---
+
+## Tests
+
+- `GetListsController`: retorna solo listas propias sin `include_shared`
+- `GetListsController`: incluye listas compartidas aceptadas con `include_shared=true`
+- `GetListController`: usuario sin acceso recibe 403
+- `AddToListController`: `added_by_user_id` se registra correctamente para usuario compartido
+- `RemoveFromListController`: usuario con write-share no puede eliminar ítems de otro
+- `ClearCompletedItemsController`: solo el dueño puede ejecutarlo (403 para compartido)
+- `ShareListController`: falla si `friend_id` no es amigo aceptado (422)
+- `ShareListController`: crea mensaje con actions_json en la conversación del receptor
+- `RespondToListShareController`: aceptar llena `accepted_at`; rechazar elimina el share
