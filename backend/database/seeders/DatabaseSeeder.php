@@ -16,9 +16,12 @@ class DatabaseSeeder extends Seeder
             WorkspaceRoleSeeder::class,
             ProductSeeder::class,
             PlanSeeder::class,
+            AssistantPlanSeeder::class,
             UserSeeder::class,
             EnterpriseTeamSeeder::class,
             WorkspaceSeeder::class,
+            TypeCatalogSeeder::class,
+            AssistantUserSeeder::class,
         ]);
     }
 }

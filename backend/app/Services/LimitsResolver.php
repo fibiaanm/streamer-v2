@@ -19,13 +19,18 @@ class LimitsResolver
                     continue;
                 }
 
-                // For overlapping keys take the highest max (-1 = unlimited always wins)
+                // Numeric: take highest max (-1 = unlimited always wins)
                 if (isset($value['max'], $merged[$key]['max'])) {
                     if ($value['max'] === -1 || $merged[$key]['max'] === -1) {
                         $merged[$key]['max'] = -1;
                     } else {
                         $merged[$key]['max'] = max($merged[$key]['max'], $value['max']);
                     }
+                }
+
+                // Boolean: if any plan enables the feature, result is true
+                if (isset($value['value'], $merged[$key]['value']) && is_bool($value['value'])) {
+                    $merged[$key]['value'] = $merged[$key]['value'] || $value['value'];
                 }
             }
         }

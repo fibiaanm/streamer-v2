@@ -110,6 +110,18 @@ services:
       - backend
     restart: unless-stopped
 
+  # ─── Assistant LLM Worker ─────────────────────────────────────────────────────
+  assistant-worker:
+    build:
+      context: .
+      dockerfile: services/assistant-worker/Dockerfile
+    env_file: ./backend/.env
+    depends_on:
+      - redis
+    networks:
+      - backend
+    restart: unless-stopped
+
   # ─── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\HasHashId;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Spatie\MediaLibrary\HasMedia;
@@ -16,7 +17,7 @@ class User extends Authenticatable implements JWTSubject, HasMedia
 {
     use HasFactory, HasHashId, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['name', 'email', 'password'];
+    protected $fillable = ['name', 'email', 'password', 'timezone', 'default_currency', 'username', 'friend_code'];
 
     protected $hidden = ['password', 'remember_token'];
 
@@ -62,6 +63,11 @@ class User extends Authenticatable implements JWTSubject, HasMedia
             'jpeg' => $this->getFirstMediaUrl('avatar', 'thumb'),
             'webp' => $this->getFirstMediaUrl('avatar', 'thumb_webp'),
         ];
+    }
+
+    public function personalEnterprise(): HasOne
+    {
+        return $this->hasOne(Enterprise::class, 'owner_id')->where('type', 'personal');
     }
 
     public function refreshTokens(): HasMany

@@ -1,0 +1,25 @@
+{
+  "name": "assistant-worker",
+  "version": "0.1.0",
+  "description": "LLM worker for the intelligent assistant service",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@google/generative-ai": "^0.15.0",
+    "openai": "^4.52.0",
+    "redis": "^4.6.13",
+    "rrule": "^2.8.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.4.0"
+  }
+}
