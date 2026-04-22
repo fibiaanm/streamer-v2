@@ -22,7 +22,7 @@ Endpoints para enviar y recibir mensajes, gestión de sesiones, broadcast por We
 ```
 
 Todas autenticadas con JWT. No requieren `X-Enterprise-ID` — el assistant es personal.
-
+** todo necesita enterprise, y debe ser la personal.
 ---
 
 ## Controladores
@@ -146,3 +146,6 @@ El adjunto se sube via Spatie al bucket S3 antes de llamar al endpoint.
 - `SendMessageController`: rechaza adjuntos con MIME no soportado (422)
 - `ProcessMessageAttachment`: audio sin adjunto no falla, salta a ProcessAssistantMessage
 - WebSocket: `MessageReceived` se emite al canal correcto
+
+
+** Comments by me to be fixed.

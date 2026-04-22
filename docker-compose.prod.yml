@@ -1,0 +1,92 @@
+# Producción — Docker Swarm
+# Uso: docker stack deploy -c docker-compose.prod.yml streamer
+#
+# Variables requeridas en el entorno o en un .env antes de hacer deploy:
+#   REGISTRY   — ej. registry.digitalocean.com/tu-registry
+#   TAG        — ej. git sha corto o semver
+#
+# Escalar queue workers:
+#   docker service scale streamer_queue=5
+
+services:
+
+  # ─── nginx (proxy PHP + socket.io; static assets via CDN) ────────────────────
+  nginx:
+    image: ${REGISTRY}/streamer-nginx:${TAG:-latest}
+    ports:
+      - "80:80"
+    depends_on:
+      - php
+    networks:
+      - app
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  # ─── Laravel app (php-fpm) ────────────────────────────────────────────────────
+  php:
+    image: ${REGISTRY}/streamer-php:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+      args:
+        APP_ENV: production
+    env_file: .env.prod
+    networks:
+      - app
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  # ─── Queue workers — escalar libremente ───────────────────────────────────────
+  queue:
+    image: ${REGISTRY}/streamer-queue:${TAG:-latest}
+    env_file: .env.prod
+    networks:
+      - app
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 2
+        delay: 5s
+      restart_policy:
+        condition: on-failure
+
+  # ─── Scheduler — siempre 1 réplica ────────────────────────────────────────────
+  scheduler:
+    image: ${REGISTRY}/streamer-scheduler:${TAG:-latest}
+    env_file: .env.prod
+    networks:
+      - app
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+  # ─── Socket.io ────────────────────────────────────────────────────────────────
+  socketio:
+    image: ${REGISTRY}/streamer-socketio:${TAG:-latest}
+    env_file: .env.prod
+    ports:
+      - "3000:3000"
+    networks:
+      - app
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+networks:
+  app:
+    driver: overlay

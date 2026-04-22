@@ -2,33 +2,36 @@
 description: Etapa 01 — Migraciones, modelos, planes y skeleton del worker
 type: stage
 stage: "assistant-01"
-status: pendiente
+status: completada
 depends_on: streamer-03, streamer-10
 ---
 
 # Etapa 01 — Fundación
 
 ## Objetivo
+
 Base de datos completa del assistant, modelos Eloquent, planes seeder y skeleton del servicio Node. Al terminar esta etapa existe todo el andamiaje de datos y el servicio puede levantarse en Docker.
 
 ---
 
 ## Migraciones — orden y campos clave
 
+Los archivos siguen la numeración global del proyecto (`0036`–`0050`) para respetar el orden de ejecución con las migraciones existentes.
+
 ```
-assistant_01_add_fields_to_users
+0036_add_assistant_fields_to_users
   + timezone          string IANA, default 'UTC'
   + default_currency  string ISO 4217, default 'USD'
   + username          string unique nullable
-  + friend_code       string unique           — generado en UserObserver o RegisterUseCase
+  + friend_code       string unique           — generado en RegisterUseCase
 
-assistant_02_create_conversations_table
+0037_create_assistant_conversations_table
   id, user_id FK users, created_at
 
-assistant_03_create_sessions_table
+0038_create_assistant_sessions_table
   id, conversation_id FK, started_at, last_message_at
 
-assistant_04_create_messages_table
+0039_create_assistant_messages_table
   id, conversation_id FK, session_id FK
   role          enum: user | assistant | system | tool_call | tool_result
   channel       enum: web | whatsapp, default web
@@ -39,7 +42,7 @@ assistant_04_create_messages_table
   created_at
   -- media via Spatie (morphs)
 
-assistant_05_create_memories_table
+0040_create_memories_table
   id, user_id FK
   category    string
   description string
@@ -47,15 +50,15 @@ assistant_05_create_memories_table
   updated_at, created_at
   UNIQUE(user_id, category)
 
-assistant_06_create_type_catalogs_table
+0041_create_type_catalogs_table
   id
   user_id FK nullable
-  domain  enum: event | list | expense
+  domain  string (event | list | expense)
   name    string
   INDEX(domain)
   UNIQUE(user_id, domain, name)
 
-assistant_07_create_events_table
+0042_create_assistant_events_table
   id, user_id FK
   content         text
   event_at        timestamp UTC
@@ -67,7 +70,7 @@ assistant_07_create_events_table
   created_at, updated_at
   softDeletes
 
-assistant_08_create_event_reminders_table
+0043_create_event_reminders_table
   id, event_id FK
   fire_at   timestamp UTC
   message   string
@@ -75,14 +78,14 @@ assistant_08_create_event_reminders_table
   fired_at  timestamp nullable
   created_at
 
-assistant_09_create_lists_table
+0044_create_assistant_lists_table
   id, user_id FK
   name    string
   type    string nullable
   created_at, updated_at
   softDeletes
 
-assistant_10_create_list_items_table
+0045_create_list_items_table
   id, list_id FK
   content           string
   status            enum: pending | done, default pending
@@ -90,7 +93,7 @@ assistant_10_create_list_items_table
   added_by_user_id  FK users
   created_at, updated_at
 
-assistant_11_create_expenses_table
+0046_create_expenses_table
   id, user_id FK
   amount_cents  integer
   currency      string ISO 4217
@@ -99,7 +102,7 @@ assistant_11_create_expenses_table
   spent_at      timestamp UTC
   created_at, updated_at
 
-assistant_12_create_friendships_table
+0047_create_friendships_table
   id
   requester_id FK users
   addressee_id FK users
@@ -107,7 +110,7 @@ assistant_12_create_friendships_table
   created_at, updated_at
   UNIQUE(requester_id, addressee_id)
 
-assistant_13_create_friend_labels_table
+0048_create_friend_labels_table
   id
   user_id        FK users
   friend_user_id FK users
@@ -115,24 +118,25 @@ assistant_13_create_friend_labels_table
   created_at, updated_at
   UNIQUE(user_id, friend_user_id)
 
-assistant_14_create_list_shares_table
+0049_create_list_shares_table
   id
-  list_id              FK lists
+  list_id              FK assistant_lists
   shared_with_user_id  FK users
   invited_by_user_id   FK users
   permission           enum: read | write, default read
   accepted_at          timestamp nullable
   created_at
+  (sin timestamps automáticos)
 
-assistant_15_create_reminder_requests_table
+0050_create_reminder_requests_table
   id
   sender_id          FK users
   receiver_id        FK users
   content            string
   suggested_event_at timestamp nullable
   status             enum: pending | accepted | declined, default pending
-  event_id           FK events nullable
-  message_id         FK messages nullable
+  event_id           FK assistant_events nullable
+  message_id         FK assistant_messages nullable
   created_at, updated_at
 ```
 
@@ -144,50 +148,51 @@ Dominio: `app/Domain/Assistant/Models/`
 
 | Modelo | Tabla | Notas |
 |---|---|---|
-| `Conversation` | conversations | hasMany sessions, hasMany messages |
-| `Session` | sessions | belongsTo conversation, hasMany messages |
-| `AssistantMessage` | messages | belongsTo conversation + session; morphMedia (Spatie) |
-| `Memory` | memories | belongsTo user |
-| `TypeCatalog` | type_catalogs | belongsTo user nullable |
-| `AssistantEvent` | events | belongsTo user; hasMany eventReminders |
-| `EventReminder` | event_reminders | belongsTo event |
-| `AssistantList` | lists | belongsTo user; hasMany listItems; hasMany listShares |
-| `ListItem` | list_items | belongsTo list |
-| `Expense` | expenses | belongsTo user |
-| `Friendship` | friendships | belongsTo requester (user), addressee (user) |
-| `FriendLabel` | friend_labels | belongsTo user, belongsTo friendUser |
-| `ListShare` | list_shares | belongsTo list; belongsTo sharedWith (user) |
-| `ReminderRequest` | reminder_requests | belongsTo sender, receiver (user); belongsTo event nullable |
+| `Conversation` | `assistant_conversations` | hasMany sessions, hasMany messages |
+| `AssistantSession` | `assistant_sessions` | belongsTo conversation, hasMany messages |
+| `AssistantMessage` | `assistant_messages` | belongsTo conversation + session; morphMedia (Spatie) |
+| `Memory` | `memories` | belongsTo user |
+| `TypeCatalog` | `type_catalogs` | belongsTo user nullable; no timestamps |
+| `AssistantEvent` | `assistant_events` | belongsTo user; hasMany eventReminders; SoftDeletes |
+| `EventReminder` | `event_reminders` | belongsTo event |
+| `AssistantList` | `assistant_lists` | belongsTo user; hasMany items (order by position); hasMany shares; SoftDeletes |
+| `ListItem` | `list_items` | belongsTo list |
+| `Expense` | `expenses` | belongsTo user |
+| `Friendship` | `friendships` | belongsTo requester (user), addressee (user) |
+| `FriendLabel` | `friend_labels` | belongsTo user, belongsTo friend (user) |
+| `ListShare` | `list_shares` | belongsTo list; belongsTo sharedWith, invitedBy (users); no timestamps |
+| `ReminderRequest` | `reminder_requests` | belongsTo sender, receiver (user); belongsTo event, message (nullable) |
 
 ---
 
-## Plans seeder — assistant
+## Plans seeder — `AssistantPlanSeeder`
 
 ```php
-// PlanSeeder o AssistantPlanSeeder
-$product = Product::where('slug', 'assistant')->first();
+$assistant = Product::where('slug', 'assistant')->firstOrFail();
 
-Plan::firstOrCreate(['name' => 'Free', 'product_id' => $product->id], [
+Plan::firstOrCreate(['name' => 'Free', 'product_id' => $assistant->id], [
     'is_free' => true,
     'limits_json' => [
-        'friends_count'                => ['type' => 'permanent', 'max' => 5],
-        'send_reminders_to_friends'    => ['type' => 'boolean',   'value' => false],
-        'reminders_per_month'          => ['type' => 'monthly',   'max' => 30],
-        'memories_count'               => ['type' => 'permanent', 'max' => 10],
-        'model_tier'                   => ['type' => 'string',    'value' => 'basic'],
+        'assistant_enabled' => ['type' => 'boolean',   'value' => true],
+        'friends'           => ['type' => 'permanent', 'max' => 5],
+        'events_monthly'    => ['type' => 'monthly',   'max' => 50],
+        'lists'             => ['type' => 'permanent', 'max' => 10],
+        'expenses_enabled'  => ['type' => 'boolean',   'value' => false],
+        'memory_categories' => ['type' => 'permanent', 'max' => 3],
     ],
 ]);
 
-Plan::firstOrCreate(['name' => 'Pro', 'product_id' => $product->id], [
-    'is_free' => false,
-    'price_monthly_cents' => 799,
-    'price_yearly_cents'  => 7670,
+Plan::firstOrCreate(['name' => 'Pro', 'product_id' => $assistant->id], [
+    'is_free'             => false,
+    'price_monthly_cents' => 600,
+    'price_yearly_cents'  => 5760,
     'limits_json' => [
-        'friends_count'                => ['type' => 'permanent', 'max' => -1],
-        'send_reminders_to_friends'    => ['type' => 'boolean',   'value' => true],
-        'reminders_per_month'          => ['type' => 'monthly',   'max' => -1],
-        'memories_count'               => ['type' => 'permanent', 'max' => -1],
-        'model_tier'                   => ['type' => 'string',    'value' => 'standard'],
+        'assistant_enabled' => ['type' => 'boolean',   'value' => true],
+        'friends'           => ['type' => 'permanent', 'max' => -1],
+        'events_monthly'    => ['type' => 'monthly',   'max' => -1],
+        'lists'             => ['type' => 'permanent', 'max' => -1],
+        'expenses_enabled'  => ['type' => 'boolean',   'value' => true],
+        'memory_categories' => ['type' => 'permanent', 'max' => -1],
     ],
 ]);
 ```
@@ -196,124 +201,97 @@ Plan::firstOrCreate(['name' => 'Pro', 'product_id' => $product->id], [
 
 ## LimitsResolver — soporte boolean y string
 
-Extender `LimitsResolver` para manejar dos nuevos tipos en `limits_json`:
-- `boolean` → retorna `value` directamente (no tiene `max`)
-- `string`  → retorna `value` directamente (no tiene `max`)
+`LimitsResolver::resolve()` extendido para tipos nuevos en `limits_json`:
+- `boolean` → OR lógico al hacer merge (si algún plan activa la feature, el resultado es `true`)
+- `string` → el primer valor encontrado prevalece (sin lógica de merge)
 
 ---
 
 ## `friend_code` — generación
 
-En `RegisterUseCase` (o `UserObserver`), al crear un usuario, generar un código único de 8 chars alfanumérico:
+En `RegisterUseCase`, antes de `User::create()`:
 
 ```php
 do {
-    $code = strtoupper(Str::random(8));
-} while (User::where('friend_code', $code)->exists());
-$user->friend_code = $code;
+    $friendCode = strtoupper(Str::random(8));
+} while (User::where('friend_code', $friendCode)->exists());
+
+$user = User::create([..., 'friend_code' => $friendCode]);
 ```
 
 ---
 
-## Docker — nuevo servicio
+## User model
 
-Añadir en `docker-compose.yml`:
+Añadidos a `$fillable`: `timezone`, `default_currency`, `username`, `friend_code`.
+
+Nuevo método:
+```php
+public function personalEnterprise(): HasOne
+{
+    return $this->hasOne(Enterprise::class, 'owner_id')->where('type', 'personal');
+}
+```
+
+---
+
+## Docker — `assistant-worker`
+
+Añadido en `docker-compose.yml` siguiendo el mismo patrón que `socketio` (build context raíz):
 
 ```yaml
 assistant-worker:
   build:
-    context: ./services/assistant-worker
-    dockerfile: Dockerfile
+    context: .
+    dockerfile: services/assistant-worker/Dockerfile
+  env_file: ./backend/.env
   depends_on:
-    redis: { condition: service_healthy }
-    postgres: { condition: service_healthy }
-  env_file: .env
-  networks: [backend]
+    - redis
+  networks:
+    - backend
   restart: unless-stopped
 ```
 
-Crear `services/assistant-worker/` con estructura mínima:
+Estructura creada en `services/assistant-worker/`:
 ```
-services/assistant-worker/
-  src/
-    index.ts
-  package.json
-  tsconfig.json
-  Dockerfile
-```
-
-El `index.ts` solo conecta a Redis y logea "assistant-worker ready". La lógica real llega en etapa 03.
-
----
-
-## Type catalog seeds
-
-Seeds de tipos globales en `TypeCatalogSeeder`:
-
-```
-event: birthday, appointment, task, reminder, deadline, meeting, class, habit
-list:  shopping, todo, reading, watchlist, travel, general
-expense: food, transport, entertainment, health, education, subscriptions, general
+src/
+  index.ts     — conecta a Redis, BRPOP loop; handlers en etapa 02
+package.json   — @anthropic-ai/sdk, openai, @google/generative-ai, redis, rrule, winston
+tsconfig.json
+Dockerfile
 ```
 
 ---
 
-## AssistantUserSeeder
+## Type catalog seeds — `TypeCatalogSeeder`
 
-Tres usuarios para desarrollo, con suscripción al assistant anclada a su personal enterprise.
+Seeds globales (`user_id = null`):
+
+```
+event:   meeting, birthday, appointment, task, reminder, workout, travel, other
+list:    shopping, todo, watchlist, readlist, general
+expense: food, transport, entertainment, health, education, housing, clothing, other
+```
+
+---
+
+## `AssistantUserSeeder`
+
+Tres usuarios para desarrollo. Cada uno crea su enterprise personal con el plan de assistant correspondiente.
 
 ```php
 // user1 — Free, amigo de user2
-$user1 = User::factory()->create([
-    'name'             => 'User One',
-    'email'            => 'user1@test.com',
-    'password'         => bcrypt('password'),
-    'username'         => 'user1',
-    'timezone'         => 'America/Bogota',
-    'default_currency' => 'COP',
-]);
-
 // user2 — Pro, amigo de user1
-$user2 = User::factory()->create([
-    'name'             => 'User Two',
-    'email'            => 'user2@test.com',
-    'password'         => bcrypt('password'),
-    'username'         => 'user2',
-    'timezone'         => 'America/Bogota',
-    'default_currency' => 'COP',
-]);
-
 // user3 — Free, sin amigos
-$user3 = User::factory()->create([
-    'name'             => 'User Three',
-    'email'            => 'user3@test.com',
-    'password'         => bcrypt('password'),
-    'username'         => 'user3',
-    'timezone'         => 'America/Bogota',
-    'default_currency' => 'COP',
-]);
+// password: "password" en todos
 
-// Suscripciones al assistant
-$freePlan = Plan::whereHas('product', fn($q) => $q->where('slug', 'assistant'))
-    ->where('is_free', true)->first();
-$proPlan  = Plan::whereHas('product', fn($q) => $q->where('slug', 'assistant'))
-    ->where('is_free', false)->first();
-
-foreach ([$user1, $user3] as $user) {
-    $user->personalEnterprise->createEnterpriseProduct($freePlan);
-}
-$user2->personalEnterprise->createEnterpriseProduct($proPlan);
-
-// Amistad user1 <-> user2
-Friendship::create([
-    'requester_id' => $user1->id,
-    'addressee_id' => $user2->id,
-    'status'       => 'accepted',
-]);
-
-FriendLabel::create(['user_id' => $user1->id, 'friend_user_id' => $user2->id, 'label' => 'user2']);
-FriendLabel::create(['user_id' => $user2->id, 'friend_user_id' => $user1->id, 'label' => 'user1']);
+Friendship::firstOrCreate(
+    ['requester_id' => $user1->id, 'addressee_id' => $user2->id],
+    ['status' => 'accepted'],
+);
 ```
+
+La suscripción al product `assistant` se crea directamente sobre el enterprise generado en el seeder. En producción se haría vía checkout sobre el `personalEnterprise` del usuario ya registrado.
 
 ---
 

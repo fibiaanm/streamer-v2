@@ -1,0 +1,184 @@
+---
+description: Estrategia de despliegue — infraestructura, CI/CD, escalado
+type: infra
+status: activo
+---
+
+# Deploy — Infraestructura y CI/CD
+
+---
+
+## Plataforma: DigitalOcean Kubernetes (DOKS)
+
+El stack de producción corre en un cluster Kubernetes gestionado por DO.
+No se usan Droplets sueltos — los nodos del cluster son Droplets, pero DO los administra.
+
+### Servicios DO requeridos
+
+| Servicio | Rol |
+|---|---|
+| **DOKS cluster** | Corre todos los contenedores |
+| **Managed Postgres** | Base de datos principal |
+| **Managed Redis** | Cache + queues |
+| **Spaces + CDN** | Assets estáticos (build de Vite) |
+| **Container Registry** | Imágenes Docker |
+| **Load Balancer** | Provisionado automáticamente por K8s al exponer servicios |
+
+### Configuración inicial del cluster
+
+- 1 nodo Basic, 2 vCPU / 2 GiB RAM, $18/mes
+- Autoscale habilitado: mín 2, máx 4 nodos (activar cuando haya tráfico real)
+- Sin HA control plane en la etapa inicial (añadir cuando el volumen lo justifique)
+
+---
+
+## Servicios que van a producción
+
+| Contenedor | Imagen | Réplicas |
+|---|---|---|
+| `nginx` | `streamer-nginx` | 2+ |
+| `php` | `streamer-php` | 2+ |
+| `queue` | `streamer-queue` | Escala por backlog (KEDA) |
+| `scheduler` | `streamer-scheduler` | 1 (siempre) |
+| `socketio` | `streamer-socketio` | 1+ (sticky sessions) |
+
+Todo lo demás (vite, mailpit, pgadmin, redis-insight, opensearch, minio, mediamtx, meilisearch)
+es **dev-only** y no va al cluster.
+
+El archivo de referencia es `docker-compose.prod.yml` en la raíz del proyecto.
+
+---
+
+## Escalado
+
+### Queue workers — KEDA
+KEDA observa el largo de la cola en Redis y escala los pods de `queue` automáticamente:
+- Cola > umbral → añade réplicas
+- Cola vacía → reduce a mínimo
+
+No se requiere intervención manual.
+
+### Nodos del cluster
+El cluster autoscaler de DO añade y retira nodos según la presión de los pods.
+Si los pods no caben en los nodos actuales, DO provisiona uno nuevo automáticamente.
+
+### Scheduler
+Siempre **1 réplica**. `artisan schedule:run` no tolera ejecución paralela.
+
+---
+
+## CI/CD — GitHub Actions con self-hosted runner
+
+Los builds y tests corren en hardware propio, no en los minutos de GitHub.
+
+### Configurar el runner
+
+```
+GitHub → repo → Settings → Actions → Runners → New self-hosted runner
+```
+
+Seguir los 3 comandos que da GitHub en la máquina local o en un Droplet dedicado.
+
+### Workflow (esquema)
+
+```yaml
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - php artisan test
+
+  build:
+    runs-on: self-hosted
+    needs: test
+    steps:
+      - docker build streamer-php, streamer-queue, streamer-scheduler, streamer-nginx, streamer-socketio
+      - docker push → DO Container Registry
+
+  deploy:
+    runs-on: self-hosted
+    needs: build
+    steps:
+      - kubectl apply -f k8s/
+      # o: kubectl set image deployment/php php=$REGISTRY/streamer-php:$TAG
+```
+
+El workflow usa `runs-on: self-hosted` — la única diferencia respecto a GitHub-hosted runners.
+
+### Secrets requeridos en GitHub
+
+| Secret | Valor |
+|---|---|
+| `DO_REGISTRY` | URL del container registry de DO |
+| `DO_REGISTRY_TOKEN` | Token para push de imágenes |
+| `KUBECONFIG` | kubeconfig del cluster DOKS |
+
+---
+
+## Pruebas locales del cluster — k3d
+
+Para validar manifiestos de Kubernetes antes de aplicar en DO:
+
+```bash
+# Instalar k3d
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+# Crear cluster local (replica DOKS localmente)
+k3d cluster create streamer
+
+# Aplicar manifiestos
+kubectl apply -f k8s/
+
+# Destruir cuando termines
+k3d cluster delete streamer
+```
+
+Flujo: valida en k3d → push a main → GitHub Actions deploya en DOKS.
+
+---
+
+## Logs de producción — Grafana Cloud (Loki)
+
+OpenSearch no va a producción — es dev-only. Para logs en producción se usa **Grafana Cloud**,
+que hostea Loki como SaaS. No se instala nada en el cluster.
+
+### Por qué Grafana Cloud
+- Free tier: 50 GB logs/mes, 14 días de retención
+- Fluent Bit ya está configurado en el proyecto — solo se cambia el output
+- Loki no indexa contenido, solo metadatos (labels) → muy eficiente
+- Grafana incluye dashboards, alertas y métricas en el mismo lugar
+
+### Cambio en Fluent Bit para producción
+
+```ini
+# dev: output a OpenSearch local
+[OUTPUT]
+    Name  opensearch
+    Host  opensearch
+
+# prod: output a Grafana Cloud Loki
+[OUTPUT]
+    Name        loki
+    Host        logs-prod-xxx.grafana.net
+    port        443
+    tls         on
+    http_user   ${GRAFANA_USER_ID}
+    http_passwd ${GRAFANA_API_KEY}
+    Labels      job=nginx,env=production
+```
+
+Las credenciales van en `.env.prod` como `GRAFANA_USER_ID` y `GRAFANA_API_KEY`.
+
+---
+
+## Assets estáticos — CDN
+
+El build de Vite genera los assets en `backend/public/build/`.
+En el pipeline de CI se suben a DO Spaces y se sirven desde su CDN.
+Nginx en producción **no sirve** los assets — solo proxea PHP y Socket.io.
+
+La config de nginx para producción está en `docker/nginx/default.prod.conf`.

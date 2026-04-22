@@ -20,7 +20,12 @@ RUN pecl install redis \
     && docker-php-ext-enable redis
 
 # ─── PHP configuration ────────────────────────────────────────────────────────
+ARG APP_ENV=local
 COPY docker/php/php.ini     /usr/local/etc/php/conf.d/app.ini
+COPY docker/php/php.prod.ini /usr/local/etc/php/conf.d/app.prod.ini.bak
+RUN if [ "$APP_ENV" = "production" ]; then \
+        cp /usr/local/etc/php/conf.d/app.prod.ini.bak /usr/local/etc/php/conf.d/app.ini; \
+    fi && rm /usr/local/etc/php/conf.d/app.prod.ini.bak
 COPY docker/php/php-fpm.conf /usr/local/etc/php-fpm.d/zz-app.conf
 
 # ─── Composer ─────────────────────────────────────────────────────────────────
