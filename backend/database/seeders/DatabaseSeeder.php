@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             PlanSeeder::class,
             UserSeeder::class,
             EnterpriseTeamSeeder::class,
+            WorkspaceSeeder::class,
         ]);
     }
 }
