@@ -114,11 +114,55 @@ Sin empresa no hay contexto válido de sesión.
 
 ---
 
+## Guest tokens
+
+Los usuarios que llegan a `/app` sin sesión reciben un JWT guest temporal. No hay registro en DB.
+
+### Payload
+
+```json
+{ "sub": "guest", "guest": true, "exp": <now + 60 min> }
+```
+
+### Ciclo de vida
+
+- **Emisión**: `AppPageController` — si no hay `access_token` cookie y la ruta está en `config('auth.guest_paths')`, llama `TokenService::issueGuestToken()` y setea `AuthCookies::guestAccess()`.
+- **Cookie TTL**: 30 días (`AuthCookies::guestAccess`). El JWT expira en 60 min, pero el cookie persiste para permitir renovación silenciosa.
+- **Detección**: `AuthenticateJWT` middleware — si `payload.guest === true`, setea `is_guest = true` en `$request->attributes` y continúa sin `auth()->setUser()`. `SetActiveEnterprise` bypassa el header `X-Enterprise-ID` para guests.
+- **`/me` para guest**: devuelve `{ id: null, enterprise: { role: 'guest', permissions: [...], products: {...} } }`.
+
+### Renovación automática
+
+**Vía `AppPageController`** (page load con JWT expirado):
+- `TokenExpiredException` → `tryRefresh()` → detecta si el token expirado era guest con `TokenService::isGuestToken()` → emite nuevo guest token sin intentar `refresh_token`.
+
+**Vía `RefreshController`** (app abierta, interceptor de API):
+- Si no hay `refresh_token` cookie, lee `access_token` cookie (sigue presente por el TTL de 30 días aunque el JWT esté expirado), detecta guest con `isGuestToken()`, emite nuevo token.
+- El interceptor de `api.ts` ya llama `POST /auth/refresh` con `withCredentials: true` en todo 401; el backend maneja el caso guest de forma transparente, sin cambios en frontend.
+
+**Fix para usuarios normales en page load**:
+- `AppPageController::handleNoToken()` (sin `access_token` cookie): ahora intenta `refresh_token` primero. Antes emitía un guest token aunque el usuario tuviera un refresh válido.
+
+### `TokenService::isGuestToken(string $token): bool`
+
+Decodifica el payload JWT (base64, sin verificar firma) y comprueba `guest === true`. Solo para detección, no para autenticación.
+
+### Rutas permitidas para guests
+
+`config('auth.guest_paths')`:
+```php
+['app', 'app/image-studio', 'app/workspaces']
+```
+
+---
+
 ## TokenService — `app/Domain/Auth/Application/TokenService.php`
 
 | Método | Qué hace |
 |---|---|
 | `issueTokens(User)` | Genera access JWT + refresh token; guarda refresh en DB. Retorna `[access_token, refresh_token, expires_in]` |
+| `issueGuestToken()` | Genera JWT con `{ sub: 'guest', guest: true }`. Sin DB. TTL 60 min. |
+| `isGuestToken(string)` | Decodifica el payload (base64) y verifica `guest === true`. Estático. |
 | `refresh(string)` | Busca el token en DB, valida, rota, emite nuevos. Lanza `RefreshTokenInvalidException` si inválido/revocado/expirado |
 | `revoke(string)` | Marca `refresh_tokens.revoked_at = now()` |
 | `revokeAll(User)` | Revoca todos los refresh tokens del usuario (logout de todos los dispositivos) |

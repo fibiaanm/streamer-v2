@@ -1,8 +1,8 @@
 ---
-description: Etapa 13 — Explorador de workspaces, composables shared-by-ID y configuración de workspace
+description: Etapa 13 — Explorador de workspaces, modo my/shared, fuente local con IndexedDB y renovación de sesión
 type: stage
 stage: 13
-status: pendiente
+status: en_progreso
 depends_on: 12
 ---
 
@@ -284,19 +284,153 @@ en ese workspace, resuelta desde su rol y los permisos del rol.
 
 ---
 
+---
+
+## Implementado — WorkspaceDataSource y modo my/shared
+
+### `WorkspaceDataSource` — interfaz de fuente de datos
+
+`composables/workspace/WorkspaceDataSource.ts` define el contrato que deben cumplir tanto la fuente API como la fuente local. Todas las operaciones de workspace en vistas deben ir a través de esta abstracción.
+
+### `useWorkspaceSource()` — selector de fuente
+
+`composables/workspace/useWorkspaceSource.ts` — devuelve la fuente correcta según el estado de sesión:
+
+- Si no hay sesión autenticada o no hay `enterprise.id` → `useLocalWorkspaceSource()` (guest / usuario sin empresa)
+- Si hay sesión con empresa → wrapping de `useWorkspacesApi()` con unwrap automático de `.data.data`
+
+Las vistas solo importan `useWorkspaceSource` y llaman los métodos directamente, sin saber si están hablando con la API o con IndexedDB.
+
+### Endpoint `GET /workspaces/:id/detail`
+
+Un solo request que reemplaza tres llamadas separadas:
+
+```
+{ workspace, ancestors, children, mode: 'my' | 'shared' }
+```
+
+`mode` lo determina el servidor: `owner_user_id === auth()->id() ? 'my' : 'shared'`. Nunca se guarda en la URL — si alguien comparte una URL con `?folder=X`, el servidor infiere el modo correcto para quien la abre.
+
+### `WorkspacesView` — modo my/shared
+
+Sidebar con dropdown (texto uppercase + `AppDropdown`) que alterna entre **Propios** y **Compartidos**:
+
+- Al cambiar de modo: limpia estado, recarga la lista con `?type=owned` o `?type=shared`.
+- La cuota solo se muestra en modo `my`.
+- El botón `+` solo aparece en modo `my`.
+- URL `?folder=<id>`: al montar, se llama `getDetail(id)` primero (bloqueante) para determinar el modo antes de cargar la lista raíz.
+
+### `GET /workspaces?type=owned|shared`
+
+`ListWorkspacesController` filtra con `->when()`:
+
+```php
+->when($type === 'owned',  fn($q) => $q->where('owner_user_id', $user->id))
+->when($type === 'shared', fn($q) => $q->where('owner_user_id', '!=', $user->id))
+```
+
+Sin `type` devuelve todos (comportamiento anterior para compatibilidad).
+
+---
+
+## Implementado — Stack local con IndexedDB
+
+Para usuarios guest (o cualquier usuario sin empresa), `useLocalWorkspaceSource` implementa la misma interfaz `WorkspaceDataSource` sobre IndexedDB. Cuatro capas con responsabilidades separadas:
+
+### Capa 1 — Driver IDB (`lib/idb.ts`)
+
+Driver genérico sin conocimiento de dominio. Abre la DB una vez (singleton lazy), expone:
+
+| Función | Firma |
+|---|---|
+| `idbGet<T>(store, key)` | `Promise<T \| undefined>` |
+| `idbPut<T>(store, item)` | `Promise<void>` |
+| `idbDelete(store, key)` | `Promise<void>` |
+| `idbGetAll<T>(store)` | `Promise<T[]>` |
+
+DB: `streamer_local` v1. Object store: `workspaces`, keyPath `id`.
+
+### Capa 2 — Repositorio (`composables/workspace/local/useLocalWorkspaceRepository.ts`)
+
+CRUD tipado sobre el store `workspaces`. Sin lógica de negocio.
+
+```ts
+find(id)              → Promise<LocalWorkspace | undefined>
+findAll()             → Promise<LocalWorkspace[]>
+findByParentId(pid)   → Promise<LocalWorkspace[]>   // filtra en memoria (n pequeño)
+save(ws)              → Promise<void>
+remove(id)            → Promise<void>
+```
+
+### Capa 3 — Servicio (`composables/workspace/local/useLocalWorkspaceService.ts`)
+
+Lógica de negocio. Usa `usePermissions()` para leer `coreLimits`.
+
+| Método | Comportamiento |
+|---|---|
+| `getQuota()` | Cuenta raíces activas vs `coreLimits.workspaces.max` |
+| `listRoot()` | Raíces con `status === 'active'` |
+| `listChildren(id)` | Hijos directos activos |
+| `getWorkspace(id)` | Busca por id; lanza `WorkspaceNotFound` si no existe |
+| `getAncestors(id)` | Parte el `path` en segmentos, busca cada uno en IDB |
+| `getDetail(id)` | `{ workspace, ancestors, children, mode: 'my' }` — siempre `'my'` en local |
+| `createWorkspace(name, parentId?)` | Valida quota y depth; genera UUID; construye path; guarda |
+| `updateWorkspace(id, name)` | Actualiza nombre en IDB |
+| `archiveWorkspace(id)` | Setea `status: 'archived'` |
+| `deleteWorkspace(id)` | Elimina del IDB |
+
+**Schema de `LocalWorkspace`:**
+
+```ts
+{
+  id:         string        // crypto.randomUUID()
+  name:       string
+  status:     'active' | 'archived'
+  path:       string        // UUIDs separados por '.': 'uuid-raíz' o 'uuid-a.uuid-b.uuid-c'
+  parent_id:  string | null
+  created_at: string        // ISO 8601
+}
+```
+
+El `path` replica la lógica ltree del backend: ancestors se resuelven partiendo el path y buscando cada segmento por ID.
+
+**Errores locales** — se lanzan con `{ code }` para que la vista los maneje igual que errores de API:
+
+| `code` | Cuándo |
+|---|---|
+| `WorkspaceNotFound` | ID no existe en IDB |
+| `PlanLimitExceeded` | Quota de workspaces raíz alcanzada |
+| `WorkspaceDepthExceeded` | Profundidad máxima alcanzada |
+
+### Capa 4 — Adapter (`composables/workspace/useLocalWorkspaceSource.ts`)
+
+Implementa `WorkspaceDataSource` delegando al servicio. Operaciones no soportadas en local (`inviteMember`, `createRole`, etc.) rechazan con `not_supported_in_local_mode`.
+
+### Normalización de errores en vistas
+
+Las vistas usan un helper local para extraer el código de error independientemente de la fuente:
+
+```ts
+function errorCode(err: any): string | undefined {
+  return err?.response?.data?.error?.code ?? err?.code
+}
+```
+
+---
+
 ## Checklist
 
+- [x] `WorkspaceDataSource` — interfaz de fuente de datos
+- [x] `useWorkspaceSource()` — selector local vs API según sesión
+- [x] `GET /workspaces/:id/detail` — workspace + ancestors + children + mode en un request
+- [x] `GET /workspaces?type=owned|shared` — filtro por propiedad
+- [x] `WorkspacesView` — modo my/shared, toggle AppDropdown, carga secuencial desde detail
+- [x] IDB driver (`lib/idb.ts`) — genérico, 4 operaciones
+- [x] `LocalWorkspace` — tipo con path dot-separated
+- [x] `useLocalWorkspaceRepository` — CRUD puro contra IDB
+- [x] `useLocalWorkspaceService` — lógica: quota, depth, path, ancestors, getDetail
+- [x] `useLocalWorkspaceSource` — adapter completo de `WorkspaceDataSource`
 - [ ] `useWorkspace(id)` con registro singleton y estados `idle/loading/ready/error`
-- [ ] `useWorkspace.can(permission)` resolviendo contra capabilities del servidor
-- [ ] `useWorkspaceMembers(id)` con patrón shared-by-ID
-- [ ] `useTeamMembers(enterpriseId)` para miembros de la empresa
-- [ ] `WorkspacesView` listando workspaces raíz de la empresa activa
-- [ ] Botón "Nuevo workspace" con guard de permiso y cuota
-- [ ] Endpoint backend `GET /workspaces/root-quota` para cuota por usuario
-- [ ] `WorkspaceView` con sub-workspaces + assets + breadcrumb
-- [ ] Socket integration: `joinScope`/`leaveScope` + `useScopeEffect` en `WorkspaceView`
-- [ ] Handlers de scope: `asset_created`, `asset_deleted`, `member_added`, `member_removed`
+- [ ] Socket integration en `WorkspaceView`
 - [ ] `WorkspaceSettingsView` con tabs: general, roles, miembros
-- [ ] Gestión de roles custom: crear, asignar permisos, eliminar
-- [ ] Gestión de miembros: listar, cambiar rol, eliminar, invitar
-- [ ] Capabilities: `workspace.edit`, `workspace.delete`, `workspace.invite`, `workspace.manage_roles`
+- [ ] Gestión de roles custom y miembros

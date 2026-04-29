@@ -46,19 +46,45 @@ class AppPageController extends Controller
 
     private function handleNoToken(Request $request, TokenService $tokenService): Response|RedirectResponse
     {
+        // Si hay refresh_token, intentar restaurar la sesión del usuario aunque
+        // el access_token cookie ya haya caducado en el browser.
+        if ($refreshToken = $request->cookie('refresh_token')) {
+            try {
+                $tokens = $tokenService->refresh($refreshToken);
+
+                return redirect('/' . $request->path())
+                    ->withCookie(AuthCookies::access($tokens['access_token']))
+                    ->withCookie(AuthCookies::refresh($tokens['refresh_token']));
+            } catch (Throwable) {
+                // refresh inválido — limpiar y continuar como guest/login
+                foreach (AuthCookies::forget() as $cookie) {
+                    cookie()->queue($cookie);
+                }
+            }
+        }
+
         if (!$this->isGuestAllowed($request->path())) {
             return redirect('/login');
         }
 
         $tokens = $tokenService->issueGuestToken();
 
-        cookie()->queue(AuthCookies::access($tokens['access_token']));
+        cookie()->queue(AuthCookies::guestAccess($tokens['access_token']));
 
         return Inertia::render('App');
     }
 
     private function tryRefresh(Request $request, TokenService $tokenService): RedirectResponse
     {
+        // Token expirado en cookie — si era un guest, renovar directamente.
+        $expiredToken = $request->cookie('access_token', '');
+        if ($expiredToken && TokenService::isGuestToken($expiredToken)) {
+            $tokens = $tokenService->issueGuestToken();
+
+            return redirect('/' . $request->path())
+                ->withCookie(AuthCookies::guestAccess($tokens['access_token']));
+        }
+
         try {
             $tokens = $tokenService->refresh($request->cookie('refresh_token', ''));
 

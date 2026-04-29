@@ -19,8 +19,9 @@ export const useWorkspacesApi = () => {
   const inviteMember     = (id: string, email: string, role_id: string)                => api.post(`/workspaces/${id}/invitations`, { email, role_id })
   const removeMember     = (wsId: string, memberId: string)                            => api.delete(`/workspaces/${wsId}/members/${memberId}`)
   const assignRole       = (wsId: string, memberId: string, roleId: string)            => api.patch(`/workspaces/${wsId}/members/${memberId}/role`, { role_id: roleId })
-  const listRoles        = (id: string)                                                => api.get<{ data: WorkspaceRole[] }>(`/workspaces/${id}/roles`)
+  const listRoles        = (id: string, assignable = false)                            => api.get<{ data: WorkspaceRole[] }>(`/workspaces/${id}/roles${assignable ? '?assignable=true' : ''}`)
   const createRole       = (id: string, name: string, permissions: string[])           => api.post<{ data: WorkspaceRole }>(`/workspaces/${id}/roles`, { name, permissions })
+  const updateRole       = (wsId: string, roleId: string, name: string, permissions: string[]) => api.patch<{ data: WorkspaceRole }>(`/workspaces/${wsId}/roles/${roleId}`, { name, permissions })
   const deleteRole       = (wsId: string, roleId: string)                              => api.delete(`/workspaces/${wsId}/roles/${roleId}`)
 
   return {
@@ -41,6 +42,7 @@ export const useWorkspacesApi = () => {
     assignRole,
     listRoles,
     createRole,
+    updateRole,
     deleteRole,
   }
 }

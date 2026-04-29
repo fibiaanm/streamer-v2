@@ -28,7 +28,7 @@ class DetailController
                 throw new WorkspaceNotFoundException();
             }
 
-            $this->permissionGate->authorize($user, $workspace, 'workspace.view');
+            $member = $this->permissionGate->authorize($user, $workspace, 'workspace.view');
 
             $workspace->load('owner');
 
@@ -43,11 +43,15 @@ class DetailController
                 ->with('owner')
                 ->get();
 
+            $capabilities = $member->role->permissions->pluck('name')->values()->all();
+
             return ResponseFormatter::success([
-                'workspace' => new WorkspaceResource($workspace),
-                'ancestors' => WorkspaceResource::collection($ancestors)->resolve(),
-                'children'  => WorkspaceResource::collection($children)->resolve(),
-                'mode'      => $workspace->owner_user_id === $user->id ? 'my' : 'shared',
+                'workspace'    => new WorkspaceResource($workspace),
+                'ancestors'    => WorkspaceResource::collection($ancestors)->resolve(),
+                'children'     => WorkspaceResource::collection($children)->resolve(),
+                'mode'         => $workspace->owner_user_id === $user->id ? 'my' : 'shared',
+                'role'         => ['id' => $member->role->getHashId(), 'name' => $member->role->name],
+                'capabilities' => $capabilities,
             ]);
 
         } catch (WorkspaceNotFoundException | WorkspaceForbiddenException $e) {

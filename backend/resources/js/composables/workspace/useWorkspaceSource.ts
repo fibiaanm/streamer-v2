@@ -28,8 +28,9 @@ export const useWorkspaceSource = (): WorkspaceDataSource => {
     inviteMember:     async (id, email, role_id)  => { await api.inviteMember(id, email, role_id) },
     removeMember:     async (wsId, memberId)      => { await api.removeMember(wsId, memberId) },
     assignRole:       async (wsId, mId, roleId)   => { await api.assignRole(wsId, mId, roleId) },
-    listRoles:        async (id)                  => (await api.listRoles(id)).data.data,
-    createRole:       async (id, name, perms)     => (await api.createRole(id, name, perms)).data.data,
-    deleteRole:       async (wsId, roleId)        => { await api.deleteRole(wsId, roleId) },
+    listRoles:        async (id, assignable)       => (await api.listRoles(id, assignable)).data.data,
+    createRole:       async (id, name, perms)               => (await api.createRole(id, name, perms)).data.data,
+    updateRole:       async (wsId, roleId, name, perms)     => (await api.updateRole(wsId, roleId, name, perms)).data.data,
+    deleteRole:       async (wsId, roleId)                  => { await api.deleteRole(wsId, roleId) },
   }
 }

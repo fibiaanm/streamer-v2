@@ -11,6 +11,18 @@ use Tymon\JWTAuth\Facades\JWTFactory;
 
 class TokenService
 {
+    public static function isGuestToken(string $token): bool
+    {
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) {
+            return false;
+        }
+
+        $decoded = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+
+        return is_array($decoded) && ($decoded['guest'] ?? false) === true;
+    }
+
     public function issueGuestToken(): array
     {
         $ttl = 60; // minutos

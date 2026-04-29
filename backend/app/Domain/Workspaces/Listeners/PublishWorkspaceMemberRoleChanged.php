@@ -15,12 +15,13 @@ class PublishWorkspaceMemberRoleChanged
             $workspace = $event->workspace;
             $member    = $event->member;
             $role      = $event->role;
-            $role->loadMissing('permissions');
+            $member->loadMissing('user');
 
             Redis::connection('pubsub')->publish("workspace.{$workspace->getHashId()}", json_encode([
                 'event' => 'member.role_changed',
                 'data'  => [
                     'memberId' => $member->getHashId(),
+                    'userId'   => $member->user->getHashId(),
                     'role'     => ['id' => $role->getHashId(), 'name' => $role->name],
                 ],
             ]));

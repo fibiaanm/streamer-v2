@@ -163,12 +163,15 @@ export interface WorkspaceRole {
 }
 
 export interface WorkspaceDetail {
-  workspace: Workspace
-  ancestors: Workspace[]
-  children:  Workspace[]
-  mode:      'my' | 'shared'
+  workspace:    Workspace
+  ancestors:    Workspace[]
+  children:     Workspace[]
+  mode:         'my' | 'shared'
+  role:         WorkspaceMemberRole
+  capabilities: string[]
 }
 
-export interface WsMemberAddedPayload        { member: WorkspaceMember }
-export interface WsMemberRemovedPayload      { member_id: string }
-export interface WsMemberRoleChangedPayload  { member_id: string; role: WorkspaceMemberRole }
+export interface WsMemberAddedPayload           { memberId: string; user: { id: string; name: string }; role: WorkspaceMemberRole }
+export interface WsMemberRemovedPayload         { memberId: string }
+export interface WsMemberRoleChangedPayload     { memberId: string; userId: string; role: WorkspaceMemberRole }
+export interface WsRolePermissionsUpdatedPayload { roleId: string; permissions: string[] }

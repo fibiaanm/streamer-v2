@@ -19,6 +19,7 @@ use App\Domain\Workspaces\Http\Controllers\RemoveMemberController;
 use App\Domain\Workspaces\Http\Controllers\RootQuotaController;
 use App\Domain\Workspaces\Http\Controllers\ShowWorkspaceController;
 use App\Domain\Workspaces\Http\Controllers\ShowWorkspaceInvitationController;
+use App\Domain\Workspaces\Http\Controllers\UpdateRoleController;
 use App\Domain\Workspaces\Http\Controllers\UpdateWorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -53,8 +54,9 @@ Route::prefix('workspaces')->middleware(['auth.jwt', 'enterprise'])->group(funct
         Route::patch('members/{memberId}/role',         AssignRoleController::class);
 
         // Roles
-        Route::get('roles',          ListRolesController::class);
-        Route::post('roles',         CreateRoleController::class);
+        Route::get('roles',             ListRolesController::class);
+        Route::post('roles',            CreateRoleController::class);
+        Route::patch('roles/{roleId}',  UpdateRoleController::class);
         Route::delete('roles/{roleId}', DeleteRoleController::class);
     });
 });

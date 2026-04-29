@@ -9,64 +9,95 @@ depends_on: assistant-01, streamer-05
 # Etapa 02 — API Core
 
 ## Objetivo
-Endpoints para enviar y recibir mensajes, gestión de sesiones, broadcast por WebSocket y preprocessing de adjuntos multimodales. Al final de esta etapa el cliente puede enviar un mensaje al backend y recibir la respuesta via WebSocket (aunque el LLM aún no esté en etapa 03).
+
+Endpoints para enviar y recibir mensajes, gestión de sesiones y preprocessing de adjuntos multimodales. La respuesta del LLM viaja enteramente por Node: `assistant-worker` procesa y publica al pod Socket.io via Redis pub/sub, que entrega al cliente por WebSocket o WhatsApp. Laravel no participa en el loop de respuesta.
+
+Flujo completo:
+```
+Cliente → POST /api/v1/assistant/messages
+  → ResolvePersonalEnterprise middleware (403 si no hay)
+  → SendMessageController — crea mensaje role:user
+  → ProcessMessageAttachment (si hay adjunto, cola default) → ProcessAssistantMessage
+  → ProcessAssistantMessage (cola 'assistant', worker dedicado)
+  → Redis LPUSH assistant:jobs
+  → assistant-worker (Node) — procesa con LLM
+  → Redis pub/sub → Socket.io pod
+  → web: WebSocket al cliente | whatsapp: WhatsApp API
+```
 
 ---
 
 ## Rutas
 
 ```
-/api/v1/assistant/conversation          GET    — obtiene o crea la conversación del usuario autenticado
-/api/v1/assistant/conversation/messages GET    — lista mensajes (paginado, últimos primero)
-/api/v1/assistant/messages              POST   — envía un mensaje (texto o con adjunto)
+GET  /api/v1/assistant/conversation           — obtiene o crea conversación + sesión activa
+GET  /api/v1/assistant/conversation/messages  — lista mensajes paginados
+POST /api/v1/assistant/messages               — envía un mensaje (texto o con adjunto)
 ```
 
-Todas autenticadas con JWT. No requieren `X-Enterprise-ID` — el assistant es personal.
-** todo necesita enterprise, y debe ser la personal.
+Todas bajo middleware `auth:api` + enterprise resolver existente + `ResolvePersonalEnterprise`.
+
+---
+
+## Middleware — `ResolvePersonalEnterprise`
+
+`app/Domain/Assistant/Http/Middleware/ResolvePersonalEnterprise.php`
+
+Valida que el enterprise resuelto del `X-Enterprise-ID` sea de tipo `personal`.
+Si el usuario está operando bajo un enterprise de equipo o empresa, retorna `403`:
+
+```json
+{ "message": "Esta funcionalidad requiere una cuenta personal activa." }
+```
+
+No resuelve ni inyecta nada — solo verifica `$request->enterprise->type === 'personal'`.
+
 ---
 
 ## Controladores
 
-`app/Domain/Assistant/Http/`
+`app/Domain/Assistant/Http/Controllers/`
 
 ### `GetConversationController`
-- Retorna o crea `Conversation` para `auth()->user()`
-- Incluye la sesión activa (la más reciente con `last_message_at` dentro de 24h)
-- Si no hay sesión activa, crea una nueva
+- Retorna o crea `Conversation` para el usuario autenticado (única por usuario)
+- Busca sesión activa: `last_message_at > now() - 24h`
+- Si no hay → crea nueva `AssistantSession` con `started_at = now()`
+- Retorna `ConversationResource`
 
 ### `GetMessagesController`
 - Lista mensajes de la conversación del usuario
-- Solo roles `user | assistant | system` — excluye `tool_call | tool_result`
-- Paginado: 30 mensajes por página, orden DESC
-- Incluye `actions_json` y `metadata_json`
+- Excluye roles `tool_call` y `tool_result`
+- Paginado: 30 por página, orden DESC
+- Retorna colección de `AssistantMessageResource`
 
 ### `SendMessageController`
-- Crea el mensaje del usuario (`role: user`)
-- Si hay adjunto: dispara `ProcessMessageAttachment` job (preprocessing async)
-- Si no hay adjunto: dispara `ProcessAssistantMessage` job directamente
-- Retorna `{ message_id, status: 'queued' }` — la respuesta llega por WebSocket
+- Valida MIME del adjunto si lo hay (ver tabla multimodal)
+- Crea `AssistantMessage` con `role: user`, `channel` (web por defecto)
+- Si hay adjunto: `ProcessMessageAttachment::withChain([ProcessAssistantMessage])->onQueue('assistant')`
+- Si no hay adjunto: `ProcessAssistantMessage::dispatch()->onQueue('assistant')`
+- Retorna `{ message_id, status: 'queued' }`
 
 ---
 
 ## Jobs
 
-### `ProcessMessageAttachment` (Redis queue)
-Pre-procesa el adjunto antes de pasar al worker principal:
+### `ProcessMessageAttachment` — cola `assistant`
 
-**Audio:**
-1. Descarga el archivo desde S3
-2. Llama a la API de transcripción (Whisper / provider configurado)
-3. Guarda la transcripción en `messages.metadata_json.transcription`
-4. Despacha `ProcessAssistantMessage`
+Pre-procesa el adjunto antes de pasar al worker LLM:
 
-**Imagen:**
-1. Genera URL firmada del archivo en S3
-2. Llama al LLM con vision para obtener descripción estructurada
-3. Guarda en `messages.metadata_json.description` y `metadata_json.media_id`
-4. Despacha `ProcessAssistantMessage`
+| Tipo | Proceso | Resultado en `metadata_json` |
+|---|---|---|
+| Audio | Transcripción via Whisper | `transcription` |
+| Imagen | Descripción via LLM vision | `description`, `media_id` |
+| PDF | Extracción de texto | `text_content` |
 
-### `ProcessAssistantMessage` (Redis queue)
-Publica el job al worker Node via Redis:
+Al terminar despacha `ProcessAssistantMessage::dispatch()->onQueue('assistant')`.
+
+### `ProcessAssistantMessage` — cola `assistant`
+
+Worker dedicado `queue-assistant` (no lo toma el worker general).
+Al ejecutarse hace Redis LPUSH a `assistant:jobs`:
+
 ```json
 {
   "type": "process_message",
@@ -76,16 +107,28 @@ Publica el job al worker Node via Redis:
 }
 ```
 
+Queda registrado en `failed_jobs` si falla, con reintentos configurables.
+
 ---
 
-## WebSocket — canales
+## Entrega de respuesta — Socket.io pod
 
-El worker Node publica la respuesta via Redis pub/sub. Laravel escucha y hace broadcast:
+El `assistant-worker` publica al Redis pub/sub channel `assistant.response`.
+Laravel no interviene. El pod Socket.io está suscrito y enruta:
 
-| Canal | Evento | Payload |
-|---|---|---|
-| `assistant.{conversation_id}` | `MessageReceived` | `{ message: AssistantMessageResource }` |
-| `assistant.{conversation_id}` | `MessageProcessing` | `{ status: 'typing' }` — mientras el LLM trabaja |
+| `channel` del mensaje | Acción |
+|---|---|
+| `web` | Emite evento WebSocket al canal `assistant.{conversation_id}` |
+| `whatsapp` | Envía respuesta via WhatsApp API al número del usuario |
+
+Eventos WebSocket al cliente:
+
+| Evento | Payload |
+|---|---|
+| `MessageReceived` | `{ message: AssistantMessageResource }` |
+| `MessageProcessing` | `{ status: 'typing' }` |
+
+El pod Socket.io necesita suscribirse al canal `assistant.response` de Redis — esto se implementa en esta etapa dentro de `services/socketio/`.
 
 ---
 
@@ -94,58 +137,77 @@ El worker Node publica la respuesta via Redis pub/sub. Laravel escucha y hace br
 ### `AssistantMessageResource`
 ```json
 {
-  "id": "...",
-  "role": "assistant",
+  "id": "hash",
+  "role": "user|assistant|system",
   "content": "...",
-  "actions": [...],
-  "metadata": {...},
-  "created_at": "..."
+  "channel": "web|whatsapp",
+  "actions": [],
+  "metadata": {},
+  "created_at": "ISO8601"
 }
 ```
 
 ### `ConversationResource`
 ```json
 {
-  "id": "...",
-  "session_id": "...",
-  "created_at": "..."
+  "id": "hash",
+  "session_id": "hash",
+  "created_at": "ISO8601"
 }
 ```
 
 ---
 
-## Sesión — lógica de creación
+## Multimodal — MIMEs aceptados
+
+| Tipo | MIMEs |
+|---|---|
+| Audio | `audio/mpeg`, `audio/ogg`, `audio/webm` |
+| Imagen | `image/jpeg`, `image/png`, `image/webp` |
+| Documento | `application/pdf` |
+
+El adjunto se sube via Spatie Media Library al bucket S3 antes de llamar al endpoint.
+
+---
+
+## Frontend — guard de ruta `/app/assistant`
+
+El router verifica que el enterprise activo (`X-Enterprise-ID` en uso) sea de tipo `personal`.
+Si no lo es → redirige a `/switch/` y lanza toast:
 
 ```
-Al recibir un mensaje:
-  1. Busca sesión del usuario con last_message_at > now() - 24h
-  2. Si existe → usa esa sesión, actualiza last_message_at
-  3. Si no → crea nueva Session con started_at = now()
-  4. El message_id se asocia a la sesión encontrada/creada
+"Para usar el Asistente debes cambiar a tu cuenta personal."
 ```
 
 ---
 
-## Multimodal — tipos de adjunto soportados
+## Docker — worker dedicado `queue-assistant`
 
-| Tipo | MIME | Procesamiento |
-|---|---|---|
-| Audio | audio/mpeg, audio/ogg, audio/webm | Transcripción → metadata.transcription |
-| Imagen | image/jpeg, image/png, image/webp | Descripción vision → metadata.description |
-| Documento | application/pdf | Extracción de texto → metadata.text_content |
+```yaml
+queue-assistant:
+  build:
+    context: .
+    dockerfile: docker/queue/Dockerfile
+  command: ["php", "artisan", "queue:work", "--queue=assistant"]
+  env_file: ./backend/.env
+  depends_on:
+    php:
+      condition: service_healthy
+  networks:
+    - backend
+  restart: unless-stopped
+```
 
-El adjunto se sube via Spatie al bucket S3 antes de llamar al endpoint.
+El servicio `queue` existente no debe incluir la cola `assistant`.
 
 ---
 
 ## Tests
 
+- `ResolvePersonalEnterprise`: 403 si no hay enterprise personal activo
 - `GetConversationController`: crea conversación si no existe, reutiliza si existe
 - `GetConversationController`: crea sesión nueva si la última tiene >24h de inactividad
-- `SendMessageController`: mensaje se crea con role=user, job se despacha
-- `SendMessageController`: rechaza adjuntos con MIME no soportado (422)
-- `ProcessMessageAttachment`: audio sin adjunto no falla, salta a ProcessAssistantMessage
-- WebSocket: `MessageReceived` se emite al canal correcto
-
-
-** Comments by me to be fixed.
+- `SendMessageController`: mensaje se crea con role=user, job correcto se despacha
+- `SendMessageController`: rechaza MIME no soportado con 422
+- `ProcessMessageAttachment`: al terminar despacha `ProcessAssistantMessage`
+- `ProcessAssistantMessage`: hace LPUSH al key correcto en Redis

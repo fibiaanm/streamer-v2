@@ -1,47 +1,32 @@
-import { computed } from 'vue'
-import type { Workspace, WorkspaceCapabilities, WorkspaceMember, WorkspaceQuota, WorkspaceRole } from '@/types'
-import { usePermissions } from '@/composables/core/usePermissions'
-import type { WorkspaceDataSource } from './WorkspaceDataSource'
-
-const LOCAL_PERSONAL_PERMISSIONS = [
-  'workspace.view',
-  'workspace.edit',
-  'workspace.delete',
-  'workspace.create_child',
-  'asset.upload',
-  'asset.rename',
-  'asset.move',
-  'asset.delete',
-  'room.create',
-  'room.manage',
-]
+import type { WorkspaceCapabilities, WorkspaceMember, WorkspaceRole } from '@/types'
+import type { WorkspaceDataSource }                                   from './WorkspaceDataSource'
+import { useLocalWorkspaceService, LOCAL_CAPABILITIES }               from './local/useLocalWorkspaceService'
 
 const notSupported = (): Promise<never> =>
   Promise.reject(new Error('not_supported_in_local_mode'))
 
 export const useLocalWorkspaceSource = (): WorkspaceDataSource => {
-  const { coreLimits } = usePermissions()
-
-  const maxWorkspaces = computed(() => coreLimits.value?.workspaces?.max ?? -1)
+  const svc = useLocalWorkspaceService()
 
   return {
-  getQuota:       () => Promise.resolve<WorkspaceQuota>({ used: 0, limit: maxWorkspaces.value }),
-  listWorkspaces: () => Promise.resolve<Workspace[]>([]),
-  getDetail:      () => notSupported(),
-  createWorkspace: () => notSupported(),
-  getWorkspace:     () => notSupported(),
-  updateWorkspace:  () => notSupported(),
-  deleteWorkspace:  () => notSupported(),
-  archiveWorkspace: () => notSupported(),
-  getAncestors:     () => Promise.resolve<Workspace[]>([]),
-  listChildren:     () => Promise.resolve<Workspace[]>([]),
-  getCapabilities:  () => Promise.resolve<WorkspaceCapabilities>({ permissions: LOCAL_PERSONAL_PERMISSIONS }),
-  listMembers:      () => Promise.resolve<WorkspaceMember[]>([]),
-  inviteMember:     () => notSupported(),
-  removeMember:     () => notSupported(),
-  assignRole:       () => notSupported(),
-  listRoles:        () => Promise.resolve<WorkspaceRole[]>([]),
-  createRole:       () => notSupported(),
-  deleteRole:       () => notSupported(),
+    getQuota:        ()                         => svc.getQuota(),
+    listWorkspaces:  ()                         => svc.listRoot(),
+    getDetail:       (id)                       => svc.getDetail(id),
+    createWorkspace: (name, parentId)           => svc.createWorkspace(name, parentId),
+    getWorkspace:    (id)                       => svc.getWorkspace(id),
+    updateWorkspace: (id, name)                 => svc.updateWorkspace(id, name),
+    deleteWorkspace: (id)                       => svc.deleteWorkspace(id),
+    archiveWorkspace:(id)                       => svc.archiveWorkspace(id),
+    getAncestors:    (id)                       => svc.getAncestors(id),
+    listChildren:    (id)                       => svc.listChildren(id),
+    getCapabilities: ()                         => Promise.resolve<WorkspaceCapabilities>({ permissions: LOCAL_CAPABILITIES }),
+    listMembers:     ()                         => Promise.resolve<WorkspaceMember[]>([]),
+    listRoles:       ()                         => Promise.resolve<WorkspaceRole[]>([]),
+    inviteMember:    ()                         => notSupported(),
+    removeMember:    ()                         => notSupported(),
+    assignRole:      ()                         => notSupported(),
+    createRole:      ()                         => notSupported(),
+    updateRole:      ()                         => notSupported(),
+    deleteRole:      ()                         => notSupported(),
   }
 }

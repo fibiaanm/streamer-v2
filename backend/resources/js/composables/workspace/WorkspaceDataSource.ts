@@ -16,7 +16,8 @@ export interface WorkspaceDataSource {
   inviteMember    (id: string, email: string, role_id: string): Promise<void>
   removeMember    (wsId: string, memberId: string): Promise<void>
   assignRole      (wsId: string, memberId: string, roleId: string): Promise<void>
-  listRoles       (id: string): Promise<WorkspaceRole[]>
+  listRoles       (id: string, assignable?: boolean): Promise<WorkspaceRole[]>
   createRole      (id: string, name: string, permissions: string[]): Promise<WorkspaceRole>
+  updateRole      (wsId: string, roleId: string, name: string, permissions: string[]): Promise<WorkspaceRole>
   deleteRole      (wsId: string, roleId: string): Promise<void>
 }

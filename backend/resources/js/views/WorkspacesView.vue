@@ -75,6 +75,7 @@
           <div class="px-6 py-4 border-b border-white/6 shrink-0 flex items-center gap-4">
             <WorkspaceBreadcrumb :crumbs="breadcrumbs" @navigate="navigateToCrumb($event)" />
             <button
+              v-if="can('workspace.edit') || can('workspace.roles.edit') || can('workspace.delete')"
               class="shrink-0 text-[11px] text-white/30 hover:text-white/60 transition-colors px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer"
               @click="openSettings(currentFolder!)"
             >
@@ -88,7 +89,7 @@
               <div class="flex items-center justify-between mb-3">
                 <span class="text-xs font-semibold text-white/40 uppercase tracking-wide">Folders</span>
                 <button
-                  v-if="mode === 'my'"
+                  v-if="can('workspace.create_child')"
                   class="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1 cursor-pointer"
                   @click="openCreateFolder(currentFolder ?? undefined)"
                 >
@@ -121,7 +122,7 @@
               <div class="flex items-center justify-between mb-3">
                 <span class="text-xs font-semibold text-white/40 uppercase tracking-wide">Assets</span>
                 <button
-                  v-if="mode === 'my'"
+                  v-if="can('asset.upload')"
                   class="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <AppIcon name="ui/plus" size="xs" />
@@ -162,6 +163,7 @@
     <WorkspaceSettingsModal
       :is-open="showSettings"
       :workspace="settingsTarget"
+      :capabilities="currentCapabilities"
       @close="showSettings = false"
       @renamed="onWorkspaceRenamed"
       @archived="onWorkspaceArchived"
@@ -183,12 +185,24 @@ import WorkspaceChildCard         from './Workspaces/WorkspaceChildCard.vue'
 import WorkspaceBreadcrumb        from './Workspaces/WorkspaceBreadcrumb.vue'
 import WorkspaceCreateFolderModal from './Workspaces/WorkspaceCreateFolderModal.vue'
 import WorkspaceSettingsModal     from './Workspaces/WorkspaceSettingsModal.vue'
-import { useWorkspacesApi }       from '@/composables/api/useWorkspacesApi'
+import { useWorkspaceSource }     from '@/composables/workspace/useWorkspaceSource'
+import { useWorkspaceSync }       from '@/composables/workspace/useWorkspaceSync'
+import { useSession }             from '@/composables/core/useSession'
 import { useToasts }              from '@/composables/core/useToasts'
-import type { Workspace, WorkspaceQuota } from '@/types'
+import type { Workspace, WorkspaceQuota, WorkspaceMemberRole } from '@/types'
 
-const api               = useWorkspacesApi()
+const source            = useWorkspaceSource()
 const { add: addToast } = useToasts()
+const { user }          = useSession()
+
+function errorCode(err: any): string | undefined {
+  return err?.response?.data?.error?.code ?? err?.code
+}
+
+const currentCapabilities = ref<string[]>([])
+const currentRole         = ref<WorkspaceMemberRole | null>(null)
+const can = (p: string) => currentCapabilities.value.includes(p)
+
 const route             = useRoute()
 const router            = useRouter()
 
@@ -217,7 +231,7 @@ const storagePct = computed(() =>
 async function loadWorkspaceList() {
   sidebarLoading.value = true
   try {
-    workspaces.value = (await api.listWorkspaces(mode.value === 'my' ? 'owned' : 'shared')).data.data
+    workspaces.value = await source.listWorkspaces(mode.value === 'my' ? 'owned' : 'shared')
   } catch {
     addToast({ type: 'error', title: 'No se pudieron cargar los workspaces', duration: 4000 })
   } finally {
@@ -227,7 +241,7 @@ async function loadWorkspaceList() {
 
 async function loadQuota() {
   try {
-    quota.value = (await api.getQuota()).data.data
+    quota.value = await source.getQuota()
   } catch { /* non-critical */ }
 }
 
@@ -249,11 +263,13 @@ onMounted(async () => {
 
   if (folderId) {
     try {
-      const detail      = (await api.getDetail(folderId)).data.data
-      mode.value        = detail.mode
-      folderStack.value = [...detail.ancestors, detail.workspace]
-      selected.value    = detail.ancestors[0]?.id ?? detail.workspace.id
-      children.value    = detail.children
+      const detail              = await source.getDetail(folderId)
+      mode.value                = detail.mode
+      folderStack.value         = [...detail.ancestors, detail.workspace]
+      selected.value            = detail.ancestors[0]?.id ?? detail.workspace.id
+      children.value            = detail.children
+      currentCapabilities.value = detail.capabilities
+      currentRole.value         = detail.role
     } catch {
       addToast({ type: 'error', title: 'No se pudo restaurar la navegación', duration: 3000 })
       router.replace({ query: {} })
@@ -277,6 +293,20 @@ const childrenLoading = ref(false)
 
 const currentFolder = computed(() => folderStack.value[folderStack.value.length - 1] ?? null)
 
+useWorkspaceSync({
+  workspaceId:   computed(() => currentFolder.value?.id ?? null),
+  roleId:        computed(() => currentRole.value?.id ?? null),
+  currentUserId: user.value?.id ?? null,
+  onCapabilitiesChanged: (caps, role) => {
+    currentCapabilities.value = caps
+    if (role.name) currentRole.value = role
+  },
+  onChildCreated:  (ws) => { children.value.push(ws as Workspace) },
+  onChildDeleted:  (wsId) => { children.value = children.value.filter(c => c.id !== wsId) },
+  onMemberAdded:   () => { /* members managed in WorkspaceSettingsModal */ },
+  onMemberRemoved: () => { /* members managed in WorkspaceSettingsModal */ },
+})
+
 const breadcrumbs = computed(() =>
   currentFolder.value
     ? [{ id: '__root__', name: 'Workspaces' }, ...folderStack.value.map(w => ({ id: w.id, name: w.name }))]
@@ -284,9 +314,11 @@ const breadcrumbs = computed(() =>
 )
 
 async function selectWorkspace(id: string | null) {
-  selected.value    = id
-  folderStack.value = []
-  children.value    = []
+  selected.value            = id
+  folderStack.value         = []
+  children.value            = []
+  currentCapabilities.value = []
+  currentRole.value         = null
   if (!id) {
     router.replace({ query: {} })
     return
@@ -294,9 +326,11 @@ async function selectWorkspace(id: string | null) {
   router.replace({ query: { folder: id } })
   childrenLoading.value = true
   try {
-    const detail      = (await api.getDetail(id)).data.data
-    folderStack.value = [detail.workspace]
-    children.value    = detail.children
+    const detail              = await source.getDetail(id)
+    folderStack.value         = [detail.workspace]
+    children.value            = detail.children
+    currentCapabilities.value = detail.capabilities
+    currentRole.value         = detail.role
   } catch {
     addToast({ type: 'error', title: 'No se pudo cargar el workspace', duration: 3000 })
   } finally {
@@ -308,9 +342,11 @@ async function navigateInto(ws: Workspace) {
   router.replace({ query: { folder: ws.id } })
   childrenLoading.value = true
   try {
-    const detail      = (await api.getDetail(ws.id)).data.data
-    folderStack.value = [...folderStack.value, detail.workspace]
-    children.value    = detail.children
+    const detail              = await source.getDetail(ws.id)
+    folderStack.value         = [...folderStack.value, detail.workspace]
+    children.value            = detail.children
+    currentCapabilities.value = detail.capabilities
+    currentRole.value         = detail.role
   } catch {
     addToast({ type: 'error', title: 'No se pudo cargar la carpeta', duration: 3000 })
   } finally {
@@ -330,8 +366,10 @@ async function navigateToCrumb(id: string) {
   router.replace({ query: { folder: targetId } })
   childrenLoading.value = true
   try {
-    const detail   = (await api.getDetail(targetId)).data.data
-    children.value = detail.children
+    const detail              = await source.getDetail(targetId)
+    children.value            = detail.children
+    currentCapabilities.value = detail.capabilities
+    currentRole.value         = detail.role
   } catch {
     addToast({ type: 'error', title: 'No se pudo cargar la carpeta', duration: 3000 })
   } finally {
@@ -354,8 +392,7 @@ async function onFolderCreated(name: string) {
   if (creating.value) return
   creating.value = true
   try {
-    const res   = await api.createWorkspace(name, createFolderCtx.value?.id)
-    const newWs = res.data.data
+    const newWs = await source.createWorkspace(name, createFolderCtx.value?.id)
 
     if (createFolderCtx.value) {
       children.value.push(newWs)
@@ -365,7 +402,7 @@ async function onFolderCreated(name: string) {
       await selectWorkspace(newWs.id)
     }
   } catch (err: any) {
-    const code = err?.response?.data?.error?.code
+    const code = errorCode(err)
     if (code === 'PlanLimitExceeded') {
       addToast({ type: 'error', title: 'Límite de workspaces alcanzado', duration: 4000 })
     } else if (code === 'WorkspaceDepthExceeded') {
@@ -390,7 +427,7 @@ function openSettings(ws: { id: string; name: string }) {
 
 async function onWorkspaceRenamed(id: string, name: string) {
   try {
-    await api.updateWorkspace(id, name)
+    await source.updateWorkspace(id, name)
     const ws = workspaces.value.find(w => w.id === id)
     if (ws) ws.name = name
     const child = children.value.find(c => c.id === id)
@@ -405,7 +442,7 @@ async function onWorkspaceRenamed(id: string, name: string) {
 
 async function onWorkspaceArchived(id: string) {
   try {
-    await api.archiveWorkspace(id)
+    await source.archiveWorkspace(id)
     workspaces.value = workspaces.value.filter(ws => ws.id !== id)
     children.value   = children.value.filter(c => c.id !== id)
 
@@ -419,7 +456,7 @@ async function onWorkspaceArchived(id: string) {
         router.replace({ query: { folder: newLeaf.id } })
         childrenLoading.value = true
         try {
-          children.value = (await api.getDetail(newLeaf.id)).data.data.children
+          children.value = (await source.getDetail(newLeaf.id)).children
         } finally {
           childrenLoading.value = false
         }

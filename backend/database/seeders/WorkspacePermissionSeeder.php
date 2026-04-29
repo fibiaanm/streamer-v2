@@ -17,11 +17,13 @@ class WorkspacePermissionSeeder extends Seeder
             'workspace.create_child',
 
             // Members
+            'workspace.members.view',
             'workspace.members.add',
             'workspace.members.delete',
             'workspace.members.change_role',
 
             // Roles
+            'workspace.roles.view',
             'workspace.roles.add',
             'workspace.roles.edit',
             'workspace.roles.delete',

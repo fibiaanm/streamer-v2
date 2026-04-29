@@ -16,6 +16,13 @@ class AuthCookies
         return cookie('refresh_token', $token, config('jwt.refresh_ttl'), '/', null, app()->isProduction(), true, false, 'lax');
     }
 
+    public static function guestAccess(string $token): Cookie
+    {
+        // Cookie TTL de 30 días — el JWT expira antes (60 min), pero el cookie
+        // permanece para que el backend pueda detectar y renovar el guest token.
+        return cookie('access_token', $token, 60 * 24 * 30, '/', null, app()->isProduction(), true, false, 'lax');
+    }
+
     public static function forget(): array
     {
         return [

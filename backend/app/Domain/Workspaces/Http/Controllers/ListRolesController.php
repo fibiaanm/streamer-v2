@@ -28,11 +28,20 @@ class ListRolesController
                 throw new WorkspaceNotFoundException();
             }
 
-            $this->permissionGate->authorize($request->user(), $workspace, 'workspace.view');
+            $member = $this->permissionGate->authorize($request->user(), $workspace, 'workspace.view');
 
             $roles = WorkspaceRole::where('workspace_id', $workspace->id)
                 ->with('permissions')
                 ->get();
+
+            if ($request->boolean('assignable')) {
+                $member->loadMissing('role.permissions');
+                $myPerms = $member->role->permissions->pluck('name')->flip();
+                $roles   = $roles->filter(
+                    fn ($role) => $role->name !== 'owner'
+                        && $role->permissions->every(fn ($p) => $myPerms->has($p->name))
+                )->values();
+            }
 
             return ResponseFormatter::success(WorkspaceRoleResource::collection($roles));
 

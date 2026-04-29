@@ -8,7 +8,8 @@ import { authMiddleware } from './middleware/auth';
 import { startSubscriber } from './redis/subscriber';
 import { registerRoomHandlers } from './handlers/roomHandler';
 import { registerPresenceHandlers } from './handlers/presenceHandler';
-import { registerEnterpriseHandlers } from './handlers/enterpriseHandler';
+import { registerEnterpriseHandlers } from './handlers/enterpriseHandler'
+import { registerWorkspaceHandlers }  from './handlers/workspaceHandler';
 
 const httpServer = http.createServer();
 
@@ -30,6 +31,7 @@ io.on('connection', (socket) => {
   registerRoomHandlers(socket);
   registerPresenceHandlers(socket);
   registerEnterpriseHandlers(socket);
+  registerWorkspaceHandlers(socket);
 
   socket.on('disconnect', (reason) => {
     logger.info('socket.disconnected', { socket_id: socket.id, reason });
