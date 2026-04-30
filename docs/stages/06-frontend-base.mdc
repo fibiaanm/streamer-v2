@@ -147,6 +147,46 @@ Retorna una instancia Axios configurada con `baseURL: VITE_API_URL`. Interceptor
 
 ---
 
+## AppLayout — sidebar universal
+
+`AppLayout.vue` gestiona un sidebar opcional aplicable a cualquier vista.
+
+```vue
+<AppLayout>
+  <template #sidebar><MiSidebar /></template>
+  <!-- header y contenido normal -->
+</AppLayout>
+```
+
+- Si no se pasa `#sidebar`, el layout es igual al anterior (sin sidebar)
+- Si se pasa, aparece un hamburger auto-inyectado en el header
+- **Desktop:** sidebar `fixed` overlay + `padding-left` animado en el contenedor (`transition-[padding-left] duration-200`), abierto por defecto
+- **Mobile:** sidebar overlay con backdrop `bg-black/30`, cerrado por defecto
+- Al cruzar el breakpoint: solo cambia `isDesktop` y el `padding-left`; el DOM del sidebar no se destruye ni recrea → sin saltos ni pérdida de estado
+
+Ver detalles completos en `docs/assistant/stages/03c-ui-polish.mdc`.
+
+---
+
+## CSS utilities globales (`resources/css/app.css`)
+
+| Utility | Descripción |
+|---|---|
+| `glass` | `bg-white/6 backdrop-blur-2xl backdrop-saturate-200 border border-white/10 shadow-glass` |
+| `glass-light` | Variante clara para modo light |
+| `glass-auth` | Variante para pantallas de auth |
+| `pretty-scroll` | Scrollbar invisible en reposo, aparece al scroll (requiere clase `scrolling` via JS) |
+
+---
+
+## `useAppsEnabled`
+
+`composables/core/useAppsEnabled.ts` — lee `session.enterprise.products` y expone `hasAssistant`, `hasCore`. Usado por `AppMenuSwitcher` para filtrar apps visibles según el plan del usuario.
+
+Las rutas declaran `meta.appProduct: 'core' | 'assistant'` para indicar qué producto requieren.
+
+---
+
 ## Rutas Laravel (Inertia entry points)
 
 Ver `routes/web.php`. Tres rutas: `/login`, `/register`, `/app/{any?}`.

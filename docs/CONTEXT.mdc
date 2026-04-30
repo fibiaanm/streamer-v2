@@ -171,6 +171,26 @@ app/Domain/
 
 ## Estado actual
 
-- **Documentación:** completa para las 23 etapas
-- **Implementación:** aún no iniciada (todos los stages en `status: pendiente`)
-- **Próximo paso:** comenzar por etapa 01 (Infraestructura)
+- **Documentación:** completa para las 23 etapas del streamer + 8 etapas del assistant
+- **Implementación streamer:** etapas 01–15 completadas (foundation → workspaces)
+- **Implementación assistant:** etapas 01–03b completadas (foundation, API core, Node worker texto, frontend mock)
+- **Próximo paso:** assistant etapa 04 (Tools — Eventos)
+
+---
+
+## Trampas conocidas — Docker Compose local
+
+### `docker compose up -d` no recarga config de bind mounts
+
+`docker compose up -d <servicio>` **no recrea** un contenedor que ya está corriendo si solo cambiaron archivos montados como bind mount (`.conf`, `.env`, etc.). El contenedor se queda con la versión anterior en memoria.
+
+**Síntoma:** cambias un archivo de configuración, haces `up -d`, ves "Running" en vez de "Recreate" — el cambio no tuvo efecto.
+
+**Solución:** usar `--force-recreate` para forzar la recreación:
+```bash
+docker compose up -d --force-recreate <servicio>
+```
+
+Afecta especialmente a: `fluentbit` (fluent-bit.conf), `nginx` (default.conf), cualquier servicio con config externa montada.
+
+**Nota:** `docker compose restart` tampoco relee `env_file`. Para que un servicio tome variables nuevas del `.env` hay que hacer `up -d` (no `restart`). Si el contenedor ya estaba corriendo con la config anterior, añadir `--force-recreate`.

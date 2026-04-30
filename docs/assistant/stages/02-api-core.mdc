@@ -2,7 +2,7 @@
 description: Etapa 02 — API de conversación, mensajes, sesiones y preprocessing multimodal
 type: stage
 stage: "assistant-02"
-status: pendiente
+status: completada
 depends_on: assistant-01, streamer-05
 ---
 
@@ -10,19 +10,20 @@ depends_on: assistant-01, streamer-05
 
 ## Objetivo
 
-Endpoints para enviar y recibir mensajes, gestión de sesiones y preprocessing de adjuntos multimodales. La respuesta del LLM viaja enteramente por Node: `assistant-worker` procesa y publica al pod Socket.io via Redis pub/sub, que entrega al cliente por WebSocket o WhatsApp. Laravel no participa en el loop de respuesta.
+Endpoints para enviar y recibir mensajes, gestión de sesiones y preprocessing de adjuntos multimodales. La respuesta del LLM viaja enteramente por Node: `assistant-worker` procesa y llama endpoints internos de Laravel, que publican al Redis pub/sub → Socket.io → WebSocket al cliente.
 
 Flujo completo:
 ```
 Cliente → POST /api/v1/assistant/messages
   → ResolvePersonalEnterprise middleware (403 si no hay)
-  → SendMessageController — crea mensaje role:user
+  → SendMessageController — crea mensaje role:user, resuelve/crea sesión
   → ProcessMessageAttachment (si hay adjunto, cola default) → ProcessAssistantMessage
   → ProcessAssistantMessage (cola 'assistant', worker dedicado)
   → Redis LPUSH assistant:jobs
   → assistant-worker (Node) — procesa con LLM
-  → Redis pub/sub → Socket.io pod
-  → web: WebSocket al cliente | whatsapp: WhatsApp API
+  → POST /internal/conversations/{id}/typing  → PHP publica MessageProcessing
+  → POST /internal/conversations/{id}/messages → PHP guarda + publica MessageReceived
+  → Redis pub/sub assistant.{sessionHashId} → Socket.io → WebSocket al cliente
 ```
 
 ---
@@ -30,8 +31,9 @@ Cliente → POST /api/v1/assistant/messages
 ## Rutas
 
 ```
-GET  /api/v1/assistant/conversation           — obtiene o crea conversación + sesión activa
-GET  /api/v1/assistant/conversation/messages  — lista mensajes paginados
+GET  /api/v1/assistant/conversation           — retorna conversación + active_session_id (sin crear sesión)
+GET  /api/v1/assistant/sessions               — lista sesiones paginadas por cursor
+GET  /api/v1/assistant/conversation/messages  — lista mensajes de una sesión (?session=hashId)
 POST /api/v1/assistant/messages               — envía un mensaje (texto o con adjunto)
 ```
 
@@ -59,23 +61,31 @@ No resuelve ni inyecta nada — solo verifica `$request->enterprise->type === 'p
 `app/Domain/Assistant/Http/Controllers/`
 
 ### `GetConversationController`
-- Retorna o crea `Conversation` para el usuario autenticado (única por usuario)
-- Busca sesión activa: `last_message_at > now() - 24h`
-- Si no hay → crea nueva `AssistantSession` con `started_at = now()`
-- Retorna `ConversationResource`
+- Retorna (o crea) `Conversation` para el usuario autenticado
+- **No crea sesión** — solo busca la sesión activa (`last_message_at > now() - 24h`)
+- Si no hay sesión activa → `active_session_id: null`
+- Retorna `ConversationResource` con `active_session_id` (nullable)
+
+### `GetSessionsController`
+- Retorna o crea `Conversation` para el usuario autenticado
+- Lista sesiones del usuario ordenadas por `started_at DESC`
+- Cursor pagination: 20 por página
+- Retorna colección de `AssistantSessionResource`
 
 ### `GetMessagesController`
-- Lista mensajes de la conversación del usuario
-- Excluye roles `tool_call` y `tool_result`
-- Paginado: 30 por página, orden DESC
+- Requiere `?session={hashId}` — devuelve 422 si falta
+- Verifica que la sesión pertenezca al usuario (404 si no)
+- Lista mensajes de esa sesión, excluye `tool_call` y `tool_result`
+- Paginado: 30 por página, orden **ASC** (`created_at`)
 - Retorna colección de `AssistantMessageResource`
 
 ### `SendMessageController`
 - Valida MIME del adjunto si lo hay (ver tabla multimodal)
+- `resolveActiveSession()`: reutiliza sesión activa (<24h) o crea nueva
 - Crea `AssistantMessage` con `role: user`, `channel` (web por defecto)
 - Si hay adjunto: `ProcessMessageAttachment::withChain([ProcessAssistantMessage])->onQueue('assistant')`
 - Si no hay adjunto: `ProcessAssistantMessage::dispatch()->onQueue('assistant')`
-- Retorna `{ message_id, status: 'queued' }`
+- Retorna `{ message_id, session_id, status: 'queued' }`
 
 ---
 
@@ -101,9 +111,9 @@ Al ejecutarse hace Redis LPUSH a `assistant:jobs`:
 ```json
 {
   "type": "process_message",
-  "conversation_id": "...",
-  "message_id": "...",
-  "user_id": "..."
+  "conversation_id": 123,
+  "message_id": 456,
+  "user_id": 789
 }
 ```
 
@@ -113,22 +123,16 @@ Queda registrado en `failed_jobs` si falla, con reintentos configurables.
 
 ## Entrega de respuesta — Socket.io pod
 
-El `assistant-worker` publica al Redis pub/sub channel `assistant.response`.
-Laravel no interviene. El pod Socket.io está suscrito y enruta:
+Laravel publica a Redis `assistant.{sessionHashId}`. El pod Socket.io está suscrito al patrón `assistant.*` y emite al room `assistant.{sessionHashId}`.
 
-| `channel` del mensaje | Acción |
-|---|---|
-| `web` | Emite evento WebSocket al canal `assistant.{conversation_id}` |
-| `whatsapp` | Envía respuesta via WhatsApp API al número del usuario |
+El cliente se une al room con `join_session({ sessionId })` via WebSocket.
 
 Eventos WebSocket al cliente:
 
-| Evento | Payload |
-|---|---|
-| `MessageReceived` | `{ message: AssistantMessageResource }` |
-| `MessageProcessing` | `{ status: 'typing' }` |
-
-El pod Socket.io necesita suscribirse al canal `assistant.response` de Redis — esto se implementa en esta etapa dentro de `services/socketio/`.
+| Evento | Payload | Cuándo |
+|---|---|---|
+| `MessageProcessing` | `{ sessionId }` | Worker inicia procesamiento |
+| `MessageReceived` | `{ sessionId }` | Mensaje del asistente guardado |
 
 ---
 
@@ -151,10 +155,23 @@ El pod Socket.io necesita suscribirse al canal `assistant.response` de Redis —
 ```json
 {
   "id": "hash",
-  "session_id": "hash",
+  "active_session_id": "hash|null",
   "created_at": "ISO8601"
 }
 ```
+
+### `AssistantSessionResource`
+```json
+{
+  "id": "hash",
+  "title": "Untitled",
+  "is_active": true,
+  "started_at": "ISO8601|null",
+  "last_message_at": "ISO8601|null"
+}
+```
+
+`is_active` es computed: `last_message_at > now() - 24h`. No hay columna DB.
 
 ---
 
@@ -206,8 +223,13 @@ El servicio `queue` existente no debe incluir la cola `assistant`.
 
 - `ResolvePersonalEnterprise`: 403 si no hay enterprise personal activo
 - `GetConversationController`: crea conversación si no existe, reutiliza si existe
-- `GetConversationController`: crea sesión nueva si la última tiene >24h de inactividad
-- `SendMessageController`: mensaje se crea con role=user, job correcto se despacha
+- `GetConversationController`: retorna `active_session_id: null` si no hay sesión activa (no crea)
+- `GetConversationController`: retorna `active_session_id` si hay sesión < 24h
+- `GetSessionsController`: retorna sesiones del usuario ordenadas, aisladas por usuario
+- `GetMessagesController`: requiere `?session`, devuelve 422 si falta, 404 si sesión ajena
+- `GetMessagesController`: retorna mensajes en orden ASC excluyendo tool_call/tool_result
+- `SendMessageController`: crea sesión nueva si no hay activa, reutiliza si hay
+- `SendMessageController`: respuesta incluye `session_id`
 - `SendMessageController`: rechaza MIME no soportado con 422
 - `ProcessMessageAttachment`: al terminar despacha `ProcessAssistantMessage`
 - `ProcessAssistantMessage`: hace LPUSH al key correcto en Redis

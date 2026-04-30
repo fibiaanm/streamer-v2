@@ -16,12 +16,18 @@ class AssistantSession extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['conversation_id', 'started_at', 'last_message_at'];
+    protected $fillable = ['conversation_id', 'title', 'started_at', 'last_message_at'];
 
     protected $casts = [
         'started_at'      => 'datetime',
         'last_message_at' => 'datetime',
     ];
+
+    public function getIsActiveAttribute(): bool
+    {
+        return $this->last_message_at !== null
+            && $this->last_message_at->gt(now()->subHours(24));
+    }
 
     public function conversation(): BelongsTo
     {

@@ -1,5 +1,5 @@
 ---
-description: Etapa 04 — Tools de eventos: CRUD, dispatch de disparos y recurrencia rrule
+description: Etapa 04 — Tools de eventos: CRUD, recurrencia virtual y materialización de ventana
 type: stage
 stage: "assistant-04"
 status: pendiente
@@ -9,19 +9,159 @@ depends_on: assistant-03
 # Etapa 04 — Tools — Eventos
 
 ## Objetivo
-Implementar las tools de eventos en el stack completo: controladores Laravel + implementaciones en el worker Node. El LLM puede crear, modificar y cancelar recordatorios con recurrencia. Los disparos se despachan via Redis y hay un cron de safety net.
+Implementar las tools de eventos en el stack completo: controladores Laravel + implementaciones en el worker Node. El LLM puede crear, modificar y cancelar recordatorios con recurrencia. Los eventos recurrentes usan un modelo master + ocurrencias virtuales: solo existen en BD el master y las excepciones / ventana próxima materializada. Los disparos corren en Laravel.
+
+---
+
+## Modelo de recurrencia
+
+### Tipos de fila en `assistant_events`
+
+| `series_id` | `occurrence_at` | `recurrence_rule` | Tipo |
+|---|---|---|---|
+| null | null | null | Evento único |
+| null | null | set | **Master de serie** |
+| set | set | null | Ocurrencia materializada (normal o excepción) |
+
+- **Master**: define la serie. Contiene `recurrence_rule` y `reminders_template_json`. No se devuelve directamente al LLM.
+- **Ocurrencia materializada**: fila real creada para la ventana próxima (14 días) o cuando el LLM actúa sobre una ocurrencia virtual.
+- **Excepción**: ocurrencia materializada con `event_at` distinto de `occurrence_at` (movida) o `status = cancelled`.
+
+### IDs virtuales
+
+Las ocurrencias fuera de la ventana materializada no tienen fila en BD. Se generan al vuelo en `GetEventsController` expandiendo el RRULE del master.
+
+Formato: `"v_{series_id}_{YYYY-MM-DD}"`
+Ejemplo: `"v_5_2026-06-09"`
+
+El LLM recibe estos IDs en `get_events` y los usa en `cancel_event`, `update_event`, `snooze_event`. El backend los distingue por el prefijo `"v_"` y los materializa al recibir una acción.
+
+---
+
+## Migraciones
+
+```
+0051_add_series_columns_to_assistant_events
+  series_id            bigint nullable FK → assistant_events(id) ON DELETE SET NULL
+  occurrence_at        timestamp nullable   — slot RRULE que representa esta fila
+  reminders_template_json json nullable     — solo en masters; offsets para MaterializeSeriesWindow
+  INDEX(series_id)
+
+0052_add_referenceable_to_assistant_events
+  referenceable_type   string nullable
+  referenceable_id     string nullable
+  INDEX(referenceable_type, referenceable_id)
+```
+
+`reminders_template_json` formato:
+```json
+[{ "offset": "-7 days", "message": "En una semana es X" }, ...]
+```
+
+---
+
+## Dependencia PHP
+
+```
+composer require rlanvin/php-rrule
+```
+
+Se usa en `GetEventsController` y `MaterializeSeriesWindow` para expandir RRULEs en PHP. No se usa `rrule.js` — el worker de eventos vive íntegramente en Laravel.
+
+---
+
+## MorphTypeMap & Traits
+
+`app/Domain/Assistant/Support/MorphTypeMap.php`
+
+```php
+final class MorphTypeMap
+{
+    public const MAP = [
+        'list'    => AssistantList::class,
+        'expense' => Expense::class,
+    ];
+
+    public static function toClass(string $alias): string
+    {
+        return self::MAP[$alias] ?? throw new \InvalidArgumentException("Unknown referenceable type: {$alias}");
+    }
+
+    public static function toAlias(string $class): string
+    {
+        return array_flip(self::MAP)[$class] ?? $class;
+    }
+}
+```
+
+### `HasEventReference`
+Aplica a modelos que pueden ser referenciados por un evento:
+```php
+trait HasEventReference
+{
+    public function referencedEvents(): MorphMany
+    {
+        return $this->morphMany(AssistantEvent::class, 'referenceable');
+    }
+
+    abstract public function eventReferenceLabel(): string;
+}
+```
+
+### `NotifiesOrphanedEventReferences`
+Al eliminar una entidad referenciada, no cancela automáticamente — consulta al usuario:
+```php
+static::deleting(function (Model $model) {
+    $model->referencedEvents()->where('status', 'active')->each(
+        fn ($event) => NotifyOrphanedEventReferenceJob::dispatch($event, $model, 'deleted')
+    );
+});
+```
+Crea un mensaje `role: system` con `actions_json`:
+```json
+[
+  { "label": "Cancelar recordatorio", "value": "cancel_event:{event_id}" },
+  { "label": "Mantener sin referencia", "value": "detach_event_ref:{event_id}" }
+]
+```
+
+---
+
+## Helper: EventResolver
+
+`app/Domain/Assistant/Support/EventResolver.php`
+
+Centraliza la lógica de ID virtual vs real para no repetirla en cada controlador:
+
+```php
+// Devuelve una instancia de AssistantEvent (real o virtual DTO)
+// Lanza 404 si no pertenece al usuario o el master no existe
+EventResolver::resolve(string $id, int $userId): ResolvedEvent
+
+// ResolvedEvent
+// ->isVirtual(): bool
+// ->model(): AssistantEvent         // solo si !isVirtual()
+// ->seriesId(): int                 // solo si isVirtual()
+// ->occurrenceAt(): Carbon          // solo si isVirtual()
+// ->master(): AssistantEvent        // el master, siempre disponible si isVirtual()
+// ->materialize(array $overrides): AssistantEvent  // crea la fila real
+```
 
 ---
 
 ## Rutas Laravel
 
 ```
-GET    /api/v1/assistant/events                   — lista eventos
-POST   /api/v1/assistant/events                   — crea evento con disparos
-PATCH  /api/v1/assistant/events/{event}           — modifica evento
-POST   /api/v1/assistant/events/{event}/cancel    — cancela ocurrencia o serie
-POST   /api/v1/assistant/events/{event}/snooze    — pospone evento
+GET    /api/v1/assistant/events                         — lista eventos (reales + virtuales)
+POST   /api/v1/assistant/events                         — crea evento
+PATCH  /api/v1/assistant/events/{event}                 — modifica ocurrencia (acepta ID virtual)
+POST   /api/v1/assistant/events/{event}/cancel          — cancela ocurrencia o serie (acepta ID virtual)
+POST   /api/v1/assistant/events/{event}/snooze          — pospone (acepta ID virtual)
+DELETE /api/v1/assistant/events/{event}/reference       — desasocia referenceable
 ```
+
+`{event}` en rutas que aceptan ID virtual es un parámetro de ruta string (no route model binding).
+Las demás rutas usan route model binding normal de `AssistantEvent`.
 
 Todas autenticadas con JWT de usuario O `ASSISTANT_SERVICE_TOKEN`.
 
@@ -29,36 +169,69 @@ Todas autenticadas con JWT de usuario O `ASSISTANT_SERVICE_TOKEN`.
 
 ## Controladores
 
-`app/Domain/Assistant/Http/Events/`
+`app/Domain/Assistant/Http/Controllers/Events/`
 
 ### `GetEventsController`
-- Filtros: `type`, `status`, `from` (date), `to` (date)
-- Retorna solo eventos del usuario autenticado
-- Excluye `status = cancelled` por default (a menos que se pida explícitamente)
+Parámetros: `type?`, `status?`, `from?` (ISO 8601), `to?` (ISO 8601, default `from + 30 days`).
+
+Algoritmo:
+1. Cargar masters del usuario con `recurrence_rule` (serie_id null, recurrence_rule set)
+2. Cargar ocurrencias reales del usuario en [from, to] (series_id set)
+3. Cargar eventos únicos del usuario en [from, to] (series_id null, recurrence_rule null)
+4. Para cada master: expandir RRULE entre from y to → lista de `occurrence_at` dates
+   - Si existe fila real con ese (series_id, occurrence_at): usar la fila real
+   - Si la fila real tiene `status = cancelled`: omitir esa fecha
+   - Si no existe fila real: emitir ocurrencia virtual `id = "v_{master.id}_{date}"`
+5. Devolver lista unificada ordenada por `event_at`
+
+Excluye `status = cancelled` por defecto salvo que se pida explícitamente.
 
 ### `CreateEventController`
-- Recibe: `content`, `event_at` (ISO 8601 UTC), `type`, `reminders[]`, `recurrence_rule?`, `event_end?`
-- `reminders[]` formato: `[{ offset: "-7 days", message: "..." }]`
-- Resuelve cada offset contra `event_at` → calcula `fire_at` absoluto en UTC
-- Crea `Event` + `EventReminder` rows
-- Para cada `EventReminder`: despacha `FireEventReminder` job con delay = `fire_at - now()`
+Recibe: `content`, `event_at`, `type`, `reminders[]`, `recurrence_rule?`, `event_end?`, `referenceable?`.
+
+- Si `recurrence_rule` está presente:
+  - Crea la fila **master** (series_id null, occurrence_at null, recurrence_rule set)
+  - Guarda `reminders_template_json` con los offsets recibidos
+  - Crea la **primera ocurrencia** materializada (series_id = master.id, occurrence_at = event_at)
+  - Crea reminders para esa primera ocurrencia y despacha `FireEventReminder` jobs
+- Si no hay `recurrence_rule`:
+  - Crea evento único directamente con reminders
 - Si `type` no existe en `type_catalogs` para el usuario → lo crea automáticamente
+- Si `referenceable` presente: valida con `MorphTypeMap`, verifica pertenencia, asigna
 
 ### `UpdateEventController`
-- Campos modificables: `content`, `event_at`, `event_end`, `type`, `recurrence_rule`
-- Si cambia `event_at`: recalcula y reemplaza todos los `EventReminder` pendientes
-  (cancela los jobs existentes en Redis, crea nuevos)
+Campos modificables: `content`, `event_at`, `event_end`, `type`.
+
+Usa `EventResolver::resolve()`:
+- **ID virtual**: materializa como excepción con los cambios, devuelve la nueva fila
+- **ID real**: actualiza la fila directamente
+- Si cambia `event_at`: recalcula y reemplaza reminders pending
 
 ### `CancelEventController`
-- `series = false` (default): `status = cancelled` en el evento actual
-  → si tiene `recurrence_rule`, dispara `ScheduleNextOccurrence` job
-- `series = true`: `status = cancelled` + flag que impide crear siguiente ocurrencia
+Parámetros: `series` (bool, default false).
+
+Con `series = false`:
+- **ID virtual**: crea excepción con `status = cancelled` para ese slot
+- **ID real**: `status = cancelled` en esa fila
+
+Con `series = true`:
+- Resuelve master (desde ID virtual o desde `series_id` de la fila real)
+- `master.status = cancelled`
+- Elimina ocurrencias materializadas futuras (`series_id = master.id AND event_at > now()`)
+- Cancela reminders pendientes asociados
 
 ### `SnoozeEventController`
-- Recibe `until` (ISO 8601)
-- Si el evento tiene `recurrence_rule`: calcula la ocurrencia cuyo `event_at` cae después de `until`
-  → crea ese nuevo evento directamente con `status = active`
-- Cancela el evento actual
+Recibe `until` (ISO 8601).
+
+Resuelve el master de la ocurrencia:
+1. Expande RRULE desde `until` en adelante → toma la primera fecha
+2. Crea ocurrencia materializada con `event_at = primera_fecha` y `occurrence_at = primera_fecha`
+3. Crea reminders con la plantilla del master
+4. Cancela la ocurrencia actual (virtual → crea excepción cancelled; real → status=cancelled)
+
+### `DetachEventReferenceController`
+`DELETE /api/v1/assistant/events/{event}/reference`
+Nullifica `referenceable_type` y `referenceable_id` sin tocar reminders.
 
 ---
 
@@ -66,86 +239,145 @@ Todas autenticadas con JWT de usuario O `ASSISTANT_SERVICE_TOKEN`.
 
 ### `FireEventReminder`
 ```
-1. Carga EventReminder por id
-2. Si status != pending → abort (safety: ya fue disparado)
-3. Crea message en la conversación del usuario (role: system)
-   content: el mensaje del disparo
-   metadata_json: { event_id, reminder_id }
-4. Actualiza EventReminder: status = fired, fired_at = now()
-5. Broadcast MessageReceived al canal WebSocket del usuario
-6. Si es el último reminder del evento Y evento tiene recurrence_rule:
-   → despacha ScheduleNextOccurrence
+1. Carga EventReminder (con event → referenceable eager load)
+2. Si status != pending → abort (idempotencia)
+3. Construye content:
+   - base: reminder.message
+   - si event.referenceable existe: append eventReferenceLabel()
+4. Crea AssistantMessage(role: system) en la conversación del usuario
+   metadata_json: { event_id, reminder_id, referenceable_type?, referenceable_id? }
+5. EventReminder: status = fired, fired_at = now()
+6. Broadcast MessageReceived al canal WebSocket del usuario
 ```
 
-### `ScheduleNextOccurrence`
+No hay `ScheduleNextOccurrence` — la materialización la hace `MaterializeSeriesWindow`.
+
+### `MaterializeSeriesWindow` (diario, Laravel Scheduler)
 ```
-1. Carga el evento
-2. Calcula next event_at usando rrule.js (en Node) O iCal RRULE parser (en PHP)
-   — usar librería PHP: spatie/icalendar-generator o recurr/recurr
-3. Crea nuevo Event con mismo content, type, recurrence_rule
-4. Publica job al worker Node para que el LLM genere los disparos de la nueva ocurrencia
-   (el LLM conoce el contexto del usuario y puede decidir cuántos disparos son apropiados)
+Para cada master activo (series_id null, recurrence_rule set, status = active):
+  window_end = now() + 14 days
+  occurrences = rrule.parse(master.recurrence_rule).between(now(), window_end)
+
+  Para cada occurrence_at en occurrences:
+    si existe fila con (series_id = master.id, occurrence_at) → skip
+    crear fila: { series_id, occurrence_at, event_at: occurrence_at,
+                  content: master.content, type: master.type,
+                  user_id: master.user_id, status: active }
+    para cada offset en master.reminders_template_json:
+      fire_at = occurrence_at + parse(offset)
+      si fire_at > now():
+        crear EventReminder(fire_at, message, status: pending)
+        dispatch FireEventReminder con delay
 ```
 
-### Cron safety net (Laravel Scheduler)
-```php
-// Cada minuto
-$schedule->job(new SweepPendingReminders)->everyMinute();
-```
-`SweepPendingReminders`: busca `EventReminder` con `status = pending` y `fire_at <= now()`, despacha `FireEventReminder` para cada uno.
+### `SweepPendingReminders` (cada minuto, Laravel Scheduler — safety net)
+Busca `EventReminder` con `status = pending` y `fire_at <= now()` → despacha `FireEventReminder`.
 
 ---
 
-## Worker Node — implementación de tools
-
-Añadir tools al array de tools del `ConversationWorker`:
+## Worker Node — tools
 
 ```ts
 const EVENT_TOOLS: StandardTool[] = [
   {
     name: 'get_events',
-    description: 'Lista los eventos del usuario',
-    parameters: {
+    description: 'Lista eventos del usuario. Devuelve eventos reales y ocurrencias virtuales de series recurrentes. Los IDs de ocurrencias virtuales tienen formato "v_{series_id}_{YYYY-MM-DD}".',
+    inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string' },
+        from:   { type: 'string', description: 'ISO 8601 date (default: today)' },
+        to:     { type: 'string', description: 'ISO 8601 date (default: from + 30 days)' },
+        type:   { type: 'string' },
         status: { type: 'string', enum: ['active', 'cancelled', 'completed'] },
-        from: { type: 'string', description: 'ISO 8601 date' },
-        to:   { type: 'string', description: 'ISO 8601 date' },
-      }
-    }
+      },
+    },
   },
   {
     name: 'create_event',
-    description: 'Crea un evento con sus disparos de recordatorio',
-    parameters: {
+    description: 'Crea un evento con sus disparos de recordatorio.',
+    inputSchema: {
       type: 'object',
       required: ['content', 'event_at', 'type', 'reminders'],
       properties: {
-        content:         { type: 'string' },
-        event_at:        { type: 'string', description: 'ISO 8601 UTC' },
-        event_end:       { type: 'string', description: 'ISO 8601 UTC, solo para bloques con duración' },
-        type:            { type: 'string' },
-        recurrence_rule: { type: 'string', description: 'iCal RRULE, ej: FREQ=WEEKLY;BYDAY=MO' },
+        content:          { type: 'string' },
+        event_at:         { type: 'string', description: 'ISO 8601 UTC' },
+        event_end:        { type: 'string', description: 'ISO 8601 UTC, solo para bloques con duración' },
+        type:             { type: 'string' },
+        recurrence_rule:  { type: 'string', description: 'iCal RRULE, ej: FREQ=WEEKLY;BYDAY=MO' },
         reminders: {
           type: 'array',
           items: {
             type: 'object',
             required: ['offset', 'message'],
             properties: {
-              offset:  { type: 'string', description: 'Offset relativo, ej: "-1 day", "-7 days", "0"' },
-              message: { type: 'string' }
-            }
-          }
-        }
-      }
-    }
+              offset:  { type: 'string', description: 'Offset relativo, ej: "-7 days", "-1 day", "0"' },
+              message: { type: 'string' },
+            },
+          },
+        },
+        referenceable: {
+          type: 'object',
+          required: ['type', 'id'],
+          properties: {
+            type: { type: 'string', enum: ['list', 'expense'] },
+            id:   { type: 'string' },
+          },
+        },
+      },
+    },
   },
-  // update_event, cancel_event, snooze_event — mismo patrón
+  {
+    name: 'update_event',
+    description: 'Modifica una ocurrencia. Acepta IDs reales o virtuales ("v_...").',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id:        { type: 'string' },
+        content:   { type: 'string' },
+        event_at:  { type: 'string', description: 'ISO 8601 UTC' },
+        event_end: { type: 'string' },
+        type:      { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'cancel_event',
+    description: 'Cancela una ocurrencia o toda la serie. Acepta IDs reales o virtuales ("v_...").',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id:     { type: 'string' },
+        series: { type: 'boolean', description: 'true = cancela toda la serie desde ahora', default: false },
+      },
+    },
+  },
+  {
+    name: 'snooze_event',
+    description: 'Pospone una ocurrencia hasta la siguiente que caiga después de `until`. Acepta IDs reales o virtuales.',
+    inputSchema: {
+      type: 'object',
+      required: ['id', 'until'],
+      properties: {
+        id:    { type: 'string' },
+        until: { type: 'string', description: 'ISO 8601 UTC' },
+      },
+    },
+  },
+  {
+    name: 'detach_event_reference',
+    description: 'Desasocia el evento de su lista/gasto vinculado sin cancelarlo.',
+    inputSchema: {
+      type: 'object',
+      required: ['event_id'],
+      properties: {
+        event_id: { type: 'string' },
+      },
+    },
+  },
 ]
 ```
-
-Cada tool llama a `LaravelClient` en el endpoint correspondiente y retorna el resultado como `tool_result`.
 
 ---
 
@@ -154,16 +386,35 @@ Cada tool llama a `LaravelClient` en el endpoint correspondiente y retorna el re
 ### `AssistantEventResource`
 ```json
 {
-  "id": "...",
+  "id": "abc123",
+  "virtual": false,
+  "series_id": "xyz",
   "content": "Cumpleaños de Carlos",
   "event_at": "2026-05-15T00:00:00Z",
   "event_end": null,
   "type": "birthday",
-  "recurrence_rule": "FREQ=YEARLY",
+  "recurrence_rule": null,
   "status": "active",
+  "reference": {
+    "type": "list",
+    "id": "...",
+    "label": "Lista de compras"
+  },
   "reminders": [
     { "id": "...", "fire_at": "2026-05-08T...", "message": "...", "status": "pending" }
   ]
+}
+```
+
+Para ocurrencias **virtuales** devueltas por `GetEventsController`:
+```json
+{
+  "id": "v_5_2026-06-09",
+  "virtual": true,
+  "series_id": "xyz",
+  "content": "Reunión semanal",
+  "event_at": "2026-06-09T10:00:00Z",
+  "reminders": []
 }
 ```
 
@@ -171,12 +422,58 @@ Cada tool llama a `LaravelClient` en el endpoint correspondiente y retorna el re
 
 ## Tests
 
-- `CreateEventController`: crea evento con disparos, cada disparo tiene `fire_at` correcto resuelto desde offset
-- `CreateEventController`: auto-crea `TypeCatalog` si el tipo no existe
-- `UpdateEventController`: al cambiar `event_at`, reemplaza todos los reminders pendientes
-- `CancelEventController` (`series=false`): cancela evento, despacha `ScheduleNextOccurrence` si tiene recurrencia
-- `CancelEventController` (`series=true`): cancela y no programa siguiente
-- `SnoozeEventController`: calcula correctamente la ocurrencia post-`until`
-- `FireEventReminder`: crea mensaje en conversación, hace broadcast, marca fired
-- `FireEventReminder`: es idempotente (segundo disparo no crea mensaje duplicado)
-- `SweepPendingReminders`: solo procesa reminders con `fire_at <= now()`
+### GetEventsController
+- Devuelve eventos únicos y ocurrencias materializadas en el rango pedido
+- Expande RRULE y devuelve ocurrencias virtuales para fechas sin fila real
+- Sustituye la fila real cuando existe una excepción para un slot
+- Omite ocurrencias cuya excepción tenga `status = cancelled`
+- Excluye `status = cancelled` por defecto; los incluye con `status=cancelled` explícito
+
+### CreateEventController
+- Crea evento único con reminders y fire_at correcto por offset
+- Crea master + primera ocurrencia materializada cuando hay `recurrence_rule`
+- Guarda `reminders_template_json` en el master
+- Auto-crea `TypeCatalog` si el tipo no existe
+- Asigna `referenceable` correctamente
+- Rechaza 422 si alias de `referenceable.type` es inválido
+- Rechaza 403 si el referenceable no pertenece al usuario
+
+### UpdateEventController
+- ID real: actualiza la fila y recalcula reminders si cambia `event_at`
+- ID virtual: materializa la ocurrencia como excepción con los cambios
+
+### CancelEventController
+- ID real, `series=false`: cancela esa fila
+- ID virtual, `series=false`: materializa excepción con `status=cancelled`
+- ID real/virtual, `series=true`: pone master en cancelled, borra ocurrencias materializadas futuras
+
+### SnoozeEventController
+- Calcula correctamente la primera ocurrencia después de `until`
+- Cancela la ocurrencia actual y crea la nueva materializada
+
+### MaterializeSeriesWindow
+- Crea filas + reminders para ocurrencias del master en los próximos 14 días
+- No duplica filas si la ocurrencia ya está materializada
+- Ignora masters con `status = cancelled`
+- Ignora slots con excepción cancelled existente
+
+### FireEventReminder
+- Crea mensaje `role: system` en la conversación del usuario
+- El mensaje incluye el label del referenceable cuando existe
+- Es idempotente: segundo disparo no crea mensaje duplicado
+- Hace broadcast `MessageReceived`
+
+### SweepPendingReminders
+- Solo procesa reminders con `fire_at <= now()`
+
+### NotifiesOrphanedEventReferences
+- Al eliminar entidad referenciada: crea mensaje de sistema con `actions_json` (no cancela automáticamente)
+
+### MorphTypeMap
+- Alias inválido lanza `InvalidArgumentException`
+
+### EventResolver
+- ID real: resuelve el modelo correctamente
+- ID virtual válido: devuelve virtual DTO con series_id y occurrence_at
+- ID virtual con master de otro usuario: lanza 404
+- ID virtual con series_id inexistente: lanza 404

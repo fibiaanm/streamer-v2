@@ -19,6 +19,13 @@
       </button>
     </template>
 
+    <!-- Back navigation (optional, e.g. from assistant) -->
+    <div v-if="backUrl" class="py-1 border-b border-white/8">
+      <AppDropdownItem icon="ui/chevron-left" @click="router.push(backUrl!)">
+        Volver
+      </AppDropdownItem>
+    </div>
+
     <!-- Identity -->
     <div class="px-4 py-3 border-b border-white/8">
       <p class="text-sm font-medium text-white/80 truncate">{{ user?.name }}</p>
@@ -50,8 +57,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+
+const props = defineProps<{ backUrl?: string }>()
 import AppDropdown     from '@/components/AppDropdown.vue'
 import AppDropdownItem from '@/components/AppDropdownItem.vue'
 import SunMoonIcon     from '@/components/SunMoonIcon.vue'

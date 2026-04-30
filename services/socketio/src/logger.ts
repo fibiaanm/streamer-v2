@@ -5,6 +5,30 @@ import { config } from './config';
 
 const today = () => new Date().toISOString().slice(0, 10).replace(/-/g, '.');
 
+// Normalize values before JSON.stringify: Error objects become {} otherwise.
+// No stack traces — large strings cause OpenSearch to silently reject documents.
+function normalizeForJson(val: unknown): unknown {
+  if (val instanceof Error) {
+    return { name: val.name, message: val.message };
+  }
+  if (Array.isArray(val)) {
+    return val.map(normalizeForJson);
+  }
+  if (val !== null && typeof val === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val)) {
+      out[k] = normalizeForJson(v);
+    }
+    return out;
+  }
+  return val;
+}
+
+function buildMeta(data?: Record<string, unknown>): Record<string, unknown> {
+  if (!data || Object.keys(data).length === 0) return {};
+  return { data: JSON.stringify(normalizeForJson(data)) };
+}
+
 class OpenSearchTransport extends Transport {
   private readonly client: Client;
   private readonly index: string;
@@ -16,17 +40,19 @@ class OpenSearchTransport extends Transport {
   }
 
   log(info: Record<string, unknown>, callback: () => void): void {
-    const { level, message, service, ...context } = info;
+    const { level, message, data } = info;
+
+    const doc: Record<string, unknown> = {
+      '@timestamp': new Date().toISOString(),
+      service:      'socketio',
+      level,
+      message,
+    };
+    if (data !== undefined) doc['data'] = data;
 
     this.client.index({
       index: `${this.index}-${today()}`,
-      body: {
-        '@timestamp': new Date().toISOString(),
-        service:      'socketio',
-        level,
-        message,
-        context,
-      },
+      body:  doc,
     }).catch(() => {
       // silent fail — OpenSearch down does not affect the service
     });
@@ -35,16 +61,23 @@ class OpenSearchTransport extends Transport {
   }
 }
 
-export const logger = winston.createLogger({
+const winstonLogger = winston.createLogger({
   level: config.LOG_LEVEL,
   format: winston.format.json(),
-  defaultMeta: { service: 'socketio' },
   transports: [new winston.transports.Console()],
 });
 
 if (process.env.OPENSEARCH_HOST) {
-  logger.add(new OpenSearchTransport(
+  winstonLogger.add(new OpenSearchTransport(
     process.env.OPENSEARCH_HOST,
     process.env.OPENSEARCH_INDEX ?? 'streamer-logs',
   ));
 }
+
+// Typed wrapper: first arg is the event name, second is structured data (serialized to JSON string in OS)
+export const log = {
+  info:  (message: string, data?: Record<string, unknown>) => winstonLogger.info(message,  buildMeta(data)),
+  warn:  (message: string, data?: Record<string, unknown>) => winstonLogger.warn(message,  buildMeta(data)),
+  error: (message: string, data?: Record<string, unknown>) => winstonLogger.error(message, buildMeta(data)),
+  debug: (message: string, data?: Record<string, unknown>) => winstonLogger.debug(message, buildMeta(data)),
+};

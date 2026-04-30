@@ -64,11 +64,18 @@ Los archivos siguen la numeración global del proyecto (`0036`–`0050`) para re
   event_at        timestamp UTC
   event_end       timestamp UTC nullable
   type            string
-  recurrence_rule string nullable
+  recurrence_rule string nullable   — solo en masters de serie
   status          enum: active | cancelled | completed, default active
   sender_id       FK users nullable
   created_at, updated_at
   softDeletes
+
+  — columnas añadidas en etapa 04 (migración 0051):
+  series_id              bigint nullable FK → assistant_events(id) ON DELETE SET NULL
+  occurrence_at          timestamp nullable   — slot RRULE que esta fila representa
+  reminders_template_json json nullable       — plantilla de offsets en masters recurrentes
+  referenceable_type     string nullable      — migración 0052
+  referenceable_id       string nullable
 
 0043_create_event_reminders_table
   id, event_id FK

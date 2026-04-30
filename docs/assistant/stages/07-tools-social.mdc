@@ -13,23 +13,51 @@ Red de amigos completa: solicitudes, apodos, recordatorios entre amigos, listas 
 
 ---
 
+## Migraciones adicionales
+
+```
+0052_create_friend_categories_table
+  id
+  user_id FK users
+  name string
+  timestamps
+  UNIQUE(user_id, name)
+
+0053_create_friend_category_members_table
+  category_id    FK friend_categories (onDelete cascade)
+  friend_user_id FK users
+  created_at
+  PRIMARY KEY (category_id, friend_user_id)
+```
+
+---
+
 ## Rutas Laravel
 
 ```
-GET    /api/v1/assistant/friends                          — lista amigos aceptados
-POST   /api/v1/assistant/friends/request                  — envía solicitud (email | username | friend_code)
-GET    /api/v1/assistant/friends/pending                  — solicitudes entrantes pendientes
-PATCH  /api/v1/assistant/friends/{friendship}/respond     — acepta o rechaza solicitud
-PATCH  /api/v1/assistant/friends/{friend}/label           — establece apodo
-DELETE /api/v1/assistant/friends/{friend}                 — elimina amistad
+GET    /api/v1/assistant/friends                               — lista amigos aceptados (filtro: ?category=nombre)
+POST   /api/v1/assistant/friends/request                       — envía solicitud (email | username | friend_code)
+GET    /api/v1/assistant/friends/pending                       — solicitudes entrantes pendientes
+PATCH  /api/v1/assistant/friends/{friendship}/respond          — acepta o rechaza solicitud
+PATCH  /api/v1/assistant/friends/{friend}/label                — establece apodo
+DELETE /api/v1/assistant/friends/{friend}                      — elimina amistad
 
-POST   /api/v1/assistant/reminder-requests                — envía recordatorio a amigo
-PATCH  /api/v1/assistant/reminder-requests/{req}/respond  — acepta o rechaza recordatorio
+GET    /api/v1/assistant/friend-categories                     — lista categorías con conteo de miembros
+POST   /api/v1/assistant/friend-categories                     — crea categoría
+DELETE /api/v1/assistant/friend-categories/{category}          — elimina categoría
+POST   /api/v1/assistant/friend-categories/{category}/members  — añade amigo a categoría
+DELETE /api/v1/assistant/friend-categories/{category}/members/{friend} — quita amigo de categoría
 
-POST   /api/v1/assistant/lists/{list}/share               — (ya en etapa 05)
-PATCH  /api/v1/assistant/list-shares/{share}/respond      — (ya en etapa 05)
+GET    /api/v1/assistant/profile/friend-code                   — retorna código propio y URL
+POST   /api/v1/assistant/profile/regenerate-friend-code        — genera nuevo código
 
-POST   /api/v1/assistant/internal/look-at-image           — visión (solo service token)
+POST   /api/v1/assistant/reminder-requests                     — envía recordatorio a amigo
+PATCH  /api/v1/assistant/reminder-requests/{req}/respond       — acepta o rechaza recordatorio
+
+POST   /api/v1/assistant/lists/{list}/share                    — (ya en etapa 05)
+PATCH  /api/v1/assistant/list-shares/{share}/respond           — (ya en etapa 05)
+
+POST   /api/v1/assistant/internal/look-at-image                — visión (solo service token)
 ```
 
 ---
@@ -42,6 +70,7 @@ POST   /api/v1/assistant/internal/look-at-image           — visión (solo serv
 - Retorna amistades con `status = accepted` donde el usuario es requester O addressee
 - Para cada amigo, incluye el `friend_label` que el usuario le ha puesto (si existe)
 - Incluye `id`, `name`, `username`, `friend_code`
+- Filtro `?category=nombre`: solo retorna amigos que pertenecen a esa categoría del usuario
 
 ### `SendFriendRequestController`
 - Recibe `identifier` (email | username | friend_code)
@@ -68,7 +97,51 @@ POST   /api/v1/assistant/internal/look-at-image           — visión (solo serv
 ### `RemoveFriendController`
 - Marca friendship como `blocked` o la elimina físicamente
 - Elimina el `FriendLabel` mutuo
+- Elimina las entradas de `friend_category_members` donde el amigo aparezca en categorías del usuario
 - No elimina listas compartidas (quedan activas pero sin sincronización de nuevos ítems — decisión: revocar acceso automáticamente)
+
+---
+
+`app/Domain/Assistant/Http/FriendCategories/`
+
+### `GetFriendCategoriesController`
+- Retorna todas las categorías del usuario con `members_count`
+
+### `CreateFriendCategoryController`
+- Valida que el nombre no exista ya para el usuario (422)
+- Crea `FriendCategory`
+
+### `DeleteFriendCategoryController`
+- Solo el dueño puede eliminar (la categoría es del usuario autenticado)
+- Elimina la categoría y sus `friend_category_members` (cascade)
+- Los amigos quedan intactos
+
+### `AddFriendToCategoryController`
+- `POST /friend-categories/{category}/members` — body: `{ friend_id }`
+- Verifica que `friend_id` es amigo aceptado del usuario
+- Verifica que la categoría pertenece al usuario
+- Verifica que el amigo no está ya en esa categoría (422 si ya existe)
+- Crea `friend_category_members`
+
+### `RemoveFriendFromCategoryController`
+- `DELETE /friend-categories/{category}/members/{friend}`
+- Verifica que la categoría pertenece al usuario
+- Elimina la entrada de `friend_category_members`
+
+---
+
+`app/Domain/Assistant/Http/Profile/`
+
+### `GetFriendCodeController`
+- `GET /api/v1/assistant/profile/friend-code`
+- Retorna `{ friend_code, url: "https://app/add-friend/{code}" }`
+- Accesible via JWT de usuario (web) Y via tool del worker
+
+### `RegenerateFriendCodeController`
+- Genera nuevo código único (loop do-while como en RegisterUseCase)
+- Guarda en `users.friend_code`
+- Las solicitudes pendientes con el código anterior **no se ven afectadas** — ya están en `friendships`
+- Retorna `{ friend_code, url }`
 
 ---
 
@@ -139,17 +212,43 @@ La tool en el sistema:
 
 ```ts
 const SOCIAL_TOOLS: StandardTool[] = [
-  { name: 'get_friends', ... },
-  { name: 'send_friend_request', ... },
-  { name: 'respond_to_friend_request', ... },
-  { name: 'set_friend_label', ... },
-  { name: 'send_reminder_to_friend', ... },
-  { name: 'respond_to_reminder_request', ... },
-  { name: 'share_list', ... },
-  { name: 'respond_to_list_share', ... },
+  // Amigos
+  { name: 'get_friends',                  description: 'Lista amigos aceptados; parámetro category filtra por categoría', ... },
+  { name: 'send_friend_request',          description: 'Envía solicitud de amistad por email, username o friend_code', ... },
+  { name: 'respond_to_friend_request',    description: 'Acepta o rechaza una solicitud entrante', ... },
+  { name: 'set_friend_label',             description: 'Establece o actualiza el apodo personal para un amigo', ... },
+  { name: 'get_friend_code',              description: 'Retorna el friend_code propio y la URL para compartirlo', ... },
+  { name: 'regenerate_friend_code',       description: 'Genera un nuevo friend_code; el anterior deja de aceptar solicitudes nuevas', ... },
+
+  // Categorías de amigos
+  { name: 'get_friend_categories',        description: 'Lista las categorías del usuario con conteo de miembros', ... },
+  { name: 'create_friend_category',       description: 'Crea una nueva categoría de amigos', ... },
+  { name: 'delete_friend_category',       description: 'Elimina una categoría; los amigos quedan intactos', ... },
+  { name: 'add_friend_to_category',       description: 'Añade un amigo a una categoría', ... },
+  { name: 'remove_friend_from_category',  description: 'Quita un amigo de una categoría', ... },
+
+  // Recordatorios entre amigos
+  { name: 'send_reminder_to_friend',      description: 'Envía solicitud de recordatorio a un amigo', ... },
+  { name: 'respond_to_reminder_request',  description: 'Acepta o rechaza un recordatorio recibido', ... },
+
+  // Listas compartidas
+  { name: 'share_list',                   description: 'Comparte una lista con un amigo', ... },
+  { name: 'respond_to_list_share',        description: 'Acepta o rechaza una lista compartida', ... },
+
+  // Multimodal
   { name: 'look_at_image', ... },
 ]
 ```
+
+---
+
+## Modelos Eloquent nuevos
+
+`app/Domain/Assistant/Models/`
+
+| Modelo | Tabla | Notas |
+|---|---|---|
+| `FriendCategory` | `friend_categories` | belongsTo user; belongsToMany friends (users) via friend_category_members |
 
 ---
 
@@ -164,13 +263,16 @@ Auth: ASSISTANT_SERVICE_TOKEN
 
 ---
 
-## Lógica del `friend_code` regenerable
+## Lógica del `friend_code`
 
 ```
+GET  /api/v1/assistant/profile/friend-code
 POST /api/v1/assistant/profile/regenerate-friend-code
-Auth: JWT usuario (solo desde web, no via LLM)
-→ genera nuevo código único, guarda en users.friend_code
-→ retorna { friend_code, qr_data: "https://app/add-friend/{code}" }
+Auth: JWT usuario (web Y tool del worker)
+→ GET: retorna { friend_code, url: "https://app/add-friend/{code}" }
+→ POST: genera nuevo código único, guarda en users.friend_code
+        retorna { friend_code, url }
+        Las solicitudes pendientes con el código anterior no se ven afectadas
 ```
 
 ---
@@ -182,8 +284,17 @@ Auth: JWT usuario (solo desde web, no via LLM)
 - `SendFriendRequestController`: rechaza si usuario free ya tiene 5 amigos aceptados (422)
 - `SendFriendRequestController`: crea mensaje con actions_json en conversación del receptor
 - `RespondToFriendRequestController`: aceptar → status=accepted; rechazar → status=declined
+- `GetFriendsController`: sin filtro retorna todos los amigos aceptados
+- `GetFriendsController`: con `?category=Trabajo` retorna solo amigos en esa categoría
+- `CreateFriendCategoryController`: rechaza nombre duplicado para el mismo usuario (422)
+- `DeleteFriendCategoryController`: elimina categoría y sus miembros; los friendships quedan intactos
+- `AddFriendToCategoryController`: rechaza si `friend_id` no es amigo aceptado (422)
+- `AddFriendToCategoryController`: rechaza si amigo ya está en la categoría (422)
+- `RemoveFriendController`: elimina entradas de `friend_category_members` del usuario al eliminar amistad
+- `GetFriendCodeController`: retorna friend_code y URL correctos
+- `RegenerateFriendCodeController`: nuevo código es único y distinto al anterior
+- `RegenerateFriendCodeController`: solicitudes pendientes con código anterior no se eliminan
 - `SendReminderRequestController`: rechaza si sender tiene `send_reminders_to_friends=false` (403)
 - `SendReminderRequestController`: rechaza si receiver no es amigo aceptado (422)
 - `RespondToReminderRequestController`: aceptar → crea Event con sender_id correcto
 - `look_at_image`: retorna descripción estructurada para imagen con datos financieros
-- Regenerar friend_code: nuevo código es único y distinto al anterior

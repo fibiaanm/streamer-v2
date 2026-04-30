@@ -3,6 +3,7 @@
 use Database\Seeders\EnterprisePermissionSeeder;
 use Database\Seeders\EnterpriseRolePermissionSeeder;
 use Database\Seeders\EnterpriseRoleSeeder;
+use Database\Seeders\AssistantPlanSeeder;
 use Database\Seeders\PlanSeeder;
 use Database\Seeders\ProductSeeder;
 use Database\Seeders\WorkspacePermissionSeeder;
@@ -21,6 +22,7 @@ pest()->extend(TestCase::class)
             WorkspaceRoleSeeder::class,
             ProductSeeder::class,
             PlanSeeder::class,
+            AssistantPlanSeeder::class,
         ]);
     })
     ->in('Feature', 'E2E');

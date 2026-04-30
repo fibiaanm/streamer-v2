@@ -22,17 +22,28 @@ class OpenSearchHandler extends AbstractProcessingHandler
     protected function write(LogRecord $record): void
     {
         try {
-            $this->client->index([
-                'index' => $this->index . '-' . date('Y.m.d'),
-                'body'  => [
+            // context is serialized as a JSON string under 'data' so every log entry
+            // has a flat, consistent shape in OpenSearch. extra (request_id, etc.)
+            // comes from Monolog processors and goes at the document root.
+            $normalized = $this->normalizeContext($record->context);
+
+            $body = array_merge(
+                $record->extra,
+                [
                     '@timestamp' => $record->datetime->format(\DateTimeInterface::ATOM),
                     'service'    => 'laravel',
                     'level'      => strtolower($record->level->name),
                     'channel'    => $record->channel,
                     'message'    => $record->message,
-                    'context'    => $this->normalizeContext($record->context),
-                    'extra'      => $record->extra,
+                    'data'       => empty($normalized)
+                        ? null
+                        : json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ],
+            );
+
+            $this->client->index([
+                'index' => $this->index . '-' . date('Y.m.d'),
+                'body'  => $body,
             ]);
         } catch (Throwable $e) {
             // OpenSearch down / rejected — never affect the app, but trace to stderr

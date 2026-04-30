@@ -39,18 +39,38 @@ import AppDropdown     from '@/components/AppDropdown.vue'
 import AppDropdownItem from '@/components/AppDropdownItem.vue'
 import AppIcon         from '@/components/AppIcon.vue'
 import { usePermissions } from '@/composables/core/usePermissions'
+import { useAppsEnabled } from '@/composables/core/useAppsEnabled'
 
 const route  = useRoute()
 const router = useRouter()
-const { isGuest } = usePermissions()
+const { isGuest }      = usePermissions()
+const { hasAssistant, hasCore } = useAppsEnabled()
 
 const allAppRoutes = router.getRoutes()
   .filter(r => r.meta.appName)
-  .map(r => ({ name: r.meta.appName as string, path: r.path, icon: r.meta.appIcon as string, requiresAuth: !!r.meta.requiresAuth, appMenu: !!r.meta.appMenu }))
+  .map(r => ({
+    name:        r.meta.appName as string,
+    path:        r.path,
+    icon:        r.meta.appIcon as string,
+    requiresAuth: !!r.meta.requiresAuth,
+    appMenu:     !!r.meta.appMenu,
+    appProduct:  r.meta.appProduct as string | undefined,
+  }))
   .sort((a, b) => a.path.localeCompare(b.path))
 
+const productEnabled = (product?: string) => {
+  if (!product) return true
+  if (product === 'assistant') return hasAssistant.value
+  if (product === 'core')      return hasCore.value
+  return false
+}
+
 const apps = computed(() =>
-  allAppRoutes.filter(r => r.appMenu && (!r.requiresAuth || !isGuest.value))
+  allAppRoutes.filter(r =>
+    r.appMenu &&
+    (!r.requiresAuth || !isGuest.value) &&
+    productEnabled(r.appProduct)
+  )
 )
 
 function isActive(app: typeof allAppRoutes[0]) {

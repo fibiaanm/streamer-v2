@@ -1,4 +1,4 @@
-export type LimitType      = 'permanent' | 'concurrent' | 'monthly'
+export type LimitType      = 'permanent' | 'concurrent' | 'monthly' | 'daily'
 export type EnterpriseType = 'personal' | 'enterprise'
 
 export interface LimitValue {
@@ -18,9 +18,34 @@ export interface PlanLimits {
   room_guests: LimitValue
 }
 
+export interface BooleanLimit {
+  type:  'boolean'
+  value: boolean
+}
+
+export interface AssistantLimits {
+  assistant_enabled:   BooleanLimit
+  messages_daily:      LimitValue
+  memory_total:        LimitValue
+  memory_categories:   LimitValue
+  friends:             LimitValue
+  friend_categories:   LimitValue
+  lists:               LimitValue
+  list_items_max:      LimitValue
+  events_monthly:      LimitValue
+  reminders_active:    LimitValue
+  context_messages:    LimitValue
+  storage_mb:          LimitValue
+  upload_monthly_mb:   LimitValue
+  upload_max_mb:       LimitValue
+  expenses_enabled:    BooleanLimit
+  custom_instructions: BooleanLimit
+  export_enabled:      BooleanLimit
+}
+
 export interface ProductInfo {
   plan:   string
-  limits: PlanLimits
+  limits: PlanLimits | AssistantLimits
 }
 
 export interface Enterprise {

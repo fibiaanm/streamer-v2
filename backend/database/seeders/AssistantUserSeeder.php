@@ -12,9 +12,9 @@ use Illuminate\Support\Str;
 class AssistantUserSeeder extends Seeder
 {
     private const USERS = [
-        ['name' => 'User One',   'email' => 'user1@test.com', 'plan' => 'Free'],
-        ['name' => 'User Two',   'email' => 'user2@test.com', 'plan' => 'Pro'],
-        ['name' => 'User Three', 'email' => 'user3@test.com', 'plan' => 'Free'],
+        ['name' => 'Assistant Free',    'email' => 'assistant-free@test.com',    'plan' => 'Free'],
+        ['name' => 'Assistant Pro',     'email' => 'assistant-pro@test.com',     'plan' => 'Pro'],
+        ['name' => 'Assistant Premium', 'email' => 'assistant-premium@test.com', 'plan' => 'Premium'],
     ];
 
     public function run(): void
@@ -43,12 +43,9 @@ class AssistantUserSeeder extends Seeder
             $created[$data['email']] = $user;
         }
 
-        // user1 and user2 are friends
-        $user1 = $created['user1@test.com'];
-        $user2 = $created['user2@test.com'];
-
+        // free y pro son amigos
         Friendship::firstOrCreate(
-            ['requester_id' => $user1->id, 'addressee_id' => $user2->id],
+            ['requester_id' => $created['assistant-free@test.com']->id, 'addressee_id' => $created['assistant-pro@test.com']->id],
             ['status' => 'accepted'],
         );
     }

@@ -1,10 +1,10 @@
 import { createClient } from 'redis';
 import { Server } from 'socket.io';
 import { config } from '../config';
-import { logger } from '../logger';
+import { log } from '../logger';
 import { redisChannelToRoom } from './channels';
 
-const PATTERNS = ['user.*', 'room.*', 'workspace.*', 'enterprise.*'];
+const PATTERNS = ['user.*', 'room.*', 'workspace.*', 'enterprise.*', 'assistant.*'];
 
 export async function startSubscriber(io: Server): Promise<void> {
   const client = createClient({
@@ -23,10 +23,10 @@ export async function startSubscriber(io: Server): Promise<void> {
         const room = redisChannelToRoom(channel);
         io.to(room).emit(event, data);
       } catch (err) {
-        logger.error('redis.parse_error', { channel, error: (err as Error).message });
+        log.error('redis.parse_error', { channel, error: (err as Error).message });
       }
     });
 
-    logger.info('redis.subscribed', { channel: pattern });
+    log.info('redis.subscribed', { channel: pattern });
   }
 }

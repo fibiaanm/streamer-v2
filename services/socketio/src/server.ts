@@ -3,13 +3,14 @@ import { Server } from 'socket.io';
 import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { config } from './config';
-import { logger } from './logger';
+import { log } from './logger';
 import { authMiddleware } from './middleware/auth';
 import { startSubscriber } from './redis/subscriber';
 import { registerRoomHandlers } from './handlers/roomHandler';
 import { registerPresenceHandlers } from './handlers/presenceHandler';
-import { registerEnterpriseHandlers } from './handlers/enterpriseHandler'
+import { registerEnterpriseHandlers } from './handlers/enterpriseHandler';
 import { registerWorkspaceHandlers }  from './handlers/workspaceHandler';
+import { registerAssistantHandlers }  from './handlers/assistantHandler';
 
 const httpServer = http.createServer();
 
@@ -26,15 +27,16 @@ io.on('connection', (socket) => {
   const userId = socket.data.user.sub as number;
   socket.join('user.' + userId);
 
-  logger.info('socket.connected', { socket_id: socket.id, user_id: userId });
+  log.info('socket.connected', { socket_id: socket.id, user_id: userId });
 
   registerRoomHandlers(socket);
   registerPresenceHandlers(socket);
   registerEnterpriseHandlers(socket);
   registerWorkspaceHandlers(socket);
+  registerAssistantHandlers(socket);
 
   socket.on('disconnect', (reason) => {
-    logger.info('socket.disconnected', { socket_id: socket.id, reason });
+    log.info('socket.disconnected', { socket_id: socket.id, reason });
   });
 });
 
@@ -50,11 +52,11 @@ async function bootstrap(): Promise<void> {
   await startSubscriber(io);
 
   httpServer.listen(config.PORT, () => {
-    logger.info('server.started', { port: config.PORT });
+    log.info('server.started', { port: config.PORT });
   });
 }
 
 bootstrap().catch((err) => {
-  logger.error('server.fatal', { error: (err as Error).message });
+  log.error('server.fatal', { error: (err as Error).message });
   process.exit(1);
 });

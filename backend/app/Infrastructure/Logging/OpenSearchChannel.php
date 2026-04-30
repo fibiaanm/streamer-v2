@@ -2,8 +2,10 @@
 
 namespace App\Infrastructure\Logging;
 
+use Illuminate\Support\Facades\Context;
 use Monolog\Level;
 use Monolog\Logger;
+use Monolog\LogRecord;
 use OpenSearch\ClientBuilder;
 
 class OpenSearchChannel
@@ -20,6 +22,12 @@ class OpenSearchChannel
             level: Level::fromName(strtolower($config['level'])),
         );
 
-        return new Logger('opensearch', [$handler]);
+        $logger = new Logger('opensearch', [$handler]);
+
+        $logger->pushProcessor(function (LogRecord $record): LogRecord {
+            return $record->with(extra: array_merge($record->extra, Context::all()));
+        });
+
+        return $logger;
     }
 }

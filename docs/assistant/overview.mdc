@@ -221,10 +221,11 @@ Las categorías son **dinámicas**: el Memory Worker las crea orgánicamente. An
 | Tool | Descripción |
 |---|---|
 | `get_events(filters?)` | Lista eventos — filtros: `type`, `status`, `from`, `to` |
-| `create_event(content, event_at, type, reminders[], recurrence_rule?, event_end?)` | Crea evento con sus disparos. `reminders` son offsets relativos: `[{ offset: "-7 days", message: "..." }]` — el worker los convierte a UTC |
+| `create_event(content, event_at, type, reminders[], recurrence_rule?, event_end?, referenceable?)` | Crea evento con sus disparos. `reminders` son offsets relativos. `referenceable: { type: 'list' \| 'expense', id }` vincula el evento a una entidad existente |
 | `update_event(id, changes)` | Modifica campos: `content`, `event_at`, `event_end`, `type`, `recurrence_rule` |
 | `cancel_event(id, series?)` | Cancela esta ocurrencia (`series=false`) o toda la serie (`series=true`) |
 | `snooze_event(id, until)` | Pospone hasta una fecha |
+| `detach_event_reference(event_id)` | Desasocia el evento de su referencia (lista, gasto…) sin cancelarlo |
 
 ### Listas
 | Tool | Descripción |
@@ -250,14 +251,25 @@ Las categorías son **dinámicas**: el Memory Worker las crea orgánicamente. An
 ### Amigos
 | Tool | Descripción |
 |---|---|
-| `get_friends()` | Lista amigos aceptados con su label y datos básicos |
-| `send_friend_request(identifier)` | Envía solicitud por email, username o friend_code. QR (solo web) encapsula el friend_code |
+| `get_friends(category?)` | Lista amigos aceptados con su label y datos básicos; `category` filtra por nombre de categoría |
+| `send_friend_request(identifier)` | Envía solicitud por email, username o friend_code |
 | `respond_to_friend_request(friendship_id, accept)` | Acepta o rechaza una solicitud entrante |
 | `set_friend_label(friend_id, label)` | Establece o actualiza el apodo del amigo |
 | `send_reminder_to_friend(friend_id, content, suggested_at?)` | Envía solicitud de recordatorio a un amigo |
 | `respond_to_reminder_request(request_id, accept)` | Acepta o rechaza un recordatorio recibido de un amigo |
 | `share_list(list_id, friend_id, permission)` | Comparte una lista — `permission: read \| write` |
 | `respond_to_list_share(share_id, accept)` | Acepta o rechaza una lista compartida |
+| `get_friend_code()` | Retorna el friend_code propio y la URL para compartirlo |
+| `regenerate_friend_code()` | Genera un nuevo friend_code (el anterior deja de aceptar nuevas solicitudes; las pendientes existentes no se ven afectadas) |
+
+### Categorías de amigos
+| Tool | Descripción |
+|---|---|
+| `get_friend_categories()` | Lista categorías del usuario con conteo de miembros |
+| `create_friend_category(name)` | Crea una nueva categoría |
+| `delete_friend_category(category_id)` | Elimina la categoría; los amigos quedan intactos |
+| `add_friend_to_category(friend_id, category_id)` | Añade un amigo a una categoría |
+| `remove_friend_from_category(friend_id, category_id)` | Quita un amigo de una categoría |
 
 ### Usuario
 | Tool | Descripción |
@@ -291,36 +303,50 @@ LLM crea el evento con 3 disparos:
   → mayo 15 — "Hoy es el cumpleaños de Carlos"
 ```
 
-### Recurrencia
-- Cada ocurrencia es su propia fila en `events` — solo existe **una a la vez**
-- `recurrence_rule` usa formato **iCal RRULE** (ej. `FREQ=WEEKLY;BYDAY=MO,WE`, `FREQ=MONTHLY;BYMONTHDAY=15`)
-- El cálculo de la siguiente ocurrencia usa la librería **`rrule.js`** en el Node worker
-- La `recurrence_rule` viaja con cada fila
-- Cuando todos los disparos de un evento se ejecutan, el sistema calcula el siguiente `event_at` y crea una nueva fila
+### Recurrencia — modelo master + ocurrencias virtuales
+
+`recurrence_rule` usa formato **iCal RRULE** (ej. `FREQ=WEEKLY;BYDAY=MO,WE`, `FREQ=MONTHLY;BYMONTHDAY=15`). La expansión de RRULE se hace en PHP con `rlanvin/php-rrule` (no en Node).
+
+**Tipos de fila en `assistant_events`:**
+
+| `series_id` | `occurrence_at` | `recurrence_rule` | Tipo |
+|---|---|---|---|
+| null | null | null | Evento único |
+| null | null | set | Master de serie |
+| set | set | null | Ocurrencia materializada |
+
+El master nunca se expone directamente al LLM. `GetEventsController` expande el RRULE y devuelve ocurrencias reales (si están materializadas) o virtuales (ID con prefijo `"v_{series_id}_{YYYY-MM-DD}"`).
+
+**Ventana materializada:** un job diario (`MaterializeSeriesWindow`) crea filas reales para las próximas 2 semanas de cada serie activa. Esto garantiza que los `EventReminder` existan para el sistema de disparos.
 
 ```
-Último disparo fired
-        │
-        ▼
-¿tiene recurrence_rule?
-    sí ──> calcula next event_at desde recurrence_rule
-           crea nuevo evento (mismo content, type, recurrence_rule)
-           LLM genera los disparos para esa nueva ocurrencia
-    no ──> termina
+get_events(from, to)
+    │
+    ├── Cargar masters con recurrence_rule
+    │   └── expandir RRULE entre from y to
+    │       ├── si existe fila real (series_id + occurrence_at) → usar fila real
+    │       ├── si fila real tiene status=cancelled → omitir
+    │       └── si no existe → emitir ocurrencia virtual id="v_{id}_{date}"
+    │
+    ├── Cargar eventos únicos en [from, to]
+    └── Devolver lista unificada ordenada por event_at
 ```
 
 ### Acciones sobre eventos recurrentes
 
-| Acción | Comportamiento |
-|---|---|
-| **Cancelar solo esta** | `status = cancelled` → sistema crea la siguiente ocurrencia normalmente |
-| **Cancelar serie** | `status = cancelled` → no se crea nada más |
-| **Posponer hasta X** | Calcula la ocurrencia cuyo `event_at` cae después de X → crea ese evento directamente |
+| Acción | `series` | Comportamiento |
+|---|---|---|
+| Cancelar esta ocurrencia | false | Materializa excepción `status=cancelled` (si era virtual) o actualiza fila |
+| Cancelar serie completa | true | `master.status = cancelled` + elimina materializadas futuras |
+| Posponer | — | Cancela esta ocurrencia, crea la siguiente que caiga después de `until` |
+| Modificar esta ocurrencia | — | Materializa como excepción con los cambios |
 
 ### Dispatch de disparos
-- Al crear cada ocurrencia se despacha un **delayed job** (Redis) por cada `event_reminder`
-- Un **cron cada minuto** (Laravel Scheduler) barre como safety net los disparos que no hayan corrido
-- Cuando un disparo se ejecuta, crea un mensaje en la conversación del usuario y hace broadcast por WebSocket
+- Al crear cada ocurrencia materializada se despacha un **delayed job** (Redis) por cada `EventReminder`
+- **`MaterializeSeriesWindow`** (diario): materializa las próximas 2 semanas para cada serie activa
+- **`SweepPendingReminders`** (cada minuto, safety net): barre reminders `pending` con `fire_at <= now()`
+- Cuando un disparo se ejecuta: crea mensaje `role: system` en la conversación + broadcast WebSocket
+- Si el evento tiene `referenceable`, el mensaje incluye el label dinámico de la entidad (ej: "5 ítems pendientes en 'Supermercado'")
 
 ---
 
@@ -352,9 +378,23 @@ Cada usuario puede tener una red de amigos con la que compartir listas y enviars
 3. B acepta → `accepted_at` se llena; B puede ver y editar la lista según el permiso asignado
 4. Cada ítem registra `added_by_user_id` para saber quién añadió qué
 
+### Categorías de amigos
+El usuario puede organizar su lista de amigos en grupos personales: "Familia", "Trabajo", "Universidad", etc. Un amigo puede pertenecer a múltiples categorías. Las categorías son privadas — cada usuario gestiona las suyas independientemente.
+
+### Flujo de referencia de eventos a entidades
+Un evento puede vincularse opcionalmente a una entidad (lista, gasto) via el campo `referenceable` (morph polimórfico). Cuando el disparo se ejecuta, el mensaje incluye el estado actual de la entidad en ese momento.
+
+### Flujo de notificación de referencias huérfanas
+Cuando una entidad referenciada se elimina o una lista se completa, el assistant **nunca actúa solo**. Crea un mensaje de sistema con `actions_json` consultando al usuario:
+
+- **Entidad eliminada:** "Eliminé la lista 'X'. Tenías un recordatorio el [fecha]. ¿Cancelo el recordatorio o lo mantengo sin referencia?"
+- **Lista completada:** "Completaste 'X'. Tenías un recordatorio el [fecha]. ¿Lo cancelamos o lo mantenemos?"
+
+El trait `NotifiesOrphanedEventReferences` implementa esta lógica y es reutilizable en cualquier modelo que entre al morph. La tool `detach_event_reference(event_id)` permite desasociar manualmente en cualquier momento de la conversación.
+
 ---
 
-## Esquema de BD — 14 tablas
+## Esquema de BD — 16 tablas
 
 ### Modificadas
 ```
@@ -362,7 +402,7 @@ users
   + timezone          string IANA, default 'UTC'
   + default_currency  string ISO 4217, default 'USD'  — moneda cuando el usuario no especifica
   + username          string unique nullable            — para descubrimiento de amigos
-  + friend_code       string unique                    — hash corto auto-generado, regenerable desde web
+  + friend_code       string unique                    — hash corto auto-generado, regenerable via tool o web
   + whatsapp_phone    string nullable (fase 2)
 ```
 
@@ -406,13 +446,16 @@ memories
 -- Eventos
 events
   id, user_id FK
-  content, event_at datetime UTC
-  event_end     datetime UTC nullable  — para bloques de tiempo con duración (ej: clase 2-4pm)
-  type          string (ref soft a type_catalogs)
-  recurrence_rule string nullable
-  status        enum: active | cancelled | completed
-  sender_id     FK users nullable (si lo envió un amigo)
+  content, event_at  datetime UTC
+  event_end          datetime UTC nullable  — para bloques de tiempo con duración (ej: clase 2-4pm)
+  type               string (ref soft a type_catalogs)
+  recurrence_rule    string nullable
+  status             enum: active | cancelled | completed
+  sender_id          FK users nullable (si lo envió un amigo)
+  referenceable_type string nullable  — morph: clase PHP del modelo referenciado
+  referenceable_id   string nullable  — morph: ID del modelo referenciado
   created_at, updated_at
+  -- alias legibles via MorphTypeMap: 'list' → AssistantList, 'expense' → Expense
 
 event_reminders
   id, event_id FK
@@ -469,6 +512,19 @@ friend_labels
   created_at, updated_at
   UNIQUE(user_id, friend_user_id)
 
+friend_categories
+  id
+  user_id FK users
+  name string
+  created_at, updated_at
+  UNIQUE(user_id, name)
+
+friend_category_members
+  category_id    FK friend_categories
+  friend_user_id FK users
+  created_at
+  PRIMARY KEY (category_id, friend_user_id)
+
 -- Colaboración
 list_shares
   id
@@ -490,3 +546,10 @@ reminder_requests
   message_id       FK messages nullable — el mensaje mostrado al receptor
   created_at, updated_at
 ```
+
+---
+
+Ver `docs/assistant/prompts.mdc` para los system prompts del Main LLM y el Memory Worker.
+
+claude --resume dd30d6f8-9d4b-4b40-afd8-6d61135eb7eb - executor
+claude --resume 5c29d87b-17dc-45c9-97a1-b1149fceb621 - mentalist

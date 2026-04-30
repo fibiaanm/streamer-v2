@@ -1,0 +1,205 @@
+---
+description: Etapa 03c — UI polish del chat, layout universal con sidebar, planes y capacidades
+type: stage
+stage: "assistant-03c"
+status: completada
+depends_on: assistant-03b
+---
+
+# Etapa 03c — UI Polish
+
+## Objetivo
+
+Pulir la UI del chat hasta un estado de producto usable: input flotante, scroll inteligente, flujo de mensajes sin recarga, layout universal con sidebar animado, y sistema de planes/capacidades en frontend.
+
+---
+
+## AppLayout — sidebar universal
+
+`AppLayout.vue` gestiona el sidebar de forma genérica. Cualquier vista lo activa pasando `#sidebar` como slot.
+
+```vue
+<AppLayout>
+  <template #sidebar>
+    <MiSidebar />
+  </template>
+  <template #header-left>...</template>
+  <template #header-right>...</template>
+  <!-- contenido principal -->
+</AppLayout>
+```
+
+### Comportamiento
+
+- **Desktop (≥768px):** sidebar `position: fixed` overlay + `padding-left: 19.5rem` animado en el contenedor principal (`transition-[padding-left] duration-200`). El contenido se desplaza suavemente cuando el sidebar abre/cierra.
+- **Mobile (<768px):** sidebar overlay con backdrop `bg-black/30`. Cierra al tocar el fondo.
+- **Default:** abierto en desktop, cerrado en mobile.
+- **Breakpoint transition:** al redimensionar, `isDesktop` cambia sin tocar el DOM del sidebar — solo cambia si aparece el backdrop y si el `padding-left` se aplica. Sin saltos, sin destruir/recrear el componente.
+- **Hamburger:** inyectado automáticamente por `AppLayout` en `#left` del header cuando existe `#sidebar` slot.
+
+### Animaciones
+
+```css
+/* Slide desde la izquierda */
+.sb-slide-enter-from, .sb-slide-leave-to { transform: translateX(-110%); }
+/* Fade del backdrop */
+.sb-fade-enter-from, .sb-fade-leave-to { opacity: 0; }
+```
+
+### Panel visual
+
+```
+fixed left-3 top-3 bottom-3 w-72
+bg-white/6 backdrop-blur-xl rounded-2xl
+```
+
+Mismo estilo que los dropdowns de la app.
+
+---
+
+## Chat input flotante
+
+`ChatInput.vue` flota sobre los mensajes con `absolute bottom-4 left-4 right-4`.
+
+- Glass `rounded-3xl` sin contenedor exterior (sin border-t, sin fondo sólido)
+- Textarea `flex-1` crece con el contenido via `autoResize` (JS, `scrollHeight`)
+- Contenedor con `max-h-[40vh]` — cuando llega al máximo, el textarea activa su propio scroll
+- Barra inferior: botón paperclip ghost (inhabilitado) a la izquierda, botón send blanco circular a la derecha
+- Icono send: avión de papel diagonal con `translate(-1.5, 1.5)` para equilibrio visual óptico
+- Focus en el input al cargar sesión y tras enviar mensaje (`defineExpose({ focus })`)
+
+### Padding dinámico del área de mensajes
+
+`ChatPanel` observa la altura del input con `ResizeObserver`. Pasa `bottomOffset` a `MessageList` como `padding-bottom` en inline style. Así el último mensaje nunca queda oculto aunque el input crezca.
+
+```ts
+// ChatPanel.vue
+resizeObserver = new ResizeObserver(() => {
+  inputHeight.value = dom.offsetHeight + 32
+})
+```
+
+---
+
+## Scroll de mensajes
+
+`MessageList.vue` usa `pretty-scroll` y scroll automático inteligente.
+
+### `pretty-scroll` (utility CSS global)
+
+Scrollbar invisible en reposo. Aparece al hacer scroll (clase `scrolling` añadida por JS) y desaparece 800ms después.
+
+```css
+@utility pretty-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &.scrolling { scrollbar-color: rgb(255 255 255 / 0.25) transparent; }
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: transparent; }
+  &.scrolling::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.25); }
+}
+```
+
+### Scroll automático
+
+- Al cargar sesión: `scrollToBottom(false)` — instantáneo (`behavior: 'instant'`), llamado con `setTimeout(..., 50)` para que el `ResizeObserver` haya fijado `bottomOffset` antes de medir `scrollHeight`
+- Al llegar mensaje nuevo: `scrollToBottom(true)` — smooth
+- `isTyping → true`: scroll suave para mostrar el indicador
+- `isTyping → false`: **no scrollea** — evita el salto cuando el indicador desaparece antes de que llegue el mensaje
+
+---
+
+## Flujo de mensajes sin recarga
+
+**Antes:** `MessageReceived` WS solo traía `{ sessionId }` → el frontend recargaba toda la sesión → borraba el array → scroll up → mensajes vuelven → scroll down.
+
+**Ahora:** `SaveMessageController` emite el mensaje completo en el evento:
+
+```php
+Redis::connection('pubsub')->publish("assistant.{$session->getHashId()}", json_encode([
+  'event' => 'MessageReceived',
+  'data'  => [
+    'sessionId' => $session->getHashId(),
+    'message'   => [
+      'id' => ..., 'role' => ..., 'content' => ..., 'channel' => ...,
+      'actions' => [], 'metadata' => [], 'created_at' => ...,
+    ],
+  ],
+]));
+```
+
+`useAssistantSocket` recibe `data.message` y llama `appendMessage(data.message)` directamente. Sin reload, sin clear, sin scroll jump.
+
+`loadMessages` ya no borra el array al recargar. `clearMessages()` se llama explícitamente solo al cambiar de sesión.
+
+---
+
+## Planes y capacidades
+
+### Planes del assistant
+
+| Plan | Precio/mes | Precio/año |
+|---|---|---|
+| Free | $0 | — |
+| Pro | $4 | $38.40 |
+| Premium | $5 | $48 |
+
+Estrategia de señuelo: Pro a $4 tiene límites significativos; Premium a $5 (solo $1 más) es casi ilimitado.
+
+### Usuarios de prueba
+
+| Email | Plan | Password |
+|---|---|---|
+| `assistant-free@test.com` | Free | `password` |
+| `assistant-pro@test.com` | Pro | `password` |
+| `assistant-premium@test.com` | Premium | `password` |
+
+Seeder: `AssistantPlanSeeder` + `AssistantUserSeeder`. Los usuarios de assistant no tienen producto `core`.
+
+### Límites completos (en `limits_json`)
+
+| Clave | Tipo | Free | Pro | Premium |
+|---|---|---|---|---|
+| `messages_daily` | daily | 15 | 60 | ∞ |
+| `memory_total` | permanent | 15 | 60 | ∞ |
+| `memory_categories` | permanent | 2 | 5 | ∞ |
+| `friends` | permanent | 5 | 30 | ∞ |
+| `friend_categories` | permanent | 2 | 5 | ∞ |
+| `lists` | permanent | 3 | 15 | ∞ |
+| `list_items_max` | permanent | 15 | 50 | ∞ |
+| `events_monthly` | monthly | 20 | 100 | ∞ |
+| `reminders_active` | permanent | 3 | 15 | ∞ |
+| `context_messages` | permanent | 20 | 60 | 200 |
+| `storage_mb` | permanent | 0 | 2048 | 20480 |
+| `upload_monthly_mb` | monthly | 0 | 512 | 4096 |
+| `upload_max_mb` | permanent | 0 | 20 | 50 |
+| `expenses_enabled` | boolean | ✗ | ✓ | ✓ |
+| `custom_instructions` | boolean | ✗ | ✗ | ✓ |
+| `export_enabled` | boolean | ✗ | ✓ | ✓ |
+
+### `useAssistantCapabilities`
+
+`composables/assistant/useAssistantCapabilities.ts` — lee `session.enterprise.products.assistant.limits` estáticamente y expone variables nombradas:
+
+```ts
+const { canUploadFiles, messagesDaily, storageMb, isPremium, ... } = useAssistantCapabilities()
+```
+
+Variables booleanas: `canUploadFiles`, `canUseExpenses`, `canUseCustomInstructions`, `canExport`, `isPro`, `isPremium`, `isPaid`.
+Variables numéricas: `messagesDaily`, `memoryTotal`, `storagesMb`, `uploadMonthlyMb`, `uploadMaxMb`, etc.
+
+### `useAppsEnabled`
+
+`composables/core/useAppsEnabled.ts` — lee `session.enterprise.products` y expone:
+
+```ts
+const { hasAssistant, hasCore } = useAppsEnabled()
+```
+
+`AppMenuSwitcher` filtra las apps visibles según el producto que requiere cada ruta (`meta.appProduct`). Un usuario solo-assistant no ve Workspaces ni Image Studio.
+
+---
+
+## AppDrawer (eliminado de AssistantView)
+
+El componente `AppDrawer.vue` sigue existiendo para uso puntual. `AssistantView` ya no lo usa — el sidebar está gestionado por `AppLayout`.

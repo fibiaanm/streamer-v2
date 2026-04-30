@@ -18,7 +18,9 @@ status: activo
 | 01 | Fundación | `stages/01-foundation.mdc` | streamer 03, 10 |
 | 02 | API Core | `stages/02-api-core.mdc` | 01, streamer 05 |
 | 03 | Node Worker — Texto | `stages/03-worker.mdc` | 02 |
-| 04 | Tools — Eventos | `stages/04-tools-events.mdc` | 03 |
+| 03b | Frontend Mock (chat UI + WS) | `stages/03b-frontend-mock.mdc` | 03 |
+| 03c | UI Polish (layout, scroll, planes) | `stages/03c-ui-polish.mdc` | 03b |
+| 04 | Tools — Eventos | `stages/04-tools-events.mdc` | 03c |
 | 05 | Tools — Listas | `stages/05-tools-lists.mdc` | 04 |
 | 06 | Tools — Gastos | `stages/06-tools-expenses.mdc` | 04 |
 | 07 | Tools — Social | `stages/07-tools-social.mdc` | 05, 06 |
@@ -28,9 +30,9 @@ status: activo
 
 ## Fases
 
-### Fase A — Infraestructura y conversación base (etapas 01–03)
-DB + modelos + API de mensajes + worker Node con LLMClient.
-**Resultado:** chat de texto funcional end-to-end. El usuario escribe, el LLM responde via WebSocket.
+### Fase A — Infraestructura y conversación base (etapas 01–03b)
+DB + modelos + API de mensajes + worker Node con LLMClient + UI del chat con mock echo.
+**Resultado:** chat de texto funcional end-to-end. El usuario escribe, el LLM (o echo mock) responde via WebSocket con UI completa.
 
 ### Fase B — Tools de productividad (etapas 04–06)
 Eventos con recurrencia + listas + gastos.

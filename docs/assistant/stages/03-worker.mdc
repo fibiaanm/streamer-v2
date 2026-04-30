@@ -2,7 +2,7 @@
 description: Etapa 03 — Node Worker: LLMClient, adapters, loop principal y Memory Worker
 type: stage
 stage: "assistant-03"
-status: pendiente
+status: completada
 depends_on: assistant-02
 ---
 
@@ -36,12 +36,15 @@ services/assistant-worker/
     api/
       LaravelClient.ts        — HTTP client para llamar al Laravel API
     redis/
-      subscriber.ts           — escucha jobs de Laravel
-      publisher.ts            — publica respuestas a Laravel
+      subscriber.ts           — escucha jobs de Laravel (BRPOP)
   package.json
   tsconfig.json
   Dockerfile
 ```
+
+> **Arquitectura de comunicación**: Node solo habla con PHP vía HTTP (LaravelClient). Node nunca publica a Redis.
+> La cadena de eventos es: Node → POST /internal/… → PHP → Redis PUBLISH `assistant.{sessionHashId}` → Socket.io → WebSocket al cliente.
+> Node delega los eventos WebSocket a PHP llamando endpoints internos.
 
 ---
 
@@ -117,12 +120,12 @@ Es el primer intercambio con este usuario. No hay memorias previas.
 
 ```
 1. Recibe job { conversation_id, message_id, user_id } desde Redis
-2. Publica MessageProcessing (typing) al canal WebSocket
-3. Carga contexto:
+2. Carga contexto vía GET /internal/context/{user_id}:
    a. User (name, timezone, default_currency, plan_tier)
    b. Memories (category + description, sin content)
    c. Últimos 20 mensajes de la sesión (roles: user|assistant|system|tool_call|tool_result)
    d. Trunca si supera ~6000 tokens estimados (Math.ceil(chars/4))
+3. POST /internal/conversations/{id}/typing → PHP publica MessageProcessing a user.{userId} via Redis
 4. Loop (máx 10 iteraciones):
    a. Llama LLMClient.call({ messages, tools, model })
    b. Si stopReason = 'tool_use':
@@ -131,12 +134,12 @@ Es el primer intercambio con este usuario. No hay memorias previas.
       - Guarda tool_result en messages (role: tool_result)
       - Continúa loop
    c. Si stopReason = 'end_turn':
-      - Guarda respuesta en messages (role: assistant)
-      - Publica MessageReceived al canal WebSocket
+      - POST /internal/conversations/{id}/messages { role: assistant, content }
+      - PHP guarda mensaje y publica MessageReceived a user.{userId} via Redis
       - Termina loop
 5. Si se alcanzan 10 iteraciones sin end_turn:
-   - Guarda mensaje de error genérico (role: assistant)
-   - Publica MessageReceived
+   - POST /internal/conversations/{id}/messages con mensaje de error genérico
+   - PHP guarda y publica MessageReceived
 ```
 
 En esta etapa (sin tools) el loop siempre termina en la primera iteración.
@@ -188,6 +191,9 @@ El system prompt del Memory Worker (`memory-worker.njk`) instruye a:
 ## Endpoints internos de Laravel (solo para el worker)
 
 ```
+GET  /api/v1/assistant/internal/context/{userId}
+POST /api/v1/assistant/internal/conversations/{id}/typing
+POST /api/v1/assistant/internal/conversations/{id}/messages
 GET  /api/v1/assistant/internal/unprocessed-messages/{userId}
 GET  /api/v1/assistant/internal/memories/{userId}
 PUT  /api/v1/assistant/internal/memories/{userId}/{category}
@@ -195,6 +201,27 @@ POST /api/v1/assistant/internal/mark-processed
 ```
 
 Autenticados con `ASSISTANT_SERVICE_TOKEN`. Middleware `AssistantServiceAuth`.
+
+El endpoint `/typing` publica `{ event: 'MessageProcessing', data: { sessionId } }` al canal Redis `assistant.{sessionHashId}`.
+El endpoint `/messages` (role: assistant) publica `{ event: 'MessageReceived', data: { sessionId } }` al canal Redis `assistant.{sessionHashId}`.
+Socket.io suscribe al patrón `assistant.*` y retransmite al room `assistant.{sessionHashId}` vía WebSocket.
+
+---
+
+## EchoAdapter (mock LLM)
+
+Activado con `LLM_ECHO_MODE=true` en el entorno. Bypass completo del LLM real.
+
+```ts
+// services/assistant-worker/src/llm/adapters/EchoAdapter.ts
+class EchoAdapter {
+  buildRequest(state): string    // extrae el último mensaje role:user
+  async call(text): Promise<string>  // 1s delay, devuelve el mismo texto
+  normalizeResponse(raw): StandardResponse  // stopReason: 'end_turn'
+}
+```
+
+`LLMClient.getAdapter()` devuelve `new EchoAdapter() as unknown as LLMAdapter` si la variable está activa. Útil para desarrollo frontend sin créditos de LLM.
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: Etapa 07-a — OpenSearch como destino de logs de Laravel y SocketIO
+description: Etapa 07-a — Logging centralizado con OpenSearch (Laravel, Node workers, nginx via Fluentbit)
 type: stage
 stage: 07-a
 status: completado
@@ -10,298 +10,205 @@ depends_on: 05
 
 ## Objetivo
 
-Conectar los sistemas de log de Laravel y SocketIO a OpenSearch.
-Laravel no escribe en `storage/logs/` — el único destino es el índice OpenSearch.
-SocketIO ya tiene un logger centralizado (Winston, etapa 05) — aquí se le añade el transport de OpenSearch.
+Logging centralizado en OpenSearch para todos los servicios. Cada servicio escribe a su propio índice diario. El campo `service` diferencia el origen en Dashboards.
 
 ---
 
-## Flujo
+## Forma del documento — todos los servicios
 
-```
-Request → PHP
-  └── Log::warning('auth.login_failed', [...])
-            │
-       Monolog Logger
-            │
-       OpenSearchHandler (HTTP POST)
-            │
-     opensearch:9200
-     índice: streamer-logs-YYYY.MM.DD
-            │
-     OpenSearch Dashboards :5601
+```json
+{
+  "@timestamp": "2026-04-30T10:30:00Z",
+  "service":    "laravel | socketio | assistant-worker | nginx",
+  "level":      "info | warning | error | debug",
+  "message":    "event.name",
+  "data":       "{\"key\":\"value\"}",
+  "request_id": "uuid-v4-..."
+}
 ```
 
-El `request_id` generado por `RequestId` middleware se inyecta automáticamente en cada
-log record vía `Illuminate\Log\Context\Processor` (built-in Laravel 11+).
-No se necesita ningún processor manual.
+- **`message`** — nombre del evento/acción (`"auth.login_failed"`, `"job.received"`)
+- **`data`** — JSON string con el detalle estructurado que pasa el caller (opcional). Puede buscarse como string en Dashboards
+- **`request_id`** — al root del documento, propagado desde el request HTTP original
+- **`channel`** — solo en Laravel (canal de Monolog)
+- Sin stack traces — documentos grandes son rechazados silenciosamente por OpenSearch
 
 ---
 
-## Índice compartido — todos los servicios
+## Índices por servicio
 
-Laravel y SocketIO escriben al **mismo índice** `streamer-logs-YYYY.MM.DD`.
-El campo `service` diferencia el origen en Dashboards.
+| Servicio | Índice | Origen |
+|---|---|---|
+| Laravel (php, queue, scheduler) | `streamerv2-php-YYYY.MM.DD` | `OpenSearchHandler` vía Monolog |
+| Socket.io | `streamerv2-socketio-YYYY.MM.DD` | `OpenSearchTransport` vía Winston |
+| Assistant Worker | `streamerv2-assistant-YYYY.MM.DD` | `OpenSearchTransport` vía Winston |
+| nginx | `streamerv2-nginx-YYYY.MM.DD` | Fluentbit tail → OpenSearch |
 
-```
-streamer-logs-2026.04.15/
-  ├── { service: "laravel",  message: "auth.login_failed", ... }
-  ├── { service: "socketio", message: "socket.connected",  ... }
-  └── ...
-```
+---
 
-### Documento Laravel
+## PHP / Laravel
 
-```json
-{
-  "@timestamp": "2026-04-15T10:30:00+00:00",
-  "service":    "laravel",
-  "level":      "warning",
-  "channel":    "local",
-  "message":    "auth.login_failed",
-  "context":    { "email": "user@example.com" },
-  "extra":      { "request_id": "uuid-v4-..." }
-}
+### Convención de uso
+
+```php
+// Primer arg: nombre del evento. Segundo: array con el detalle.
+Log::info('auth.login_success', ['user_id' => $user->id]);
+Log::error('enterprises.create_role_unexpected', ['exception' => $e]);
+Log::warning('send_invitation_email.not_found', ['invitation_id' => $id]);
 ```
 
-### Documento SocketIO
+El `OpenSearchHandler` serializa el array a JSON string bajo el campo `data`. El caller no necesita hacer nada especial. Los objetos `Throwable` se normalizan a `"ClassName: message in file:line"`.
 
-```json
-{
-  "@timestamp": "2026-04-15T10:30:01+00:00",
-  "service":    "socketio",
-  "level":      "info",
-  "message":    "socket.connected",
-  "context":    { "socket_id": "abc123", "user_id": "He3bqD" }
-}
+### Pipeline
+
+```
+Log::error('event', ['exception' => $e])
+  │
+  ▼
+Monolog Logger (canal "opensearch")
+  │
+  ├─ Processor: Context::all() → record.extra
+  │   (request_id llega aquí automáticamente vía RequestId middleware)
+  │
+  ▼
+OpenSearchHandler::write(LogRecord $record)
+  ├─ normalizeContext($record->context) → JSON string → campo "data"
+  ├─ $record->extra → campos al root (request_id, etc.)
+  └─ POST a streamerv2-php-YYYY.MM.DD
 ```
 
-Índice diario: `streamer-logs-YYYY.MM.DD`
-Dynamic mapping habilitado (sin schema explícito — local dev).
+### Archivos clave
+
+```
+backend/app/Infrastructure/Logging/
+├── OpenSearchHandler.php   ← Monolog handler: serializa context como "data" JSON string
+│                              extra va al root. Silent fail si OS está caído.
+├── OpenSearchChannel.php   ← Factory invokable. Construye el Logger con el processor
+│                              que inyecta Context::all() en record.extra.
+└── AppLog.php              ← Helper opcional (mismo contrato, no reemplaza Log::)
+```
+
+### RequestId — propagación en PHP
+
+`app/Http/Middleware/RequestId.php` genera un UUID por request y llama `Context::add('request_id', $uuid)`. El `OpenSearchChannel` tiene un processor que ejecuta `Context::all()` en cada record — así `request_id` llega automáticamente al `extra` de cada log y al root del documento en OpenSearch.
+
+Laravel 11 propaga `Context` automáticamente a los jobs de cola, así que los logs emitidos dentro de un job también llevan el `request_id` original del request HTTP.
+
+---
+
+## Node — Socket.io y Assistant Worker
+
+### Convención de uso
+
+```typescript
+// Primer arg: nombre del evento. Segundo: objeto con el detalle (opcional).
+log.info('socket.connected', { socket_id: socket.id, user_id: userId });
+log.error('failed.to.process.job', { raw: raw.element, err });
+// Error objects se serializan automáticamente → { name, message }
+```
+
+### Wrapper tipado (`log`)
+
+Ambos servicios exponen un objeto `log` con firma estricta:
+
+```typescript
+log.info(message: string, data?: Record<string, unknown>)
+log.warn(...)
+log.error(...)
+log.debug(...)
+```
+
+Internamente: `data` se normaliza (`Error` → `{ name, message }`) y se serializa a JSON string antes de pasarlo a Winston. El transport lo pone como campo `data` al root del documento.
+
+### Pipeline Node
+
+```
+log.error('event', { err })
+  │
+  ├─ normalizeForJson({ err }) → { err: { name, message } }
+  ├─ JSON.stringify(...)       → '{"err":{"name":"...","message":"..."}}'
+  │
+  ▼
+Winston logger.error(message, { data: '...' })
+  │
+  ▼
+OpenSearchTransport.log(info)
+  ├─ info.data    → campo "data" al root
+  ├─ contextStore (AsyncLocalStorage) → request_id al root (si existe)
+  └─ POST a streamerv2-{service}-YYYY.MM.DD
+```
+
+### Archivos clave
+
+```
+services/assistant-worker/src/logger.ts   ← log wrapper + AsyncLocalStorage + OpenSearchTransport
+services/socketio/src/logger.ts           ← idéntico (sin AsyncLocalStorage — socketio no consume jobs)
+```
+
+---
+
+## request_id — propagación PHP → Node (assistant-worker)
+
+El `request_id` del request HTTP viaja hasta los logs del worker Node a través del payload del job Redis.
+
+```
+HTTP Request
+  → RequestId middleware: Context::add('request_id', uuid)
+  → Controller: ProcessAssistantMessage::dispatch(...)
+  → Job handle():
+      Redis::lpush('assistant:jobs', json_encode([
+          ...,
+          'request_id' => Context::get('request_id'),
+      ]))
+
+assistant-worker (Node):
+  → brPop: recibe job con request_id
+  → withRequestId(job.request_id, async () => {
+        // todos los log.* dentro de aquí incluyen request_id en el doc OS
+    })
+  → AsyncLocalStorage propagates through the full async call chain
+  → OpenSearchTransport lee el store → request_id al root del documento
+```
+
+Resultado: los logs `job received`, `failed to process job` y cualquier log dentro de `ConversationWorker` comparten el mismo `request_id` que el request HTTP que los originó.
+
+---
+
+## nginx — Fluentbit
+
+nginx escribe access logs en JSON al volumen `nginx_logs`. Fluentbit hace tail y los shipper a OpenSearch.
+
+```
+nginx access log (JSON) → /var/log/nginx/access.log (volumen nginx_logs)
+  → Fluentbit tail + parser nginx_json
+  → POST a streamerv2-nginx-YYYY.MM.DD
+```
+
+Config: `docker/fluentbit/fluent-bit.conf` + `docker/fluentbit/parsers.conf`
 
 ---
 
 ## Infraestructura Docker
 
-Dos servicios nuevos en `docker-compose.yml`:
+| Servicio | Imagen | Puerto |
+|---|---|---|
+| `opensearch` | `opensearchproject/opensearch:2.13.0` | `9200` |
+| `opensearch-dashboards` | `opensearchproject/opensearch-dashboards:2.13.0` | `5601` |
+| `fluentbit` | `fluent/fluent-bit:latest` | — |
 
-### `opensearch`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen | `opensearchproject/opensearch:2.13.0` |
-| Modo | `single-node` |
-| Seguridad | `plugins.security.disabled=true` |
-| JVM heap | `-Xms512m -Xmx512m` |
-| Puerto externo | `${OPENSEARCH_PORT:-9200}:9200` |
-| Volumen | `opensearch_data:/usr/share/opensearch/data` |
-| Healthcheck | `curl -f http://localhost:9200/_cluster/health` |
-| start_period | 60s (OpenSearch tarda en iniciar) |
-| ulimits | `memlock: -1/-1`, `nofile: 65536/65536` |
-
-### `opensearch-dashboards`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen | `opensearchproject/opensearch-dashboards:2.13.0` |
-| Puerto externo | `${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601` |
-| Env | `OPENSEARCH_HOSTS=http://opensearch:9200` |
-| Env | `DISABLE_SECURITY_DASHBOARDS_PLUGIN=true` |
-| depends_on | `opensearch (service_healthy)` |
-
-Volumen nuevo: `opensearch_data:`
+Seguridad deshabilitada en ambos (`DISABLE_SECURITY_PLUGIN=true`). `single-node`. Volumen: `opensearch_data`.
 
 ---
 
-## Paquete PHP
-
-```bash
-composer require opensearch-project/opensearch-php:^2.0
-```
-
-Cliente HTTP oficial de OpenSearch para PHP. Maneja conexión, serialización y reintentos.
-Se instala dentro del contenedor `php` o directamente en `backend/`.
-
----
-
-## Archivos nuevos en backend/
-
-```
-backend/app/Infrastructure/
-└── Logging/
-    ├── OpenSearchHandler.php    ← Monolog handler
-    └── OpenSearchChannel.php   ← Factory invokable (driver custom de Laravel)
-```
-
-### `OpenSearchHandler.php`
-
-- Extiende `Monolog\Handler\AbstractProcessingHandler`
-- Método `write(LogRecord $record)`:
-  - `POST` a `{index}-YYYY.MM.DD` vía `$client->index([...])`
-  - Documento incluye campo `"service": "laravel"`
-  - Todo el body dentro de `try/catch (Throwable)` — silent fail si OpenSearch está caído
-- `use Throwable;` al inicio del archivo (convención del proyecto)
-
-### `OpenSearchChannel.php`
-
-- Clase invokable: `__invoke(array $config): Monolog\Logger`
-- Construye `OpenSearch\Client` con `ClientBuilder::create()->setHosts([$config['host']])->build()`
-- Instancia `OpenSearchHandler` con el cliente, índice y nivel
-- Devuelve `new Logger('opensearch', [$handler])`
-
----
-
-## SocketIO — añadir transport OpenSearch al logger existente
-
-En etapa 05 se creó `src/logger.ts` con Winston y un Console transport (stdout).
-En esta etapa se le añade el transport de OpenSearch — la interfaz del logger no cambia.
-
-### Paquete nuevo
-
-```bash
-npm install @opensearch-project/opensearch
-```
-
-El paquete `winston` ya fue instalado en etapa 05.
-
-### Modificación: `services/socketio/src/logger.ts`
-
-Se añade una clase `OpenSearchTransport` (extiende `winston.Transport`) al archivo existente.
-El transport se añade condicionalmente: si `OPENSEARCH_HOST` está definido, se activa.
-
-```ts
-// Nuevo transport — añadir al logger.ts existente
-class OpenSearchTransport extends Transport {
-  log(info: any, callback: () => void): void {
-    try {
-      client.index({
-        index: `${process.env.OPENSEARCH_INDEX ?? 'streamer-logs'}-${today()}`,
-        body: {
-          '@timestamp': new Date().toISOString(),
-          service:      'socketio',
-          level:        info.level,
-          message:      info.message,
-          context:      info.context ?? {},
-        },
-      });
-    } catch { /* silent fail */ }
-    callback();
-  }
-}
-
-// Añadir al logger existente si OPENSEARCH_HOST está disponible
-if (process.env.OPENSEARCH_HOST) {
-  logger.add(new OpenSearchTransport());
-}
-```
-
-Ningún otro archivo del servicio necesita cambios — ya usan `logger.*` desde etapa 05.
-
-### Variables de entorno
-
-`OPENSEARCH_HOST` y `OPENSEARCH_INDEX` ya existen en `backend/.env` y el servicio
-SocketIO usa `env_file: ./backend/.env` — no se requieren cambios de entorno.
-
----
-
-## Archivos modificados
-
-### `backend/config/logging.php`
-
-Canal nuevo:
-
-```php
-'opensearch' => [
-    'driver' => 'custom',
-    'via'    => \App\Infrastructure\Logging\OpenSearchChannel::class,
-    'level'  => env('LOG_LEVEL', 'debug'),
-    'host'   => env('OPENSEARCH_HOST', 'http://opensearch:9200'),
-    'index'  => env('OPENSEARCH_INDEX', 'streamer-logs'),
-],
-```
-
-Default actualizado:
-
-```php
-'default' => env('LOG_CHANNEL', 'opensearch'),
-```
-
-> El canal `emergency` sigue apuntando a `storage/logs/laravel.log`.
-> Es el fallback interno de Laravel antes de que el sistema de logs esté disponible.
-> No se modifica.
-
-### `backend/.env.example`
+## Variables de entorno relevantes
 
 ```env
-# ─── Logging ──────────────────────────────────────────────────────────────────
-LOG_CHANNEL=opensearch
+LOG_CHANNEL=stack               # stack = opensearch + stderr
 LOG_LEVEL=debug
-
-# ─── OpenSearch ───────────────────────────────────────────────────────────────
 OPENSEARCH_HOST=http://opensearch:9200
-OPENSEARCH_INDEX=streamer-logs
+OPENSEARCH_INDEX=streamerv2-php  # sobreescrito por cada servicio en docker-compose
 ```
 
-En la sección de puertos:
-
-```env
-OPENSEARCH_PORT=9200
-OPENSEARCH_DASHBOARDS_PORT=5601
-```
-
-### `make/dev.mk`
-
-Añadir al output de `make prepare`:
-
-```
-OpenSearch  → http://localhost:9200
-Dashboards  → http://localhost:5601
-```
-
-### `docs/stages/01-infra.mdc`
-
-- Añadir `opensearch` y `opensearch-dashboards` a la tabla de servicios
-- Añadir `opensearch_data` a la sección de volúmenes
-- Añadir los 2 ítems al checklist
-
----
-
-## Orden de implementación
-
-1. `docker-compose.yml` — infraestructura primero
-2. `composer require opensearch-project/opensearch-php:^2.0` (Laravel)
-3. `OpenSearchHandler.php` + `OpenSearchChannel.php` (Laravel)
-4. `config/logging.php` — registrar canal y cambiar default
-5. `backend/.env.example` — variables de entorno
-6. `npm install @opensearch-project/opensearch` en `services/socketio/`
-7. Modificar `services/socketio/src/logger.ts` — añadir `OpenSearchTransport`
-8. `make/dev.mk` + `docs/stages/01-infra.mdc` — DX y documentación
-
----
-
-## Checklist
-
-- [x] `opensearch` service en `docker-compose.yml` con single-node, security disabled, ulimits
-- [x] `opensearch-dashboards` service en `docker-compose.yml`
-- [x] Volumen `opensearch_data` declarado
-- [x] `composer require opensearch-project/opensearch-php:^2.0` ejecutado
-- [x] `backend/app/Infrastructure/Logging/OpenSearchHandler.php` creado
-- [x] `backend/app/Infrastructure/Logging/OpenSearchChannel.php` creado
-- [x] Canal `opensearch` añadido a `backend/config/logging.php`
-- [x] `LOG_CHANNEL=opensearch` como default en `backend/config/logging.php`
-- [x] Variables `OPENSEARCH_HOST`, `OPENSEARCH_INDEX`, `OPENSEARCH_PORT`, `OPENSEARCH_DASHBOARDS_PORT` en `backend/.env.example`
-- [x] `LOG_CHANNEL=opensearch` en `backend/.env.example`
-- [x] URLs de OpenSearch y Dashboards en `make prepare`
-- [x] `docs/stages/01-infra.mdc` actualizado
-- [ ] OpenSearch responde en `localhost:9200/_cluster/health`
-- [ ] OpenSearch Dashboards accesible en `localhost:5601`
-- [ ] `Log::info('test')` aparece en el índice `streamer-logs-*` de Dashboards
-- [ ] `request_id` presente en el campo `extra` de cada documento de Laravel
-- [ ] Campo `service: "laravel"` presente en documentos de Laravel
-- [ ] Si OpenSearch está caído, la app Laravel responde con normalidad (silent fail verificado)
-- [x] `@opensearch-project/opensearch` añadido a `services/socketio/package.json`
-- [x] `OpenSearchTransport` class añadida a `services/socketio/src/logger.ts`
-- [x] Transport se activa condicionalmente si `OPENSEARCH_HOST` está definido
-- [ ] Campo `service: "socketio"` presente en documentos de SocketIO
-- [ ] Logs de SocketIO visibles en el mismo índice `streamer-logs-*` en Dashboards
-- [ ] Si OpenSearch está caído, SocketIO sigue funcionando (silent fail verificado)
+En `docker-compose.yml` cada servicio Node sobreescribe `OPENSEARCH_INDEX`:
+- `socketio`: `streamerv2-socketio`
+- `assistant-worker`: `streamerv2-assistant`

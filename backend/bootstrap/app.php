@@ -4,6 +4,7 @@ use App\Exceptions\AppException;
 use App\Exceptions\ErrorCode;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\RequestId;
+use App\Domain\Assistant\Http\Middleware\ResolvePersonalEnterprise;
 use App\Http\Middleware\AuthenticateJWT;
 use App\Http\Middleware\SetActiveEnterprise;
 use Illuminate\Foundation\Application;
@@ -33,8 +34,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Aliases para usar en rutas
         $middleware->alias([
-            'auth.jwt'   => AuthenticateJWT::class,
-            'enterprise' => SetActiveEnterprise::class,
+            'auth.jwt'           => AuthenticateJWT::class,
+            'enterprise'         => SetActiveEnterprise::class,
+            'assistant.personal' => ResolvePersonalEnterprise::class,
+            'assistant.service'  => \App\Domain\Assistant\Http\Middleware\AssistantServiceAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -51,6 +51,7 @@ PATCH  /api/v1/assistant/list-shares/{share}/respond  — acepta o rechaza invit
 - Solo el dueño puede eliminar
 - Soft delete en la lista → orphan en los ítems
 - Si la lista tiene `ListShare`, los shares se eliminan y se notifica a los compartidos
+- El modelo `AssistantList` usa `NotifiesOrphanedEventReferences` (via observer): al eliminar, si existen eventos activos referenciando la lista, crea mensaje de sistema con `actions_json` en la conversación del usuario preguntando qué hacer con cada recordatorio
 
 ### `AddToListController`
 - Añade uno o varios ítems
@@ -68,6 +69,7 @@ PATCH  /api/v1/assistant/list-shares/{share}/respond  — acepta o rechaza invit
 ### `ClearCompletedItemsController`
 - Elimina físicamente todos los ítems con `status = done`
 - Solo el dueño puede ejecutarlo
+- Después de la limpieza: si no quedan ítems pendientes (lista efectivamente completada) Y la lista tiene eventos activos referenciando, crea mensaje de sistema con `actions_json` preguntando si cancelar el recordatorio
 
 ### `ShareListController`
 - Verifica que `friend_id` es amigo aceptado del usuario
@@ -85,6 +87,24 @@ PATCH  /api/v1/assistant/list-shares/{share}/respond  — acepta o rechaza invit
 - Si acepta: `accepted_at = now()`
 - Si rechaza: elimina el share
 - Crea mensaje de confirmación en la conversación del solicitante
+
+---
+
+## Modelo `AssistantList` — traits
+
+```php
+class AssistantList extends Model
+{
+    use HasEventReference;
+    use NotifiesOrphanedEventReferences; // aplicado via boot del modelo
+
+    public function eventReferenceLabel(): string
+    {
+        $pending = $this->items()->where('status', 'pending')->count();
+        return "lista '{$this->name}' ({$pending} ítems pendientes)";
+    }
+}
+```
 
 ---
 
@@ -138,3 +158,6 @@ Las tools de share (`share_list`, `respond_to_list_share`) se implementan en eta
 - `ShareListController`: falla si `friend_id` no es amigo aceptado (422)
 - `ShareListController`: crea mensaje con actions_json en la conversación del receptor
 - `RespondToListShareController`: aceptar llena `accepted_at`; rechazar elimina el share
+- `DeleteListController`: al eliminar lista con eventos activos referenciados, crea mensaje de sistema con actions_json (no cancela ni desasocia automáticamente)
+- `ClearCompletedItemsController`: crea mensaje de sistema si lista queda sin ítems pendientes y tiene eventos referenciados
+- `AssistantList.eventReferenceLabel()`: retorna label con conteo actual de ítems pendientes

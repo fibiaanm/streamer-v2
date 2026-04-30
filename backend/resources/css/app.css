@@ -75,3 +75,32 @@
     @apply border border-white/10;
     @apply shadow-glass;
 }
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────── */
+@utility pretty-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+
+    &.scrolling {
+        scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+    }
+
+    &::-webkit-scrollbar {
+        width: 4px;
+    }
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+        background: transparent;
+        border-radius: 9999px;
+        transition: background 0.3s ease;
+    }
+    &.scrolling::-webkit-scrollbar-thumb,
+    &.scrolling::-webkit-scrollbar-thumb:active {
+        background: rgb(255 255 255 / 0.25);
+    }
+    &::-webkit-scrollbar-thumb:active {
+        background: rgb(255 255 255 / 0.35);
+    }
+}

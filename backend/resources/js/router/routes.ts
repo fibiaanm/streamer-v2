@@ -21,7 +21,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/app/workspaces',
     component: () => import('@/views/WorkspacesView.vue'),
-    meta: { appName: 'Workspaces', appIcon: 'ui/building', appMenu: true },
+    meta: { appName: 'Workspaces', appIcon: 'ui/building', appMenu: true, appProduct: 'core' },
   },
   {
     path: '/app/settings',
@@ -29,9 +29,14 @@ const routes: RouteRecordRaw[] = [
     meta: { appName: 'Configuración', appIcon: 'ui/settings', requiresAuth: true },
   },
   {
+    path: '/app/assistant',
+    component: () => import('@/views/AssistantView.vue'),
+    meta: { appName: 'Asistente', appIcon: 'ui/message-circle', appMenu: true, appProduct: 'assistant' },
+  },
+  {
     path: '/app/image-studio',
     component: () => import('@/Pages/ImageStudio.vue'),
-    meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true },
+    meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true, appProduct: 'core' },
   },
   {
     path: '/app/workspaces/:id',

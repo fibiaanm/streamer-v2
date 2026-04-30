@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import { logger } from '../logger';
+import { log } from '../logger';
 
 export interface SocketUser {
   sub: number;
@@ -23,7 +23,7 @@ export function authMiddleware(socket: Socket, next: (err?: Error) => void): voi
   const token = raw?.replace(/^Bearer\s+/i, '');
 
   if (!token) {
-    logger.warn('auth.token_missing', { socket_id: socket.id });
+    log.warn('auth.token_missing', { socket_id: socket.id });
     return next(new Error('authentication_required'));
   }
 
@@ -32,7 +32,7 @@ export function authMiddleware(socket: Socket, next: (err?: Error) => void): voi
     socket.data.user = payload;
     next();
   } catch (err) {
-    logger.warn('auth.token_invalid', { socket_id: socket.id, error: (err as Error).message });
+    log.warn('auth.token_invalid', { socket_id: socket.id, error: (err as Error).message });
     next(new Error('invalid_token'));
   }
 }

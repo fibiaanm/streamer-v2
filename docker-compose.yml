@@ -66,6 +66,22 @@ services:
       - backend
     restart: unless-stopped
 
+  # ─── Queue assistant ──────────────────────────────────────────────────────────
+  queue-assistant:
+    build:
+      context: .
+      dockerfile: docker/queue/Dockerfile
+    command: ["php", "artisan", "queue:work", "--queue=assistant", "--sleep=3", "--tries=3", "--max-time=3600"]
+    volumes:
+      - ./backend:/var/www/html
+    env_file: ./backend/.env
+    depends_on:
+      php:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
   # ─── Scheduler ────────────────────────────────────────────────────────────────
   scheduler:
     build:
@@ -101,7 +117,7 @@ services:
       dockerfile: services/socketio/Dockerfile
     env_file: ./backend/.env
     environment:
-      OPENSEARCH_INDEX: socketio-logs
+      OPENSEARCH_INDEX: streamerv2-socketio
     ports:
       - "${SOCKETIO_PORT:-3000}:3000"
     depends_on:
@@ -116,6 +132,8 @@ services:
       context: .
       dockerfile: services/assistant-worker/Dockerfile
     env_file: ./backend/.env
+    environment:
+      OPENSEARCH_INDEX: streamerv2-assistant
     depends_on:
       - redis
     networks:

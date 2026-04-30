@@ -1,0 +1,144 @@
+---
+description: Etapa 03b — Frontend mock end-to-end: UI del chat, sesiones y WebSocket
+type: stage
+stage: "assistant-03b"
+status: completada
+depends_on: assistant-03
+---
+
+# Etapa 03b — Frontend Mock
+
+## Objetivo
+
+Chat funcional en el frontend con EchoAdapter activo (`LLM_ECHO_MODE=true`). Permite verificar la integración completa UI ↔ API ↔ WebSocket sin depender de créditos LLM reales.
+
+---
+
+## Ruta
+
+`/app/assistant?session={hashId}` — query param opcional.
+
+- Si hay `?session`: carga mensajes de esa sesión y se suscribe al room WS correspondiente
+- Si no hay `?session`: al montar intenta resolver la sesión activa y navega a ella
+- Si no existe sesión activa: URL vacía; el primer mensaje crea sesión y navega a `?session={id}`
+- Sesiones antiguas son navegables — cambiar `?session` cambia el panel de chat
+
+---
+
+## Estructura de archivos
+
+```
+backend/resources/js/
+  views/
+    AssistantView.vue               — vista raíz; header override + layout de dos columnas
+  components/assistant/
+    AssistantSidebar.vue            — listado de sesiones + atajos de categoría
+    SessionListItem.vue             — item de sesión con título, fecha relativa e indicador activa
+    ChatPanel.vue                   — orquesta messages + socket + send
+    MessageList.vue                 — scroll container + skeleton + auto-scroll
+    MessageBubble.vue               — bubble por rol (user/assistant/system)
+    TypingIndicator.vue             — tres puntos pulsantes
+    ChatInput.vue                   — textarea auto-resize, send con Enter
+  components/
+    AppDrawer.vue                   — drawer lateral (Teleport + Transition), mobile
+  composables/assistant/
+    useConversation.ts              — singleton; resolveConversation() → active_session_id
+    useMessages.ts                  — loadMessages(?session) + appendMessage
+    useAssistantSocket.ts           — join/leaveSession + listeners MessageProcessing/MessageReceived
+    useSessions.ts                  — cursor pagination de sesiones
+    useSendMessage.ts               — POST /messages → { userMessage, sessionId }
+  icons/ui/
+    message-circle.svg              — ícono del menú de apps
+  router/routes.ts                  — ruta /app/assistant añadida al menú de apps
+```
+
+---
+
+## Flujo de navegación
+
+```
+1. Usuario entra a /app/assistant
+2. AssistantView monta → useConversation().resolveConversation()
+   a. Si hay active_session_id → router.replace({ query: { session: id } })
+   b. Si no → URL queda vacía, ChatPanel muestra input vacío
+3. Usuario escribe → useSendMessage() → POST /messages
+   → response incluye session_id
+   → ChatPanel emite 'sessionCreated' → AssistantView navega a ?session={id}
+4. Worker procesa → Socket.io emite MessageProcessing → isTyping=true
+5. Worker termina → Socket.io emite MessageReceived → reload messages + isTyping=false
+```
+
+---
+
+## WebSocket — rooms de sesión
+
+El cliente emite `join_session({ sessionId })` al conectar a una sesión.
+Al cambiar de sesión emite `leave_session({ sessionId: prevId })` antes de hacer join.
+
+`useAssistantSocket` registra handlers:
+- `MessageProcessing` → `isTyping.value = true`
+- `MessageReceived` → `isTyping.value = false` + recarga mensajes vía `loadMessages(sessionId)`
+
+Los handlers se limpian en `onUnmounted`.
+
+---
+
+## Layout
+
+**Desktop**: dos columnas — sidebar fijo de 264px (`hidden md:flex`) + panel de chat flex-1.
+
+**Mobile**: sidebar oculto + botón hamburguesa en header → `AppDrawer` slide desde la izquierda.
+
+El header de `AppLayout` se override con slots `#header-left` (menu switcher + "Asistente") y `#header-right` (UserMenu + hamburguesa mobile). No hay `#header-center`.
+
+---
+
+## Composables
+
+### `useConversation`
+Singleton compartido (`createSharedComposableById`). Expone:
+- `activeSessionId: Ref<string | null>`
+- `resolveConversation(): Promise<string | null>` — GET /conversation
+
+### `useMessages`
+No compartido (instancia por ChatPanel). Expone:
+- `messages: Ref<AssistantMessage[]>`
+- `loading: Ref<boolean>`
+- `loadMessages(sessionId)` — GET /conversation/messages?session=
+- `appendMessage(msg)` — optimistic insert para mensaje del usuario
+
+### `useAssistantSocket`
+Acepta `onMessageReceived: () => void` (callback para recargar mensajes).
+Expone `isTyping`, `joinSession(id)`, `leaveSession(id)`.
+
+### `useSessions`
+Expone `sessions`, `loading`, `hasMore`, `loadSessions()`, `loadMore()`.
+Cursor pagination sobre GET /sessions.
+
+### `useSendMessage`
+Expone `sending`, `sendMessage(content): Promise<{ userMessage, sessionId } | null>`.
+Construye `userMessage` optimista con los datos de la respuesta (`message_id`) y la fecha local.
+
+---
+
+## `AssistantSession` (tipo frontend)
+
+```ts
+interface AssistantSession {
+  id:              string
+  title:           string
+  is_active:       boolean
+  started_at:      string | null
+  last_message_at: string | null
+}
+```
+
+`is_active` viene computado desde el backend (accessor PHP). El frontend lo usa para mostrar el badge "Activa".
+
+---
+
+## Restricciones del input
+
+- Solo texto (`<textarea>` auto-resize)
+- `ChatInput` solo se renderiza si `isActiveSession || !sessionId` (no en sesiones antiguas)
+- Enter envía, Shift+Enter no está habilitado (una línea es suficiente en esta etapa)

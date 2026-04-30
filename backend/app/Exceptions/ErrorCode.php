@@ -63,6 +63,9 @@ enum ErrorCode: string
     case StreamInvalidStatus = 'stream.invalid_status';
     case StreamAlreadyLive   = 'stream.already_live';
 
+    // Assistant
+    case AssistantPersonalEnterpriseRequired = 'assistant.personal_enterprise_required';
+
     // General
     case ValidationFailed = 'validation.failed';
     case NotFound         = 'general.not_found';
