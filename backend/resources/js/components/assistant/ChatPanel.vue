@@ -6,10 +6,10 @@
       :loading="messagesLoading"
       :is-typing="isTyping"
       :bottom-offset="inputHeight"
+      @select-option="selectOption"
     />
 
     <ChatInput
-      v-if="isActiveSession || !sessionId"
       ref="chatInputRef"
       :sending="sending"
       class="absolute bottom-4 left-4 right-4"
@@ -27,11 +27,10 @@ import { useAssistantSocket } from '@/composables/assistant/useAssistantSocket'
 import { useSendMessage } from '@/composables/assistant/useSendMessage'
 
 const props = defineProps<{
-  sessionId?:       string
-  isActiveSession:  boolean
+  sessionId?: string
 }>()
 
-const emit = defineEmits<{ sessionCreated: [id: string] }>()
+const emit = defineEmits<{ sessionCreated: [id: string]; sessionNotFound: [] }>()
 
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null)
 const chatInputRef   = ref<InstanceType<typeof ChatInput> | null>(null)
@@ -53,7 +52,7 @@ watch(chatInputRef, (el) => {
 
 onUnmounted(() => resizeObserver?.disconnect())
 
-const { messages, loading: messagesLoading, loadMessages, clearMessages, appendMessage } = useMessages()
+const { messages, loading: messagesLoading, loadMessages, clearMessages, appendMessage, selectOption } = useMessages()
 const { sending, sendMessage } = useSendMessage()
 
 const { isTyping, joinSession, leaveSession } = useAssistantSocket(appendMessage)
@@ -62,7 +61,15 @@ watch(() => props.sessionId, async (id, prevId) => {
   if (prevId) leaveSession(prevId)
   if (id) {
     clearMessages()
-    await loadMessages(id)
+    try {
+      await loadMessages(id)
+    } catch (e: any) {
+      if (e?.response?.status === 404) {
+        emit('sessionNotFound')
+        return
+      }
+      throw e
+    }
     joinSession(id)
     setTimeout(() => messageListRef.value?.scrollToBottom(false), 50)
   } else {
@@ -72,8 +79,13 @@ watch(() => props.sessionId, async (id, prevId) => {
 }, { immediate: true })
 
 async function handleSend(content: string) {
-  const result = await sendMessage(content)
+  const result = await sendMessage(content, props.sessionId)
   if (!result) return
+
+  if ('sessionNotFound' in result) {
+    emit('sessionNotFound')
+    return
+  }
 
   appendMessage(result.userMessage)
   focusInput()

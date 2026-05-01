@@ -8,6 +8,7 @@ use App\Domain\Assistant\Models\AssistantMessage;
 use App\Domain\Assistant\Models\AssistantSession;
 use App\Domain\Assistant\Models\Conversation;
 use App\Http\Formatters\ResponseFormatter;
+use App\Services\HashId;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
@@ -28,11 +29,14 @@ class SendMessageController
             'content'    => ['required_without:attachment', 'nullable', 'string', 'max:4096'],
             'attachment' => ['nullable', 'file', 'mimetypes:' . implode(',', self::SUPPORTED_MIMES)],
             'channel'    => ['nullable', 'string', 'in:web,whatsapp'],
+            'session_id' => ['nullable', 'string'],
         ]);
 
         try {
             $conversation = Conversation::firstOrCreate(['user_id' => auth()->id()]);
-            $session      = $this->resolveActiveSession($conversation->id);
+            $session      = $request->filled('session_id')
+                ? $this->resolveSessionById($conversation->id, $request->input('session_id'))
+                : $this->resolveActiveSession($conversation->id);
 
             Log::info('assistant.send_message', [
                 'user_id'         => auth()->id(),
@@ -50,18 +54,20 @@ class SendMessageController
                 'metadata_json'   => ['request_id' => Context::get('request_id')],
             ]);
 
+            $session->incrementMessageCount();
+
             if ($request->hasFile('attachment')) {
                 ProcessMessageAttachment::dispatch(
-                    messageId:      $message->id,
-                    conversationId: $conversation->id,
-                    userId:         auth()->id(),
+                    messageId: $message->id,
+                    sessionId: $session->id,
+                    userId:    auth()->id(),
                 )->onQueue('assistant');
                 Log::info('assistant.attachment_job_dispatched', ['message_id' => $message->id]);
             } else {
                 ProcessAssistantMessage::dispatch(
-                    messageId:      $message->id,
-                    conversationId: $conversation->id,
-                    userId:         auth()->id(),
+                    messageId: $message->id,
+                    sessionId: $session->id,
+                    userId:    auth()->id(),
                 )->onQueue('assistant');
                 Log::info('assistant.process_job_dispatched', ['message_id' => $message->id]);
             }
@@ -76,6 +82,13 @@ class SendMessageController
             Log::error('assistant.send_message_unexpected', ['exception' => $e]);
             return ResponseFormatter::serverError();
         }
+    }
+
+    private function resolveSessionById(int $conversationId, string $hashId): AssistantSession
+    {
+        return AssistantSession::where('id', HashId::decode($hashId))
+            ->where('conversation_id', $conversationId)
+            ->firstOrFail();
     }
 
     private function resolveActiveSession(int $conversationId): AssistantSession

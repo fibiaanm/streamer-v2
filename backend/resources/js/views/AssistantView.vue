@@ -2,8 +2,9 @@
   <AppLayout>
     <template #sidebar>
       <AssistantSidebar
-        :active-session-id="activeSessionId"
+        :active-session-id="sessionId"
         @select-session="navigateToSession"
+        @new-session="navigateToSession"
       />
     </template>
 
@@ -17,32 +18,30 @@
     <div class="h-full">
       <ChatPanel
         :session-id="sessionId"
-        :is-active-session="isActiveSession"
         @session-created="handleSessionCreated"
+        @session-not-found="handleSessionNotFound"
       />
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout        from '@/components/AppLayout.vue'
 import UserMenu         from '@/components/UserMenu.vue'
 import AssistantSidebar from '@/components/assistant/AssistantSidebar.vue'
 import ChatPanel        from '@/components/assistant/ChatPanel.vue'
 import { useConversation } from '@/composables/assistant/useConversation'
+import { useSessions }    from '@/composables/assistant/useSessions'
 
 const route  = useRoute()
 const router = useRouter()
 
 const { activeSessionId, resolveConversation } = useConversation()
+const { loadSessions } = useSessions()
 
 const sessionId = computed(() => route.query.session as string | undefined)
-
-const isActiveSession = computed(() =>
-  !!sessionId.value && sessionId.value === activeSessionId.value
-)
 
 function navigateToSession(id: string) {
   router.push({ query: { session: id } })
@@ -51,6 +50,11 @@ function navigateToSession(id: string) {
 function handleSessionCreated(id: string) {
   router.replace({ query: { session: id } })
   activeSessionId.value = id
+  loadSessions()
+}
+
+function handleSessionNotFound() {
+  router.replace({ query: {} })
 }
 
 resolveConversation().then((id) => {

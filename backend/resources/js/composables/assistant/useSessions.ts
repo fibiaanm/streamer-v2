@@ -9,11 +9,13 @@ export interface AssistantSession {
   last_message_at: string | null
 }
 
+const sessions    = ref<AssistantSession[]>([])
+const loading     = ref(false)
+const hasMore     = ref(false)
+const nextCursor  = ref<string | null>(null)
+const creating    = ref(false)
+
 export const useSessions = () => {
-  const sessions    = ref<AssistantSession[]>([])
-  const loading     = ref(false)
-  const hasMore     = ref(false)
-  const nextCursor  = ref<string | null>(null)
 
   const loadSessions = async (): Promise<void> => {
     loading.value = true
@@ -44,5 +46,21 @@ export const useSessions = () => {
     }
   }
 
-  return { sessions, loading, hasMore, loadSessions, loadMore }
+  const createSession = async (): Promise<AssistantSession | null> => {
+    if (creating.value) return null
+    creating.value = true
+    try {
+      const api = useApi()
+      const res = await api.post('/assistant/sessions', {})
+      const session = res.data.data as AssistantSession
+      sessions.value = [session, ...sessions.value]
+      return session
+    } catch {
+      return null
+    } finally {
+      creating.value = false
+    }
+  }
+
+  return { sessions, loading, hasMore, creating, loadSessions, loadMore, createSession }
 }
