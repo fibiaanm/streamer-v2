@@ -12,6 +12,7 @@
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.0",
         "opensearch-project/opensearch-php": "^2.0",
+        "rlanvin/php-rrule": "^2.6",
         "spatie/laravel-medialibrary": "^11.21",
         "sqids/sqids": "^0.5.0",
         "tymon/jwt-auth": "^2.3"

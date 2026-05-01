@@ -2,7 +2,7 @@
 description: Etapa 04 — Tools de eventos: CRUD, recurrencia virtual y materialización de ventana
 type: stage
 stage: "assistant-04"
-status: pendiente
+status: completada
 depends_on: assistant-03
 ---
 
