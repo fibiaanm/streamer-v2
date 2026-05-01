@@ -126,6 +126,7 @@ Se limpia automáticamente en `onUnmounted`.
 | `docs/gaps.mdc` | Features fuera de v1 (billing, 2FA, notificaciones) | Para entender qué NO implementar |
 | `docs/stages/NN-nombre.mdc` | Detalle de cada etapa: objetivo, código, checklist | Al implementar esa etapa |
 | `docs/deploy.mdc` | Infraestructura DOKS, CI/CD, escalado, k3d local | Al preparar o modificar el despliegue |
+| `docs/staging.mdc` | Cluster k3s en RPi 4 — nodos, setup, manifiestos, autoscaling | Al trabajar en el entorno de staging |
 | `ingestor/ingestor.mdc` | Decisiones de arquitectura del compositor/ingestor | Al trabajar en etapa 23 |
 
 ---

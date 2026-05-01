@@ -48,6 +48,19 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/WorkspaceSettingsView.vue'),
     meta: { requiresAuth: true },
   },
+  // ── Admin ──────────────────────────────────────────────────────────────────
+  {
+    path: '/admin',
+    component: () => import('@/views/AdminView.vue'),
+    meta: { requiresAdmin: true },
+    children: [
+      { path: '',          redirect: '/admin/usage' },
+      { path: 'usage',         component: () => import('@/views/Admin/UsageDashboard.vue') },
+      { path: 'users',         component: () => import('@/views/Admin/UsersView.vue') },
+      { path: 'conversations', component: () => import('@/views/Admin/ConversationsView.vue') },
+    ],
+  },
+
   // rooms y streams se añaden en sus etapas respectivas
   {
     path: '/design-test',

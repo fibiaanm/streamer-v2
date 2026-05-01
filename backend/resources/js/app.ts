@@ -5,6 +5,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import { routes } from './router/routes'
 import { usePermissions } from '@/composables/core/usePermissions'
+import { useSession } from '@/composables/core/useSession'
 
 const pages = import.meta.glob<{ default: DefineComponent }>('./Pages/**/*.vue', { eager: true })
 
@@ -18,9 +19,13 @@ createInertiaApp({
 
     effectScope(true).run(() => {
       const { isGuest } = usePermissions()
+      const { user }    = useSession()
 
       router.beforeEach((to) => {
         if (to.meta.requiresAuth && isGuest.value) {
+          return { path: '/login', query: { next: to.fullPath } }
+        }
+        if (to.meta.requiresAdmin && !user.value?.is_admin) {
           return { path: '/login', query: { next: to.fullPath } }
         }
       })

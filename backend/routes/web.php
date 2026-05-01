@@ -17,6 +17,11 @@ Route::get('/app/{any?}', AppPageController::class)
     ->where('any', '.*')
     ->name('app');
 
+// Admin shell — misma Inertia app, Vue Router maneja /admin/*
+Route::get('/admin/{any?}', AppPageController::class)
+    ->where('any', '.*')
+    ->name('admin');
+
 // Design system — solo local
 if (app()->isLocal()) {
     Route::get('/design-test', fn () => Inertia::render('DesignTest'))->name('design-test');

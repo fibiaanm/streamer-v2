@@ -26,6 +26,7 @@ class UserResource extends JsonResource
             'id'         => $this->getHashId(),
             'name'       => $this->name,
             'email'      => $this->email,
+            'is_admin'   => (bool) $this->is_admin,
             'avatar_url' => $this->getAvatarUrls(),
             'enterprise' => [
                 'id'          => $enterprise->getHashId(),

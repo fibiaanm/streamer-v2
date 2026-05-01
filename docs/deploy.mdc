@@ -175,6 +175,49 @@ Las credenciales van en `.env.prod` como `GRAFANA_USER_ID` y `GRAFANA_API_KEY`.
 
 ---
 
+## Seguridad — Rutas internas del assistant
+
+Las rutas bajo `/api/v1/internal` son exclusivas para comunicación entre servicios
+(worker Node → Laravel). No deben ser accesibles desde internet.
+
+La única protección en el código es el `ASSISTANT_SERVICE_TOKEN` en el middleware
+`assistant.service`. Esto es suficiente si el token es fuerte (mínimo 32 chars random),
+pero en producción se debe añadir una capa a nivel de infraestructura:
+
+### En Kubernetes (DOKS)
+
+Aplicar una `NetworkPolicy` que restrinja el acceso a los pods de nginx/php en el
+path `/api/v1/internal` solo desde los pods del `assistant-worker`:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-internal-api
+spec:
+  podSelector:
+    matchLabels:
+      app: php
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: assistant-worker
+      ports:
+        - port: 9000
+```
+
+O alternativamente, configurar una regla en el **DigitalOcean Load Balancer** para
+rechazar requests a `/api/v1/internal` que no provengan de IPs internas del cluster.
+
+### Por qué no está hecho en nginx/código
+
+El nginx público y el worker comparten el mismo puerto (80). Nginx no puede distinguir
+de forma confiable una petición interna de una externa sin un puerto separado.
+La solución correcta es a nivel de red/infraestructura, no de aplicación.
+
+---
+
 ## Assets estáticos — CDN
 
 El build de Vite genera los assets en `backend/public/build/`.

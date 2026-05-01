@@ -19,7 +19,9 @@
     "jszip": "^3.10.1",
     "pinia": "^2.1.7",
     "socket.io-client": "^4.7.4",
+    "chart.js": "^4.4.0",
     "vue": "^3.4.21",
+    "vue-chartjs": "^5.3.0",
     "vue-router": "^4.3.0"
   },
   "devDependencies": {

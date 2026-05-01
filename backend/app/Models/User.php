@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\HasHashId;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Domain\Assistant\Models\TokenUsage;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -17,12 +18,13 @@ class User extends Authenticatable implements JWTSubject, HasMedia
 {
     use HasFactory, HasHashId, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['name', 'email', 'password', 'timezone', 'default_currency', 'username', 'friend_code'];
+    protected $fillable = ['name', 'email', 'password', 'timezone', 'default_currency', 'username', 'friend_code', 'is_admin'];
 
     protected $hidden = ['password', 'remember_token'];
 
     protected $casts = [
         'two_factor_confirmed_at' => 'datetime',
+        'is_admin'                => 'boolean',
     ];
 
     public function getJWTIdentifier(): mixed
@@ -78,6 +80,11 @@ class User extends Authenticatable implements JWTSubject, HasMedia
     public function enterpriseMembers(): HasMany
     {
         return $this->hasMany(EnterpriseMember::class);
+    }
+
+    public function tokenUsages(): HasMany
+    {
+        return $this->hasMany(TokenUsage::class);
     }
 
     public function createEnterprise(string $name, string $type = 'personal'): Enterprise

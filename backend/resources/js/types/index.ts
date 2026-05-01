@@ -66,6 +66,7 @@ export interface SessionUser {
   id: string
   name: string
   email: string
+  is_admin: boolean
   avatar_url: AvatarUrl
   enterprise: Enterprise
 }

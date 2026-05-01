@@ -1,0 +1,434 @@
+---
+description: Entorno de staging — cluster k3s en Raspberry Pi 4 para testing del assistant
+type: infra
+status: activo
+---
+
+# Staging — Cluster k3s en Raspberry Pi
+
+> Entorno de pruebas para el assistant antes de ir a DOKS (producción).
+> Corre en hardware físico propio: 4 Raspberry Pi 4 de 4GB cada una.
+> La arquitectura replica el modelo de producción — los manifiestos son los mismos,
+> solo cambian las IPs y el registry.
+
+---
+
+## Propósito
+
+- Validar el stack completo del assistant en condiciones reales (no Docker Compose local)
+- Probar autoscaling, rolling updates y self-healing antes de DOKS
+- Los manifiestos escritos aquí se trasladan directamente a producción
+
+---
+
+## Arquitectura del cluster
+
+```
+Internet
+    ↓
+RPi 1 (traffic) ← único nodo con puerto 80/443 expuesto al router
+    ↓ Traefik Ingress
+    ├── namespace: traffic  →  nginx, php
+    ↓ habla con
+RPi 2 (data)
+    ├── namespace: data     →  postgres, redis, socketio
+    ↓ redis cola → KEDA
+RPi 3 (jobs)   ← k3s server (control plane aquí)
+    ├── namespace: jobs     →  queue-assistant, assistant-worker
+
+RPi 4 (overflow) ← nodo sin rol fijo, acepta cualquier overflow
+    ├── labels: traffic + data + jobs
+```
+
+### Topología k3s
+
+| Nodo | Rol k3s | Hostname | Namespace principal |
+|---|---|---|---|
+| RPi 3 | k3s server | jobs | jobs |
+| RPi 1 | k3s agent | traffic | traffic |
+| RPi 2 | k3s agent | data | data |
+| RPi 4 | k3s agent | overflow | cualquiera |
+
+El server (RPi 3) actúa también como worker — corre pods además de controlar el cluster.
+
+---
+
+## Servicios por namespace
+
+### namespace: traffic (RPi 1)
+
+| Servicio | Réplicas base | Escala por |
+|---|---|---|
+| nginx | 1 | — (proxy estático) |
+| php | 2 | HPA — CPU >70% |
+
+### namespace: data (RPi 2)
+
+| Servicio | Réplicas | Notas |
+|---|---|---|
+| postgres | 1 | StatefulSet, volumen en SSD externo |
+| redis | 1 | StatefulSet |
+| socketio | 1 | Sticky sessions, escala manual |
+
+### namespace: jobs (RPi 3)
+
+| Servicio | Réplicas base | Escala por |
+|---|---|---|
+| queue-assistant | 1 | KEDA — cola Redis `assistant:jobs` |
+| assistant-worker | 1 | KEDA — cola Redis `assistant:jobs` |
+
+### scheduler
+
+`artisan schedule:run` corre como CronJob de Kubernetes — siempre en RPi 3, 1 réplica.
+
+---
+
+## Servicios que NO se despliegan en staging
+
+opensearch, opensearch-dashboards, meilisearch, mediamtx, minio, vite, mailpit, pgadmin, redis-insight.
+
+Los logs en staging van a stdout — se leen con `kubectl logs`.
+
+---
+
+## Autoscaling
+
+### HPA — php (namespace: traffic)
+
+Escala entre 2 y 8 réplicas según CPU:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-hpa
+  namespace: traffic
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+### KEDA — assistant-worker (namespace: jobs)
+
+Escala entre 0 y 4 réplicas según la longitud de la cola Redis `assistant:jobs`.
+Con cola vacía baja a **cero** — no consume RAM cuando no hay trabajo.
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: assistant-worker-scaler
+  namespace: jobs
+spec:
+  scaleTargetRef:
+    name: assistant-worker
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  triggers:
+    - type: redis
+      metadata:
+        address: redis.data.svc.cluster.local:6379
+        listName: assistant:jobs
+        listLength: "5"
+```
+
+---
+
+## Networking interno
+
+CoreDNS (incluido en k3s) resuelve servicios por nombre:
+
+```
+Desde cualquier pod:
+  redis.data.svc.cluster.local   → Service redis en namespace data
+  php.traffic.svc.cluster.local  → Service php en namespace traffic
+
+Shortname (desde el mismo namespace):
+  redis          → solo funciona dentro de namespace data
+  php            → solo funciona dentro de namespace traffic
+```
+
+Los pods en `jobs` usan el nombre completo para hablar con `php` (namespace diferente):
+
+```
+assistant-worker → http://php.traffic.svc.cluster.local
+                   (equivale a LARAVEL_INTERNAL_URL en el .env)
+```
+
+---
+
+## Tráfico externo
+
+Traefik corre en RPi 1 como DaemonSet. El router de la red local hace port-forward 80/443 → RPi 1.
+
+```yaml
+# Ingress para el assistant
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: assistant-ingress
+  namespace: traffic
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+    - host: assistant.tudominio.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 80
+```
+
+TLS con cert-manager + Let's Encrypt. cert-manager se instala aparte (ver sección de componentes adicionales).
+
+---
+
+## Nodo overflow (RPi 4)
+
+RPi 4 tiene todos los labels y sin taint. Cuando cualquier nodo principal se satura,
+el scheduler desborda pods ahí automáticamente.
+
+Los Deployments usan `nodeAffinity` preferida (no `nodeSelector` rígido) para permitir overflow:
+
+```yaml
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: role
+              operator: In
+              values: [traffic]   # o data / jobs según el servicio
+```
+
+---
+
+## Setup físico — pasos (una sola vez por nodo)
+
+### 1. Sistema operativo
+
+Ubuntu Server 22.04 ARM64 (64-bit obligatorio).
+
+### 2. Habilitar cgroups
+
+```bash
+# /boot/firmware/cmdline.txt — añadir al final de la línea existente (sin salto de línea)
+cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory
+
+sudo reboot
+```
+
+### 3. Deshabilitar swap
+
+```bash
+sudo swapoff -a
+# Eliminar o comentar la línea de swap en /etc/fstab
+```
+
+### 4. Hostname e IP fija
+
+```bash
+sudo hostnamectl set-hostname traffic   # o data, jobs, overflow
+```
+
+Asignar IP fija por MAC en el router:
+
+| Nodo | Hostname | IP sugerida |
+|---|---|---|
+| RPi 1 | traffic | 192.168.1.10 |
+| RPi 2 | data | 192.168.1.11 |
+| RPi 3 | jobs | 192.168.1.12 |
+| RPi 4 | overflow | 192.168.1.13 |
+
+### 5. Disco SSD en RPi 2 (data)
+
+Montar SSD externo USB para evitar degradar la SD card con escrituras de postgres:
+
+```bash
+# Formatear y montar en /mnt/ssd
+sudo mkfs.ext4 /dev/sda1
+sudo mkdir -p /mnt/ssd
+echo '/dev/sda1 /mnt/ssd ext4 defaults 0 2' | sudo tee -a /etc/fstab
+sudo mount -a
+```
+
+---
+
+## Instalación de k3s
+
+### En RPi 3 (server — instalar primero)
+
+```bash
+curl -sfL https://get.k3s.io | sh -
+
+# Esperar ~30s y verificar
+sudo k3s kubectl get nodes
+
+# Guardar el token para los agents
+sudo cat /var/lib/rancher/k3s/server/node-token
+```
+
+### En RPi 1, 2 y 4 (agents)
+
+```bash
+curl -sfL https://get.k3s.io | \
+  K3S_URL=https://192.168.1.12:6443 \
+  K3S_TOKEN=<token-del-server> \
+  sh -
+```
+
+Cada agent aparece en el cluster en ~30 segundos.
+
+### En RPi 2 — apuntar storage al SSD
+
+```bash
+# /etc/rancher/k3s/config.yaml (crear si no existe)
+data-dir: /mnt/ssd/k3s
+```
+
+Reiniciar el agent después: `sudo systemctl restart k3s-agent`.
+
+---
+
+## Etiquetado de nodos
+
+Desde cualquier máquina con `kubectl` configurado (o desde RPi 3):
+
+```bash
+kubectl label node traffic  role=traffic
+kubectl label node data     role=data
+kubectl label node jobs     role=jobs
+kubectl label node overflow role=traffic role=data role=jobs
+```
+
+---
+
+## Componentes adicionales
+
+Instalar una sola vez desde RPi 3 con `kubectl apply`:
+
+### KEDA (autoscaling por cola Redis)
+
+```bash
+kubectl apply -f https://github.com/kedacore/keda/releases/download/v2.14.0/keda-2.14.0.yaml
+```
+
+### cert-manager (TLS automático)
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
+```
+
+Después crear el ClusterIssuer para Let's Encrypt (requiere dominio real con DNS apuntando a RPi 1).
+
+---
+
+## Imágenes Docker — ARM64
+
+Las imágenes custom deben buildear para `linux/arm64`. Se publican en GitHub Container Registry:
+
+```bash
+# En la máquina de desarrollo (o en CI)
+docker buildx build \
+  --platform linux/arm64 \
+  -t ghcr.io/<org>/streamer-php:latest \
+  --push .
+```
+
+Imágenes a buildear:
+
+| Imagen | Dockerfile |
+|---|---|
+| `streamer-php` | `docker/php/Dockerfile` |
+| `streamer-queue` | `docker/queue/Dockerfile` |
+| `streamer-scheduler` | `docker/scheduler/Dockerfile` |
+| `streamer-nginx` | imagen base nginx — solo config |
+| `streamer-socketio` | `services/socketio/Dockerfile` |
+| `streamer-assistant-worker` | `services/assistant-worker/Dockerfile` |
+
+Las imágenes base (postgres, redis, node, nginx) ya tienen soporte oficial ARM64.
+
+---
+
+## Estructura de manifiestos
+
+```
+k8s/
+  namespaces.yaml              — crea los 3 namespaces
+  traffic/
+    deployment-nginx.yaml
+    deployment-php.yaml
+    service-nginx.yaml
+    service-php.yaml
+    hpa-php.yaml
+    ingress.yaml
+  data/
+    statefulset-postgres.yaml
+    statefulset-redis.yaml
+    deployment-socketio.yaml
+    service-postgres.yaml
+    service-redis.yaml
+    service-socketio.yaml
+    pvc-postgres.yaml
+  jobs/
+    deployment-queue-assistant.yaml
+    deployment-assistant-worker.yaml
+    service-queue-assistant.yaml
+    cronjob-scheduler.yaml
+    keda-scaledobject.yaml
+  secrets/
+    app-secrets.yaml           — NO commitear, generado localmente
+```
+
+---
+
+## Flujo de deploy
+
+```bash
+# Primera vez
+kubectl apply -f k8s/namespaces.yaml
+kubectl apply -f k8s/secrets/
+kubectl apply -f k8s/data/
+kubectl apply -f k8s/traffic/
+kubectl apply -f k8s/jobs/
+
+# Actualizar una imagen
+kubectl set image deployment/php \
+  php=ghcr.io/<org>/streamer-php:<nuevo-tag> \
+  -n traffic
+```
+
+El rolling update es automático. Si el nuevo pod no pasa el healthcheck, k3s detiene el rollout.
+
+---
+
+## Diferencias con producción (DOKS)
+
+| Aspecto | Staging (RPi) | Producción (DOKS) |
+|---|---|---|
+| Control plane | k3s self-hosted en RPi 3 | Gestionado por DigitalOcean |
+| Base de datos | StatefulSet local en SSD | Managed Postgres DO |
+| Redis | StatefulSet local | Managed Redis DO |
+| Registry | ghcr.io | DO Container Registry |
+| Logs | stdout / kubectl logs | Grafana Cloud (Loki) |
+| TLS | cert-manager + Let's Encrypt | cert-manager + Let's Encrypt |
+| Autoscaling nodos | No (hardware fijo) | DO cluster autoscaler |
+| Manifiestos k8s/ | Mismos | Mismos (solo cambian secrets y registry) |
