@@ -2,8 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Domain\Assistant\Models\Conversation;
-use App\Models\User;
+use App\Http\Resources\Admin\AdminSessionResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -13,43 +12,47 @@ class AdminConversationsController
     public function __invoke(Request $request): JsonResponse
     {
         $request->validate([
-            'user_id'  => 'nullable|integer|exists:users,id',
+            'user_id'  => 'nullable|integer',
+            'email'    => 'nullable|email',
             'from'     => 'nullable|date',
             'to'       => 'nullable|date',
             'per_page' => 'nullable|integer|min:1|max:100',
         ]);
 
-        $conversations = Conversation::query()
-            ->join('users', 'assistant_conversations.user_id', '=', 'users.id')
-            ->when($request->input('user_id'), fn ($q, $v) => $q->where('assistant_conversations.user_id', $v))
-            ->when($request->input('from'),    fn ($q, $v) => $q->where('assistant_conversations.created_at', '>=', $v))
-            ->when($request->input('to'),      fn ($q, $v) => $q->where('assistant_conversations.created_at', '<=', $v . ' 23:59:59'))
+        $hasFilter = $request->filled('user_id')
+            || $request->filled('email')
+            || $request->filled('from')
+            || $request->filled('to');
+
+        if (! $hasFilter) {
+            return response()->json(['data' => [], 'meta' => ['pagination' => null]]);
+        }
+
+        $sessions = DB::table('assistant_sessions AS s')
+            ->join('assistant_conversations AS c', 'c.id', '=', 's.conversation_id')
+            ->join('users AS u', 'u.id', '=', 'c.user_id')
+            ->when($request->filled('user_id'), fn ($q) => $q->where('c.user_id', $request->integer('user_id')))
+            ->when($request->filled('email'),   fn ($q) => $q->whereRaw('LOWER(u.email) = ?', [strtolower($request->input('email'))]))
+            ->when($request->filled('from'),    fn ($q) => $q->where('s.started_at', '>=', $request->input('from')))
+            ->when($request->filled('to'),      fn ($q) => $q->where('s.started_at', '<=', $request->input('to') . ' 23:59:59'))
             ->select(
-                'assistant_conversations.id',
-                'users.name AS user_name',
-                'users.email AS user_email',
-                'assistant_conversations.user_id',
-                'assistant_conversations.created_at',
-                DB::raw('(SELECT COUNT(*) FROM assistant_messages WHERE assistant_messages.conversation_id = assistant_conversations.id) AS message_count'),
-                DB::raw('(SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM token_usages WHERE token_usages.conversation_id = assistant_conversations.id) AS total_tokens'),
+                's.id',
+                's.title',
+                's.started_at AS created_at',
+                's.last_message_at',
+                's.metadata_json',
+                'c.user_id',
+                'u.name AS user_name',
+                'u.email AS user_email',
             )
-            ->orderByDesc('assistant_conversations.created_at')
-            ->paginate($request->input('per_page', 25));
+            ->orderByDesc('s.started_at')
+            ->simplePaginate($request->input('per_page', 25));
 
         return response()->json([
-            'data' => $conversations->map(fn ($c) => [
-                'id'            => $c->id,
-                'user_id'       => $c->user_id,
-                'user_name'     => $c->user_name,
-                'user_email'    => $c->user_email,
-                'message_count' => (int) $c->message_count,
-                'total_tokens'  => (int) $c->total_tokens,
-                'created_at'    => $c->created_at?->toISOString(),
-            ]),
+            'data' => $sessions->map(fn ($s) => (new AdminSessionResource($s))->toArray(request())),
             'meta' => ['pagination' => [
-                'current_page' => $conversations->currentPage(),
-                'last_page'    => $conversations->lastPage(),
-                'total'        => $conversations->total(),
+                'current_page' => $sessions->currentPage(),
+                'has_more'     => $sessions->hasMorePages(),
             ]],
         ]);
     }

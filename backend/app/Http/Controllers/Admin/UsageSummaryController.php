@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Domain\Assistant\Models\TokenUsage;
 use App\Http\Formatters\ResponseFormatter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,8 +19,11 @@ class UsageSummaryController
             'type'     => 'nullable|string|in:text,image,embedding,memory,audio',
         ]);
 
-        $query = TokenUsage::query()
-            ->whereBetween('created_at', [$request->input('from'), $request->input('to') . ' 23:59:59'])
+        $from = $request->input('from');
+        $to   = $request->input('to');
+
+        $query = DB::table('token_usage_daily')
+            ->whereBetween('date', [$from, $to])
             ->when($request->input('provider'), fn ($q, $v) => $q->where('provider', $v))
             ->when($request->input('model'),    fn ($q, $v) => $q->where('model', $v))
             ->when($request->input('type'),     fn ($q, $v) => $q->where('type', $v));
@@ -30,7 +32,8 @@ class UsageSummaryController
             COALESCE(SUM(input_tokens), 0)  AS total_input,
             COALESCE(SUM(output_tokens), 0) AS total_output,
             COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
-            COUNT(DISTINCT conversation_id) AS total_conversations
+            COALESCE(SUM(record_count), 0) AS total_records,
+            COALESCE(SUM(CASE WHEN type = \'memory\' THEN input_tokens + output_tokens ELSE 0 END), 0) AS memory_tokens
         ')->first();
 
         $topModel = (clone $query)
@@ -39,12 +42,29 @@ class UsageSummaryController
             ->orderByDesc('total')
             ->value('model');
 
+        $totalConversations = DB::table('assistant_sessions')
+            ->whereBetween('started_at', [$from, $to . ' 23:59:59'])
+            ->count();
+
+        $totalTokens = (int) $totals->total_tokens;
+        $avgPerConversation = $totalConversations > 0
+            ? (int) round($totalTokens / $totalConversations)
+            : null;
+
+        $state = DB::table('token_usage_rollup_state')->value('last_run_at');
+
+        $memoryTokens = (int) $totals->memory_tokens;
+
         return ResponseFormatter::success([
-            'total_input'         => (int) $totals->total_input,
-            'total_output'        => (int) $totals->total_output,
-            'total_tokens'        => (int) $totals->total_tokens,
-            'total_conversations' => (int) $totals->total_conversations,
-            'top_model'           => $topModel,
+            'total_input'          => (int) $totals->total_input,
+            'total_output'         => (int) $totals->total_output,
+            'total_tokens'         => $totalTokens,
+            'total_records'        => (int) $totals->total_records,
+            'total_conversations'  => $totalConversations,
+            'avg_tokens_per_conv'  => $avgPerConversation,
+            'memory_tokens'        => $memoryTokens,
+            'top_model'            => $topModel,
+            'last_run_at'          => $state,
         ]);
     }
 }

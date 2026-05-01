@@ -1,6 +1,7 @@
 <?php
 
 use App\Console\Commands\ExpireInvitationsCommand;
+use App\Domain\Assistant\Jobs\SweepTokenUsageRollupJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -11,4 +12,8 @@ Artisan::command('inspire', function () {
 
 Schedule::command(ExpireInvitationsCommand::class)
     ->hourly()
+    ->withoutOverlapping();
+
+Schedule::job(new SweepTokenUsageRollupJob())
+    ->everyThirtyMinutes()
     ->withoutOverlapping();

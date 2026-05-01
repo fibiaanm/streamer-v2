@@ -11,17 +11,18 @@ use App\Domain\Assistant\Http\Controllers\Internal\GetMemoriesController;
 use App\Domain\Assistant\Http\Controllers\Internal\GetUnprocessedMessagesController;
 use App\Domain\Assistant\Http\Controllers\Internal\MarkProcessedController;
 use App\Domain\Assistant\Http\Controllers\Internal\RecordTokenUsageController;
+use App\Domain\Assistant\Http\Controllers\Internal\RecordUserTokenUsageController;
 use App\Domain\Assistant\Http\Controllers\Internal\SaveMessageController;
 use App\Domain\Assistant\Http\Controllers\Internal\TypingIndicatorController;
 use App\Domain\Assistant\Http\Controllers\Internal\UpsertMemoryController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('internal')->middleware('assistant.service')->group(function () {
-    // Worker context endpoints (integer user_id from Redis jobs)
-    Route::get('context/{userId}',                         GetContextController::class);
-    Route::post('conversations/{conversationId}/typing',   TypingIndicatorController::class);
-    Route::post('conversations/{conversationId}/messages', SaveMessageController::class);
-    Route::post('conversations/{conversationId}/usage',    RecordTokenUsageController::class);
+    // Worker context endpoints (integer session_id from Redis jobs)
+    Route::get('context/{sessionId}',            GetContextController::class);
+    Route::post('sessions/{sessionId}/typing',   TypingIndicatorController::class);
+    Route::post('sessions/{sessionId}/messages', SaveMessageController::class);
+    Route::post('sessions/{sessionId}/usage',    RecordTokenUsageController::class);
 
     // Hash-ID endpoints (accessible from admin tools / other services)
     Route::get('unprocessed-messages/{userId}',       GetUnprocessedMessagesController::class);
@@ -31,6 +32,7 @@ Route::prefix('internal')->middleware('assistant.service')->group(function () {
 
     // Tool routes — worker calls on behalf of a user (userId in path)
     Route::middleware('assistant.user_route')->prefix('users/{userId}')->group(function () {
+        Route::post('usage', RecordUserTokenUsageController::class);
         Route::get('events',                       GetEventsController::class);
         Route::post('events',                      CreateEventController::class);
         Route::patch('events/{eventId}',             UpdateEventController::class);

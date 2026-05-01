@@ -52,6 +52,9 @@ artisan: ## Ejecuta un comando artisan: make artisan cmd="route:list"
 migrate: ## Ejecuta las migraciones
 	$(DC) exec php php artisan migrate
 
+usage-sweep: ## Fuerza el rollup de token usage ahora mismo
+	$(DC) exec php php artisan usage:sweep
+
 buckets-flush: ## Vacía los buckets public y streamer en MinIO
 	$(DC) run --rm \
 		-e MINIO_ROOT_USER=$${MINIO_ROOT_USER:-minioadmin} \
@@ -93,4 +96,4 @@ test-pgsql: test-db ## Solo tests que requieren PostgreSQL (ltree, etc.)
 	$(DC) exec php ./vendor/bin/pest --group=pgsql
 
 .PHONY: prepare dev down restart build ps logs artisan migrate migrate-fresh buckets-flush shell \
-        test-db test test-unit test-feature test-pgsql
+        test-db test test-unit test-feature test-pgsql usage-sweep

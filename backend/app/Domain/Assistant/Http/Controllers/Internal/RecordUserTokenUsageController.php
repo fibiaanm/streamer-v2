@@ -2,15 +2,15 @@
 
 namespace App\Domain\Assistant\Http\Controllers\Internal;
 
-use App\Domain\Assistant\Models\AssistantSession;
 use App\Domain\Assistant\Models\TokenUsage;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
-class RecordTokenUsageController
+class RecordUserTokenUsageController
 {
-    public function __invoke(Request $request, int $sessionId): JsonResponse
+    public function __invoke(Request $request, int $userId): JsonResponse
     {
         $request->validate([
             'type'          => 'required|string|in:text,image,embedding,memory,audio',
@@ -22,34 +22,29 @@ class RecordTokenUsageController
             'iteration'     => 'integer|min:1|max:255',
         ]);
 
-        $session = AssistantSession::with('conversation')->findOrFail($sessionId);
-
-        $input  = (int) $request->input('input_tokens', 0);
-        $output = (int) $request->input('output_tokens', 0);
+        $user = User::findOrFail($userId);
 
         TokenUsage::create([
-            'user_id'         => $session->conversation->user_id,
-            'conversation_id' => $session->conversation_id,
-            'session_id'      => $session->id,
+            'user_id'         => $user->id,
+            'conversation_id' => null,
+            'session_id'      => null,
             'type'            => $request->input('type'),
             'provider'        => $request->input('provider'),
             'model'           => $request->input('model'),
-            'input_tokens'    => $input,
-            'output_tokens'   => $output,
+            'input_tokens'    => $request->input('input_tokens'),
+            'output_tokens'   => $request->input('output_tokens'),
             'units'           => $request->input('units'),
             'iteration'       => $request->input('iteration', 1),
             'request_id'      => $request->header('X-Request-Id'),
             'created_at'      => now(),
         ]);
 
-        $session->addCost($input, $output);
-
         Log::info('assistant.token_usage_recorded', [
-            'session_id'    => $session->id,
+            'user_id'       => $user->id,
             'type'          => $request->input('type'),
             'model'         => $request->input('model'),
-            'input_tokens'  => $input,
-            'output_tokens' => $output,
+            'input_tokens'  => $request->input('input_tokens'),
+            'output_tokens' => $request->input('output_tokens'),
         ]);
 
         return response()->json(['data' => ['ok' => true]]);

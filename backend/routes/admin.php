@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminConversationDetailController;
 use App\Http\Controllers\Admin\AdminConversationsController;
 use App\Http\Controllers\Admin\AdminUsersController;
 use App\Http\Controllers\Admin\UsageBreakdownController;
@@ -20,5 +21,6 @@ Route::prefix('admin')->middleware(['auth.jwt', 'admin'])->group(function () {
     Route::get('users/{id}',  [AdminUsersController::class, 'show']);
 
     // Conversations
-    Route::get('conversations', AdminConversationsController::class);
+    Route::get('conversations',      AdminConversationsController::class);
+    Route::get('conversations/{id}', AdminConversationDetailController::class);
 });

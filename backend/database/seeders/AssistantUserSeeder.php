@@ -13,7 +13,7 @@ class AssistantUserSeeder extends Seeder
 {
     private const USERS = [
         ['name' => 'Assistant Free',    'email' => 'assistant-free@test.com',    'plan' => 'Free'],
-        ['name' => 'Assistant Pro',     'email' => 'assistant-pro@test.com',     'plan' => 'Pro'],
+        ['name' => 'Assistant Pro',     'email' => 'assistant-pro@test.com',     'plan' => 'Pro', 'is_admin' => true],
         ['name' => 'Assistant Premium', 'email' => 'assistant-premium@test.com', 'plan' => 'Premium'],
     ];
 
@@ -28,6 +28,7 @@ class AssistantUserSeeder extends Seeder
                     'name'        => $data['name'],
                     'password'    => Hash::make('password'),
                     'friend_code' => $this->uniqueFriendCode(),
+                    'is_admin'    => $data['is_admin'] ?? false,
                 ],
             );
 
