@@ -4,6 +4,10 @@ import type { StandardMessage } from '../llm/types';
 import { resolveModel } from '../llm/ModelResolver';
 import { renderSystemPrompt } from '../prompts/renderer';
 import { truncateToTokenLimit } from './utils';
+import { ToolExecutor } from './tools/ToolExecutor';
+import { ToolRegistry } from './tools/ToolRegistry';
+import { log } from '../logger';
+import { report } from '../reporter';
 
 const MAX_TOOL_ITERATIONS = 10;
 const TOKEN_LIMIT = 6_000;
@@ -67,7 +71,24 @@ export class ConversationWorker {
   ) {}
 
   async process(job: ProcessMessageJob): Promise<void> {
-    const contextResponse = await this.laravel.get(`/api/v1/assistant/internal/context/${job.user_id}`);
+    try {
+      await this.run(job);
+    } catch (err) {
+      report(err, { conversation_id: job.conversation_id });
+      try {
+        await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/messages`, {
+          role: 'assistant',
+          content: 'Sorry, something went wrong on my end. Please try again.',
+        });
+      } catch {
+        // if this also fails, nothing we can do
+      }
+      throw err;
+    }
+  }
+
+  private async run(job: ProcessMessageJob): Promise<void> {
+    const contextResponse = await this.laravel.get(`/api/v1/internal/context/${job.user_id}`);
     const { user, messages: dbMessages, memories } = (contextResponse as { data: { user: UserContext; messages: DbMessage[]; memories: MemoryEntry[] } }).data;
 
     const systemPrompt = await renderSystemPrompt(user, memories);
@@ -78,29 +99,52 @@ export class ConversationWorker {
     const contextMsgs = [...truncatedHistory];
 
     const model = resolveModel(user.planTier, 'main');
+    log.info('llm_model_selected', { model: model.id, provider: model.provider, planTier: user.planTier });
     const builder = this.llm.for(model);
+    const executor = new ToolExecutor(this.laravel, job.user_id);
 
-    await this.laravel.post(`/api/v1/assistant/internal/conversations/${job.conversation_id}/typing`, {});
+    await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/typing`, {});
 
-    builder.messages([systemMsg, ...truncateToTokenLimit(contextMsgs, TOKEN_LIMIT)]);
+    builder
+      .tools(ToolRegistry.for(user.planTier))
+      .messages([systemMsg, ...truncateToTokenLimit(contextMsgs, TOKEN_LIMIT)]);
 
     let toolIterations = 0;
 
     while (true) {
       const response = await builder.call();
 
+      toolIterations++;
+
+      log.info('llm_response', {
+        stopReason:    response.stopReason,
+        hasToolCalls:  (response.toolCalls?.length ?? 0) > 0,
+        model:         model.id,
+        provider:      model.provider,
+        input_tokens:  response.usage.inputTokens,
+        output_tokens: response.usage.outputTokens,
+        iteration:     toolIterations,
+      });
+
+      this.recordUsage(job.conversation_id, {
+        type:          'text',
+        provider:      model.provider,
+        model:         model.id,
+        input_tokens:  response.usage.inputTokens,
+        output_tokens: response.usage.outputTokens,
+        iteration:     toolIterations,
+      });
+
       if (response.stopReason === 'end_turn') {
-        await this.laravel.post(`/api/v1/assistant/internal/conversations/${job.conversation_id}/messages`, {
+        await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/messages`, {
           role: 'assistant',
           content: response.content,
         });
         return;
       }
 
-      toolIterations++;
-
       if (toolIterations >= MAX_TOOL_ITERATIONS) {
-        await this.laravel.post(`/api/v1/assistant/internal/conversations/${job.conversation_id}/messages`, {
+        await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/messages`, {
           role: 'assistant',
           content: 'I encountered an error while processing your request. Please try again.',
         });
@@ -108,11 +152,41 @@ export class ConversationWorker {
       }
 
       for (const toolCall of response.toolCalls ?? []) {
+        const result = await executor.execute(toolCall);
+
         contextMsgs.push({ role: 'tool_call', id: toolCall.id, name: toolCall.name, input: toolCall.input });
-        contextMsgs.push({ role: 'tool_result', toolCallId: toolCall.id, content: '{}' });
+        contextMsgs.push({ role: 'tool_result', toolCallId: toolCall.id, content: result });
+
+        await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/messages`, {
+          role: 'tool_call',
+          content: JSON.stringify({ id: toolCall.id, name: toolCall.name, input: toolCall.input }),
+        });
+        await this.laravel.post(`/api/v1/internal/conversations/${job.conversation_id}/messages`, {
+          role: 'tool_result',
+          content: JSON.stringify({ toolCallId: toolCall.id, content: result }),
+        });
       }
 
       builder.messages([systemMsg, ...truncateToTokenLimit(contextMsgs, TOKEN_LIMIT)]);
     }
+  }
+
+  private recordUsage(
+    conversationId: number,
+    payload: {
+      type: string;
+      provider: string;
+      model: string;
+      input_tokens: number;
+      output_tokens: number;
+      iteration: number;
+    },
+  ): void {
+    // Fire-and-forget: usage tracking must never break the conversation flow
+    this.laravel
+      .post(`/api/v1/internal/conversations/${conversationId}/usage`, payload)
+      .catch((err: unknown) => {
+        log.warn('token_usage_record_failed', { error: err instanceof Error ? err.message : String(err) });
+      });
   }
 }

@@ -15,24 +15,24 @@ function serviceHdr(): array
 
 it('rejects unprocessed-messages without service token', function () {
     $user = User::factory()->create();
-    $this->getJson("/api/v1/assistant/internal/unprocessed-messages/{$user->getHashId()}")
+    $this->getJson("/api/v1/internal/unprocessed-messages/{$user->getHashId()}")
         ->assertUnauthorized();
 });
 
 it('rejects memories without service token', function () {
     $user = User::factory()->create();
-    $this->getJson("/api/v1/assistant/internal/memories/{$user->getHashId()}")
+    $this->getJson("/api/v1/internal/memories/{$user->getHashId()}")
         ->assertUnauthorized();
 });
 
 it('rejects memory upsert without service token', function () {
     $user = User::factory()->create();
-    $this->putJson("/api/v1/assistant/internal/memories/{$user->getHashId()}/preferences", [])
+    $this->putJson("/api/v1/internal/memories/{$user->getHashId()}/preferences", [])
         ->assertUnauthorized();
 });
 
 it('rejects mark-processed without service token', function () {
-    $this->postJson('/api/v1/assistant/internal/mark-processed', [])
+    $this->postJson('/api/v1/internal/mark-processed', [])
         ->assertUnauthorized();
 });
 
@@ -55,7 +55,7 @@ it('returns unprocessed messages for the given user', function () {
     ]);
 
     $this->withHeaders(serviceHdr())
-        ->getJson("/api/v1/assistant/internal/unprocessed-messages/{$user->getHashId()}")
+        ->getJson("/api/v1/internal/unprocessed-messages/{$user->getHashId()}")
         ->assertOk()
         ->assertJsonCount(3, 'data');
 });
@@ -72,7 +72,7 @@ it('does not return processed messages', function () {
     ]);
 
     $this->withHeaders(serviceHdr())
-        ->getJson("/api/v1/assistant/internal/unprocessed-messages/{$user->getHashId()}")
+        ->getJson("/api/v1/internal/unprocessed-messages/{$user->getHashId()}")
         ->assertOk()
         ->assertJsonCount(0, 'data');
 });
@@ -85,7 +85,7 @@ it('returns all memories for the given user', function () {
     Memory::factory()->count(3)->create(['user_id' => $user->id]);
 
     $this->withHeaders(serviceHdr())
-        ->getJson("/api/v1/assistant/internal/memories/{$user->getHashId()}")
+        ->getJson("/api/v1/internal/memories/{$user->getHashId()}")
         ->assertOk()
         ->assertJsonCount(3, 'data');
 });
@@ -97,7 +97,7 @@ it('does not return memories from other users', function () {
     Memory::factory()->count(2)->create(['user_id' => $other->id]);
 
     $this->withHeaders(serviceHdr())
-        ->getJson("/api/v1/assistant/internal/memories/{$user->getHashId()}")
+        ->getJson("/api/v1/internal/memories/{$user->getHashId()}")
         ->assertOk()
         ->assertJsonCount(0, 'data');
 });
@@ -108,7 +108,7 @@ it('creates a new memory when category does not exist', function () {
     $user = User::factory()->create();
 
     $this->withHeaders(serviceHdr())
-        ->putJson("/api/v1/assistant/internal/memories/{$user->getHashId()}/preferences", [
+        ->putJson("/api/v1/internal/memories/{$user->getHashId()}/preferences", [
             'description' => 'User prefers dark mode.',
             'content'     => 'Prefers dark mode. Uses keyboard shortcuts.',
         ])
@@ -122,7 +122,7 @@ it('updates an existing memory when category already exists', function () {
     Memory::factory()->create(['user_id' => $user->id, 'category' => 'preferences', 'content' => 'old content']);
 
     $this->withHeaders(serviceHdr())
-        ->putJson("/api/v1/assistant/internal/memories/{$user->getHashId()}/preferences", [
+        ->putJson("/api/v1/internal/memories/{$user->getHashId()}/preferences", [
             'description' => 'Updated.',
             'content'     => 'new content',
         ])
@@ -136,7 +136,7 @@ it('requires description and content to upsert a memory', function () {
     $user = User::factory()->create();
 
     $this->withHeaders(serviceHdr())
-        ->putJson("/api/v1/assistant/internal/memories/{$user->getHashId()}/preferences", [])
+        ->putJson("/api/v1/internal/memories/{$user->getHashId()}/preferences", [])
         ->assertStatus(422);
 });
 
@@ -156,7 +156,7 @@ it('marks the given messages as memory processed', function () {
     $ids = $messages->map(fn ($m) => $m->getHashId())->all();
 
     $this->withHeaders(serviceHdr())
-        ->postJson('/api/v1/assistant/internal/mark-processed', ['message_ids' => $ids])
+        ->postJson('/api/v1/internal/mark-processed', ['message_ids' => $ids])
         ->assertOk();
 
     foreach ($messages as $m) {
@@ -166,7 +166,7 @@ it('marks the given messages as memory processed', function () {
 
 it('requires message_ids to mark processed', function () {
     $this->withHeaders(serviceHdr())
-        ->postJson('/api/v1/assistant/internal/mark-processed', [])
+        ->postJson('/api/v1/internal/mark-processed', [])
         ->assertStatus(422);
 });
 
@@ -174,7 +174,7 @@ it('requires message_ids to mark processed', function () {
 
 it('rejects typing indicator without service token', function () {
     $conversation = Conversation::factory()->create();
-    $this->postJson("/api/v1/assistant/internal/conversations/{$conversation->id}/typing")
+    $this->postJson("/api/v1/internal/conversations/{$conversation->id}/typing")
         ->assertUnauthorized();
 });
 
@@ -182,7 +182,7 @@ it('typing indicator returns ok with valid token', function () {
     $conversation = Conversation::factory()->create();
 
     $this->withHeaders(serviceHdr())
-        ->postJson("/api/v1/assistant/internal/conversations/{$conversation->id}/typing")
+        ->postJson("/api/v1/internal/conversations/{$conversation->id}/typing")
         ->assertOk()
         ->assertJsonPath('ok', true);
 });
@@ -191,7 +191,7 @@ it('typing indicator returns ok with valid token', function () {
 
 it('rejects save message without service token', function () {
     $conversation = Conversation::factory()->create();
-    $this->postJson("/api/v1/assistant/internal/conversations/{$conversation->id}/messages", [
+    $this->postJson("/api/v1/internal/conversations/{$conversation->id}/messages", [
         'role' => 'assistant', 'content' => 'Hello',
     ])->assertUnauthorized();
 });
@@ -202,7 +202,7 @@ it('saves assistant message and returns hash id', function () {
     AssistantSession::factory()->create(['conversation_id' => $conversation->id]);
 
     $response = $this->withHeaders(serviceHdr())
-        ->postJson("/api/v1/assistant/internal/conversations/{$conversation->id}/messages", [
+        ->postJson("/api/v1/internal/conversations/{$conversation->id}/messages", [
             'role'    => 'assistant',
             'content' => 'Sure, here is the answer.',
         ])

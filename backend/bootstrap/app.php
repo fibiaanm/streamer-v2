@@ -7,6 +7,8 @@ use App\Http\Middleware\RequestId;
 use App\Domain\Assistant\Http\Middleware\ResolvePersonalEnterprise;
 use App\Http\Middleware\AuthenticateJWT;
 use App\Http\Middleware\SetActiveEnterprise;
+use App\Infrastructure\Reporting\Reporter;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -34,10 +36,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Aliases para usar en rutas
         $middleware->alias([
-            'auth.jwt'           => AuthenticateJWT::class,
-            'enterprise'         => SetActiveEnterprise::class,
-            'assistant.personal' => ResolvePersonalEnterprise::class,
-            'assistant.service'  => \App\Domain\Assistant\Http\Middleware\AssistantServiceAuth::class,
+            'auth.jwt'              => AuthenticateJWT::class,
+            'enterprise'            => SetActiveEnterprise::class,
+            'assistant.personal'    => ResolvePersonalEnterprise::class,
+            'assistant.service'     => \App\Domain\Assistant\Http\Middleware\AssistantServiceAuth::class,
+            'assistant.user_route'  => \App\Domain\Assistant\Http\Middleware\ResolveUserFromRoute::class,
+            'admin'                 => \App\Http\Middleware\EnsureAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -52,6 +56,11 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], $e->getHttpStatus());
             }
         });
+
+        // ModelNotFoundException — log it so 404s from internal routes are visible
+        $exceptions->report(function (ModelNotFoundException $e): void {
+            Reporter::report($e);
+        })->stop();
 
         // ValidationException
         $exceptions->render(function (ValidationException $e, Request $request): \Illuminate\Http\JsonResponse {
