@@ -3,7 +3,7 @@
 namespace App\Domain\Assistant\Http\Controllers\Internal;
 
 use App\Domain\Assistant\Models\AssistantMessage;
-use App\Domain\Assistant\Models\Conversation;
+use App\Domain\Assistant\Models\AssistantSession;
 use App\Domain\Assistant\Models\Memory;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -12,30 +12,26 @@ use Illuminate\Support\Facades\Log;
 
 class GetContextController
 {
-    public function __invoke(Request $request, int $userId): JsonResponse
+    public function __invoke(Request $request, int $sessionId): JsonResponse
     {
-        $user = User::findOrFail($userId);
+        $session = AssistantSession::with('conversation.user')->findOrFail($sessionId);
+        $user    = $session->conversation->user;
 
         Log::info('assistant.get_context', [
-            'user_id'          => $userId,
-            'has_conversation' => Conversation::where('user_id', $userId)->exists(),
+            'session_id' => $sessionId,
+            'user_id'    => $user->id,
         ]);
 
-        $conversation = Conversation::where('user_id', $user->id)->first();
-
-        $messages = $conversation
-            ? AssistantMessage::where('conversation_id', $conversation->id)
-                ->whereIn('role', ['user', 'assistant', 'tool_call', 'tool_result'])
-                ->where('memory_processed', false)
-                ->orderBy('created_at')
-                ->get()
-                ->map(fn ($m) => [
-                    'id'      => $m->getHashId(),
-                    'role'    => $m->role,
-                    'content' => $m->content,
-                ])
-                ->values()
-            : collect();
+        $messages = AssistantMessage::where('session_id', $sessionId)
+            ->whereIn('role', ['user', 'assistant', 'tool_summary'])
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn ($m) => [
+                'id'      => $m->getHashId(),
+                'role'    => $m->role,
+                'content' => $m->content,
+            ])
+            ->values();
 
         $memories = Memory::where('user_id', $user->id)
             ->get()

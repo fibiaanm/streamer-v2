@@ -25,7 +25,7 @@
           </template>
         </AppHeader>
 
-        <div class="flex-1 overflow-hidden">
+        <div class="flex-1 -mt-[68px] overflow-hidden">
           <slot />
         </div>
       </div>

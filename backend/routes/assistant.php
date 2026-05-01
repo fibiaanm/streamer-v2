@@ -6,6 +6,8 @@ use App\Domain\Assistant\Http\Controllers\Events\DetachEventReferenceController;
 use App\Domain\Assistant\Http\Controllers\Events\GetEventsController;
 use App\Domain\Assistant\Http\Controllers\Events\SnoozeEventController;
 use App\Domain\Assistant\Http\Controllers\Events\UpdateEventController;
+use App\Domain\Assistant\Http\Controllers\Assistant\SelectOptionController;
+use App\Domain\Assistant\Http\Controllers\CreateSessionController;
 use App\Domain\Assistant\Http\Controllers\GetConversationController;
 use App\Domain\Assistant\Http\Controllers\GetMessagesController;
 use App\Domain\Assistant\Http\Controllers\GetSessionsController;
@@ -16,7 +18,9 @@ Route::prefix('assistant')->middleware(['auth.jwt', 'enterprise', 'assistant.per
     Route::get('conversation',          GetConversationController::class);
     Route::get('conversation/messages', GetMessagesController::class);
     Route::get('sessions',              GetSessionsController::class);
-    Route::post('messages',             SendMessageController::class);
+    Route::post('sessions',             CreateSessionController::class);
+    Route::post('messages',                         SendMessageController::class);
+    Route::post('messages/{messageId}/select',      SelectOptionController::class);
 
     // Events — frontend (JWT only)
     Route::get('events',                       GetEventsController::class);

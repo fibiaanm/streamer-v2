@@ -31,7 +31,7 @@ class GetMessagesController
 
         try {
             $messages = AssistantMessage::where('session_id', $session->id)
-                ->whereNotIn('role', ['tool_call', 'tool_result'])
+                ->whereNotIn('role', ['tool_call', 'tool_result', 'tool_summary'])
                 ->orderBy('created_at', 'asc')
                 ->paginate(30);
 

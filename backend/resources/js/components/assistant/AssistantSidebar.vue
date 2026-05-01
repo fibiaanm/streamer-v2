@@ -20,9 +20,19 @@
 
     <!-- Session list -->
     <div class="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-0.5">
-      <p class="text-[10px] font-semibold uppercase tracking-widest text-white/25 px-1 mb-1">
-        Conversaciones
-      </p>
+      <div class="flex items-center justify-between px-1 mb-1">
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-white/25">
+          Conversaciones
+        </p>
+        <button
+          class="flex items-center justify-center w-5 h-5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/8 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          :disabled="creating"
+          @click="handleNewSession"
+          title="Nuevo chat"
+        >
+          <AppIcon name="ui/plus" size="xs" />
+        </button>
+      </div>
 
       <template v-if="sessions.length === 0 && !loading">
         <p class="text-xs text-white/25 px-3 py-2">Sin sesiones previas</p>
@@ -56,11 +66,16 @@ import SessionListItem from './SessionListItem.vue'
 import { useSessions } from '@/composables/assistant/useSessions'
 
 defineProps<{ activeSessionId?: string }>()
-const emit = defineEmits<{ selectSession: [id: string] }>()
+const emit = defineEmits<{ selectSession: [id: string]; newSession: [id: string] }>()
 
-const { sessions, loading, hasMore, loadSessions, loadMore } = useSessions()
+const { sessions, loading, hasMore, creating, loadSessions, loadMore, createSession } = useSessions()
 
 onMounted(loadSessions)
+
+async function handleNewSession() {
+  const session = await createSession()
+  if (session) emit('newSession', session.id)
+}
 
 const shortcuts = [
   { label: 'Memorias',      icon: 'ui/bookmark' },

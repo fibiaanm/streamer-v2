@@ -1,5 +1,5 @@
 <template>
-  <header class="w-full px-4 pt-3 shrink-0">
+  <header class="relative z-[150] w-full px-4 pt-3 shrink-0">
     <div class="glass-light dark:glass rounded-2xl px-5 h-14
                 flex items-center justify-between gap-4">
       <div class="flex-1 flex items-center justify-start gap-2">

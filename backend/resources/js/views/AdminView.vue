@@ -35,7 +35,7 @@
       </div>
     </template>
 
-    <div class="h-full overflow-y-auto pretty-scroll p-6">
+    <div class="h-full overflow-y-auto pretty-scroll px-6 pb-6 pt-[92px]">
       <RouterView :key="reloadKey" />
     </div>
   </AppLayout>

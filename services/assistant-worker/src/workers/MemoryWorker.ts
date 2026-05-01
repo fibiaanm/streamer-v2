@@ -3,6 +3,7 @@ import type { LaravelClient } from '../api/LaravelClient';
 import type { StandardMessage } from '../llm/types';
 import { resolveModel } from '../llm/ModelResolver';
 import { renderMemoryPrompt } from '../prompts/renderer';
+import { log } from '../logger';
 
 interface DbMessage {
   id: string | number;
@@ -46,6 +47,13 @@ export class MemoryWorker {
 
     const result = await builder.messages(allMsgs).call();
 
+    this.recordUsage(userId, {
+      provider:      model.provider,
+      model:         model.id,
+      input_tokens:  result.usage.inputTokens,
+      output_tokens: result.usage.outputTokens,
+    });
+
     let newMemories: Array<{ category: string; description: string; content: string }> = [];
     try {
       newMemories = JSON.parse(result.content ?? '[]');
@@ -62,5 +70,13 @@ export class MemoryWorker {
 
     const messageIds = messages.map((m) => m.id);
     await this.laravel.post(`/internal/mark-processed`, { message_ids: messageIds });
+  }
+
+  private recordUsage(userId: number, payload: { provider: string; model: string; input_tokens: number; output_tokens: number }): void {
+    this.laravel
+      .post(`/api/v1/internal/users/${userId}/usage`, { type: 'memory', ...payload })
+      .catch((err: unknown) => {
+        log.warn('MemoryWorker: token_usage_record_failed', { error: err instanceof Error ? err.message : String(err) });
+      });
   }
 }

@@ -3,7 +3,6 @@
 namespace App\Domain\Assistant\Http\Controllers\Internal;
 
 use App\Domain\Assistant\Models\AssistantSession;
-use App\Domain\Assistant\Models\Conversation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -12,29 +11,22 @@ use Throwable;
 
 class TypingIndicatorController
 {
-    public function __invoke(Request $request, int $conversationId): JsonResponse
+    public function __invoke(Request $request, int $sessionId): JsonResponse
     {
-        $conversation = Conversation::findOrFail($conversationId);
+        $session = AssistantSession::findOrFail($sessionId);
 
-        $session = AssistantSession::where('conversation_id', $conversation->id)
-            ->latest('last_message_at')
-            ->first();
+        Log::info('assistant.typing_indicator', [
+            'session_id'      => $session->id,
+            'conversation_id' => $session->conversation_id,
+        ]);
 
-        if ($session) {
-            Log::info('assistant.typing_indicator', [
-                'conversation_id' => $conversationId,
-                'session_id'      => $session->id,
-            ]);
-            try {
-                Redis::connection('pubsub')->publish("assistant.{$session->getHashId()}", json_encode([
-                    'event' => 'MessageProcessing',
-                    'data'  => ['sessionId' => $session->getHashId()],
-                ]));
-            } catch (Throwable $e) {
-                Log::error('assistant.typing_publish_failed', ['exception' => $e]);
-            }
-        } else {
-            Log::warning('assistant.typing_no_session', ['conversation_id' => $conversationId]);
+        try {
+            Redis::connection('pubsub')->publish("assistant.{$session->getHashId()}", json_encode([
+                'event' => 'MessageProcessing',
+                'data'  => ['sessionId' => $session->getHashId()],
+            ]));
+        } catch (Throwable $e) {
+            Log::error('assistant.typing_publish_failed', ['exception' => $e]);
         }
 
         return response()->json(['ok' => true]);

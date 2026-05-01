@@ -9,7 +9,7 @@ export const useAdminUsers = () => {
   const loading    = ref(false)
   const error      = ref<string | null>(null)
 
-  const fetch = async (params: { search?: string; from?: string; to?: string; page?: number; per_page?: number } = {}) => {
+  const fetch = async (params: { id?: number; email?: string; page?: number } = {}) => {
     loading.value = true
     error.value   = null
     try {

@@ -1,6 +1,6 @@
 <template>
   <button
-    class="w-full text-left px-3 py-2.5 rounded-xl flex items-start gap-2.5 transition-colors group"
+    class="w-full text-left px-3 py-2.5 rounded-xl flex items-start gap-2.5 transition-colors group cursor-pointer"
     :class="isSelected
       ? 'bg-brand-500/15 text-white'
       : 'text-white/60 hover:bg-white/6 hover:text-white/80'"

@@ -1,5 +1,5 @@
 <template>
-  <div ref="listEl" class="absolute inset-0 overflow-y-auto pretty-scroll pt-4 flex flex-col gap-0.5" :style="{ paddingBottom: bottomOffset + 'px' }" @scroll="onScroll">
+  <div ref="listEl" class="absolute inset-0 overflow-y-auto pretty-scroll pt-[84px] flex flex-col gap-0.5" :style="{ paddingBottom: bottomOffset + 'px' }" @scroll="onScroll">
     <!-- Loading skeleton -->
     <template v-if="loading">
       <div v-for="i in 4" :key="i" class="px-4 py-1 flex" :class="i % 2 === 0 ? 'justify-end' : 'justify-start'">
@@ -16,6 +16,7 @@
         v-for="msg in messages"
         :key="msg.id"
         :message="msg"
+        @select-option="(id, val) => emit('select-option', id, val)"
       />
 
       <TypingIndicator v-if="isTyping" />
@@ -30,6 +31,8 @@ import { ref, watch, nextTick } from 'vue'
 import MessageBubble   from './MessageBubble.vue'
 import TypingIndicator from './TypingIndicator.vue'
 import type { AssistantMessage } from '@/composables/assistant/useMessages'
+
+const emit = defineEmits<{ 'select-option': [messageId: string, value: string] }>()
 
 const props = defineProps<{
   messages:      AssistantMessage[]

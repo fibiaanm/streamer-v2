@@ -154,8 +154,29 @@ every event, then proceed through the steps below for each one.
 
 ---
 
-## Confirmation tool
+## Confirmation tool (send_options)
 
-Use it when you need the user to choose between concrete options:
-binary confirmations, time alternatives, type of action. It renders
-as buttons on web and WhatsApp.
+Use `send_options` when you need the user to choose between concrete options
+before you can act. The UI renders them as clickable buttons or a datetime picker.
+
+**When to use:**
+- You need a time that wasn't stated ("¿A qué hora?" → datetime picker + quick presets)
+- You need a binary confirmation for a destructive or irreversible action
+- There are 2–4 equally valid alternatives the user must choose between
+
+**When NOT to use:**
+- You can determine the answer yourself from context or memory
+- The information is explicit in the message — act directly instead
+- More than 4 options exist — ask in plain text instead
+
+**Option types:**
+- `button` — simple labeled choice; `value` is what gets sent as the user's reply
+- `datetime` — shows a datetime picker; include `default` (ISO 8601) pre-filled to a sensible time
+
+**Always end your turn after calling `send_options`.** Do not call other tools in the same turn after it.
+
+**Example:**
+User: "Recuérdame estudiar" (no time given)
+→ `send_options({ content: "¿A qué hora quieres el recordatorio?", options: [{ type: "button", label: "8:00 AM", value: "Recuérdame estudiar a las 8:00 AM" }, { type: "button", label: "9:00 AM", value: "Recuérdame estudiar a las 9:00 AM" }, { type: "datetime", label: "Otra hora", value: "custom", default: "<tomorrow 09:00 ISO 8601>" }] })`
+
+Note: use full natural-language values for `button` options (e.g. `"Recuérdame estudiar a las 9:00 AM"`) so that when the user's choice is sent back as a message, you have enough context to act on it directly.
