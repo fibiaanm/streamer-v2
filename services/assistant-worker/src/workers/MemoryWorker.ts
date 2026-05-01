@@ -33,12 +33,12 @@ export class MemoryWorker {
 
   async run(userId: number): Promise<void> {
     const response = await this.laravel.get(`/internal/context/${userId}`);
-    const { messages, memories } = (response as { data: { messages: DbMessage[]; memories: MemoryEntry[] } }).data;
+    const { user, messages, memories } = (response as { data: { user: { name: string; timezone: string; defaultCurrency: string }; messages: DbMessage[]; memories: MemoryEntry[] } }).data;
 
     const model = resolveModel('free', 'memory');
     const builder = this.llm.for(model);
 
-    const systemPrompt = await renderMemoryPrompt(messages, memories);
+    const systemPrompt = await renderMemoryPrompt(user, messages, memories);
     const allMsgs: StandardMessage[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: [{ type: 'text', text: 'Update the memory banks based on the recent conversation.' }] },

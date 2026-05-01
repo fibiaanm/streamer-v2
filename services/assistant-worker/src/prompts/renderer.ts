@@ -15,9 +15,30 @@ interface MemoryEntry {
   content: string;
 }
 
+function formatDatetimeInTimezone(timezone: string): string {
+  return new Intl.DateTimeFormat('es-ES', {
+    timeZone: timezone,
+    dateStyle: 'full',
+    timeStyle: 'short',
+  }).format(new Date());
+}
+
+function formatDateInTimezone(timezone: string): string {
+  return new Intl.DateTimeFormat('es-ES', {
+    timeZone: timezone,
+    dateStyle: 'full',
+  }).format(new Date());
+}
+
 export function renderSystemPrompt(user: UserContext, memories: MemoryEntry[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    env.render('system.njk', { user, memories }, (err, result) => {
+    env.render('system.njk', {
+      user,
+      memories,
+      current_datetime:   formatDatetimeInTimezone(user.timezone),
+      effective_timezone: user.timezone,
+      timezone_override:  null,
+    }, (err, result) => {
       if (err) reject(err);
       else resolve(result ?? '');
     });
@@ -25,11 +46,17 @@ export function renderSystemPrompt(user: UserContext, memories: MemoryEntry[]): 
 }
 
 export function renderMemoryPrompt(
-  messages: Array<{ role: string; content: string }>,
+  user: UserContext,
+  messages: Array<{ role: string; content: string; created_at?: string }>,
   memories: MemoryEntry[],
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    env.render('memory-worker.njk', { messages, memories }, (err, result) => {
+    env.render('memory-worker.njk', {
+      user,
+      messages,
+      memories,
+      current_date: formatDateInTimezone(user.timezone),
+    }, (err, result) => {
       if (err) reject(err);
       else resolve(result ?? '');
     });
