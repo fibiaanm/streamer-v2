@@ -131,6 +131,10 @@ services:
     build:
       context: .
       dockerfile: services/assistant-worker/Dockerfile
+    command: npm run dev
+    volumes:
+      - ./services/assistant-worker/src:/app/src
+      - worker_node_modules:/app/node_modules
     env_file: ./backend/.env
     environment:
       OPENSEARCH_INDEX: streamerv2-assistant
@@ -319,4 +323,5 @@ volumes:
   meilisearch_data:
   opensearch_data:
   vite_node_modules:
+  worker_node_modules:
   nginx_logs:

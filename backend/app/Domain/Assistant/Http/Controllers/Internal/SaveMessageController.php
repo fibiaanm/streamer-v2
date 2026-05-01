@@ -42,6 +42,7 @@ class SaveMessageController
             'content'          => $request->input('content'),
             'memory_processed' => false,
             'metadata_json'    => $requestId ? ['request_id' => $requestId] : null,
+            'created_at'       => now(),
         ]);
 
         $session->update(['last_message_at' => now()]);
@@ -59,7 +60,7 @@ class SaveMessageController
                             'channel'    => $message->channel,
                             'actions'    => [],
                             'metadata'   => [],
-                            'created_at' => $message->created_at,
+                            'created_at' => $message->created_at?->toISOString(),
                         ],
                     ],
                 ]));

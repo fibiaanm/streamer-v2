@@ -26,6 +26,7 @@ class AssistantMessage extends Model
         'actions_json',
         'metadata_json',
         'memory_processed',
+        'created_at',
     ];
 
     protected $casts = [

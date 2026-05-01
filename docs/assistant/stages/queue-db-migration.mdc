@@ -1,0 +1,265 @@
+---
+description: Plan de migración — queue Redis lpush/brPop → polling de BD para procesamiento de mensajes del assistant
+type: plan
+status: pendiente
+---
+
+# Plan — Queue basado en BD para assistant-worker
+
+## Problema a resolver
+
+El raw `Redis::lpush / brPop` entre PHP y el Node worker no tiene acknowledgment.
+Si el worker cae después del `brPop` pero antes de terminar, el job desaparece sin retries ni notificación.
+
+---
+
+## Diseño de la solución
+
+Reemplazar el lpush/brPop con una tabla `assistant_jobs` en BD.
+Node hace polling con `SELECT ... FOR UPDATE SKIP LOCKED` cada 500ms vía un endpoint interno de Laravel.
+
+```
+SendMessage → ProcessAssistantMessage (Laravel Queue) → INSERT assistant_jobs
+                                                             ↓
+                                              Node: POST /jobs/claim (polling 500ms)
+                                                             ↓
+                                              Node: ConversationWorker.process()
+                                                             ↓
+                                     éxito → POST /jobs/:id/complete
+                                     fallo → POST /jobs/:id/fail (retry con backoff)
+                                                             ↓
+                                     attempts >= max → status=failed + WS AssistantError
+                                                             ↓
+                              SweepStuckJobs (cada minuto) → reclaima jobs stuck > 2min
+```
+
+---
+
+## Esquema de la tabla
+
+```sql
+CREATE TABLE assistant_jobs (
+  id               BIGSERIAL PRIMARY KEY,
+  conversation_id  BIGINT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,
+  message_id       BIGINT NOT NULL REFERENCES assistant_messages(id) ON DELETE CASCADE,
+  user_id          BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  request_id       VARCHAR(255),
+  status           VARCHAR(20) NOT NULL DEFAULT 'pending',   -- pending|processing|done|failed
+  attempts         SMALLINT NOT NULL DEFAULT 0,
+  max_attempts     SMALLINT NOT NULL DEFAULT 3,
+  claimed_at       TIMESTAMP,
+  error            TEXT,
+  available_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+  created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+
+  INDEX (status, available_at),   -- query de claim
+  INDEX (status, claimed_at)      -- query del sweep
+)
+```
+
+**Nota clave**: FK a `assistant_conversations` (no `conversations`) y a `assistant_messages`.
+
+Backoff exponencial: `available_at = NOW() + 30 * 2^(attempts-1) segundos`
+- Intento 1 falla → espera 30s
+- Intento 2 falla → espera 60s
+- Intento 3 falla → status=failed
+
+---
+
+## Archivos a crear
+
+### PHP — Migración
+`backend/database/migrations/0054_create_assistant_jobs_table.php`
+- Tabla según esquema de arriba
+- `status` como `string` (no enum — más portable entre drivers)
+- Dos índices compuestos
+
+### PHP — Modelo
+`backend/app/Domain/Assistant/Models/AssistantJob.php`
+- `$table = 'assistant_jobs'`
+- `$timestamps = false`
+- `$casts`: `claimed_at` y `available_at` como `datetime`, `attempts`/`max_attempts` como `integer`
+- `scopePending(Builder $q)`: `status=pending AND available_at <= NOW()`
+- `scopeStuck(Builder $q, int $minutes = 2)`: `status=processing AND claimed_at <= NOW()-$minutes`
+- No usa `HasHashId` — Node trabaja con IDs enteros directamente
+
+### PHP — Factory
+`backend/database/factories/Domain/Assistant/Models/AssistantJobFactory.php`
+- Default: `status=pending, attempts=0`
+- State `processing()`: `status=processing, attempts=1, claimed_at=now()`
+- State `stuck()`: `status=processing, attempts=1, claimed_at=now()->subMinutes(5)`
+- **No incluye** `Conversation::factory()` ni `AssistantMessage::factory()` en definition()
+  — los tests siempre pasan IDs explícitos
+
+### PHP — Controllers internos
+
+**`ClaimJobController`** — `POST /api/v1/assistant/internal/jobs/claim`
+```
+DB::transaction(function() {
+    $job = AssistantJob::pending()
+        ->orderBy('created_at')
+        ->lock('for update skip locked')   // ← así en Eloquent para SKIP LOCKED
+        ->first();
+    if (!$job) return null;
+    $job->update([
+        'status'     => 'processing',
+        'claimed_at' => now(),
+        'attempts'   => $job->attempts + 1,
+    ]);
+    return $job->fresh();
+})
+```
+- Retorna `{ data: { id, conversation_id, message_id, user_id, request_id } }` si hay job
+- Retorna `{ data: null }` si no hay — siempre 200, nunca 204 (simplifica el cliente Node)
+
+**`CompleteJobController`** — `POST /api/v1/assistant/internal/jobs/{jobId}/complete`
+- `$job->update(['status' => 'done'])`
+- Retorna `{ data: { ok: true } }`
+
+**`FailJobController`** — `POST /api/v1/assistant/internal/jobs/{jobId}/fail`
+- Body: `{ error?: string }`
+- Si `attempts < max_attempts`: `status=pending`, `claimed_at=null`, `available_at=NOW()+backoff`
+- Si `attempts >= max_attempts`: `status=failed` + publicar `AssistantError` vía Redis pubsub
+- Retorna `{ data: { status, attempt } }`
+
+### PHP — Job
+`backend/app/Domain/Assistant/Jobs/SweepStuckJobs.php`
+- `AssistantJob::stuck()->each(...)`:
+  - Si `attempts < max_attempts`: reset a `pending` con backoff
+  - Si `attempts >= max_attempts`: `failed` + notificar usuario
+- Mismo patrón de notificación Redis que `FireEventReminder`
+
+### Node — Utilities
+`services/assistant-worker/src/queue/sleep.ts`
+```ts
+export const sleep = (ms: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, ms))
+```
+
+### Node — Poller
+`services/assistant-worker/src/queue/AssistantJobPoller.ts`
+```ts
+class AssistantJobPoller {
+  constructor(laravel, worker, options?: { intervalMs?: number })
+  async start(): Promise<void>  // loop hasta que stop() sea llamado
+  stop(): void
+}
+```
+
+Flujo de cada tick:
+1. `POST /jobs/claim` → si `data === null` → sleep(500ms) → continuar
+2. Si hay job → `withRequestId(job.request_id, () => worker.process(...))`
+3. Éxito → `POST /jobs/:id/complete`
+4. Error → `POST /jobs/:id/fail` con `{ error: message }`
+5. Cuando hay trabajo no hace sleep — siguiente claim es inmediato
+
+---
+
+## Archivos a modificar
+
+### PHP — `ProcessAssistantMessage.php`
+Reemplazar el bloque `Redis::connection('pubsub')->lpush(...)` por:
+```php
+AssistantJob::create([
+    'conversation_id' => $this->conversationId,
+    'message_id'      => $this->messageId,
+    'user_id'         => $this->userId,
+    'request_id'      => Context::get('request_id'),
+    'status'          => 'pending',
+    'available_at'    => now(),
+]);
+```
+Eliminar `use Illuminate\Support\Facades\Redis;`.
+Renombrar log a `assistant.job_created`.
+
+### PHP — `routes/assistant-internal.php`
+Añadir dentro del grupo `assistant.service`:
+```php
+Route::post('jobs/claim',            ClaimJobController::class);
+Route::post('jobs/{jobId}/complete', CompleteJobController::class);
+Route::post('jobs/{jobId}/fail',     FailJobController::class);
+```
+
+### PHP — `routes/console.php`
+Añadir:
+```php
+Schedule::job(SweepStuckJobs::class)->everyMinute()->withoutOverlapping();
+```
+
+### Node — `services/assistant-worker/src/api/LaravelClient.ts`
+El método `request()` hace `res.json()` incondicionalmente. Hay que manejar body vacío:
+```ts
+const text = await res.text()
+return text ? JSON.parse(text) : { data: null }
+```
+
+### Node — `services/assistant-worker/src/index.ts`
+Eliminar: import de `redis`, `createClient`, conexión Redis, loop `brPop`.
+Añadir: `AssistantJobPoller`, señales `SIGTERM`/`SIGINT` para graceful shutdown.
+
+---
+
+## Tests a crear/modificar
+
+### PHP — `tests/Unit/Assistant/ProcessAssistantMessageTest.php`
+**Mover a Feature** (el test toca la BD ahora).
+Verificar que `AssistantJob::create` se llamó con los IDs correctos y `status=pending`.
+Setup: crear User → Conversation → Session → Message, luego ejecutar el job.
+
+### PHP — `tests/Feature/Assistant/ClaimJobTest.php`
+- Sin token → 401
+- Sin jobs pendientes → `data: null`
+- Job con `available_at` en el futuro → no se reclama
+- Job en `processing` → no se reclama
+- Job pendiente → se reclama, devuelve los campos correctos
+- Transición correcta: `status=processing, attempts=1, claimed_at≠null`
+- Con múltiples jobs → reclama el más antiguo
+
+### PHP — `tests/Feature/Assistant/CompleteJobTest.php`
+- Sin token → 401
+- Job inexistente → 404
+- Job en processing → `status=done`
+
+### PHP — `tests/Feature/Assistant/FailJobTest.php`
+- Sin token → 401
+- Job inexistente → 404
+- `attempts=1 < max=3` → `status=pending`, `available_at` en el futuro, backoff=30s
+- `attempts=2 < max=3` → backoff=60s
+- `attempts=3 >= max=3` → `status=failed`, Redis publish llamado
+
+### PHP — `tests/Feature/Assistant/SweepStuckJobsTest.php`
+- Job stuck con `attempts < max` → reset a `pending` con backoff
+- Job reciente en processing (< 2 min) → no se toca
+- Job stuck con `attempts >= max` → `failed` + Redis publish
+- Jobs en `pending`/`done` → no se tocan
+
+### Node — `src/__tests__/queue/AssistantJobPoller.test.ts`
+- Sin job disponible → llama sleep, NO llama `worker.process`
+- Job disponible → llama `worker.process` con los IDs correctos
+- `worker.process` exitoso → llama `/complete`
+- `worker.process` falla → llama `/fail` con el mensaje de error
+- `request_id` presente → envuelve en `withRequestId`
+- `request_id` ausente → NO llama `withRequestId`
+
+---
+
+## Orden de implementación
+
+1. Migración → Modelo → Factory
+2. `ClaimJobController` → `CompleteJobController` → `FailJobController`
+3. Actualizar `routes/assistant-internal.php`
+4. Modificar `ProcessAssistantMessage.php`
+5. `SweepStuckJobs.php` → actualizar `routes/console.php`
+6. Node: `sleep.ts` → modificar `LaravelClient.ts` → `AssistantJobPoller.ts` → modificar `index.ts`
+7. Tests PHP → Tests Node
+
+---
+
+## Bugs del intento anterior (corregidos en este plan)
+
+| Bug | Causa | Fix |
+|-----|-------|-----|
+| FK violation en migración | `constrained('conversations')` incorrecto | Usar `constrained('assistant_conversations')` |
+| Unit test falla sin BD | `ProcessAssistantMessageTest` en `tests/Unit/` sin `RefreshDatabase` | Mover a `tests/Feature/` |
+| FK violation en factory | Factory tenía `Conversation::factory()` en definition aunque tests pasaban IDs | Factory sin relation factories en definition; tests siempre pasan IDs explícitos |
+| Body vacío en Node | `res.json()` falla con 204 o body vacío | Usar `res.text()` + parse condicional; endpoint retorna siempre 200 con `data: null` |

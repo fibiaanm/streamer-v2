@@ -52,6 +52,12 @@ export interface ModelCapabilities {
   maxReasoningTokens?: number;
 
   /**
+   * Use `max_completion_tokens` instead of `max_tokens` in the API request.
+   * Required for OpenAI models from gpt-4o onwards (gpt-5-nano, o-series, etc.).
+   */
+  maxCompletionTokens?: boolean;
+
+  /**
    * Accepts image inputs (base64 or URL) alongside text messages.
    */
   vision: boolean;
@@ -134,7 +140,31 @@ export const MODEL_CATALOG: ModelDefinition[] = [
   // },
 
   // ── OpenAI ─────────────────────────────────────────────────────────────────
-  //
+
+  {
+    id: 'openai/gpt-5.4-nano',
+    provider: 'openai',
+    apiModelId: 'gpt-5.4-nano-2026-03-17',
+    capabilities: {
+      temperature: true, topP: true,
+      reasoning: false,
+      vision: true, streaming: true,
+      contextWindow: 128_000, maxOutputTokens: 16_384,
+      maxCompletionTokens: true,
+    },
+  },
+  {
+    id: 'openai/gpt-5-nano',
+    provider: 'openai',
+    apiModelId: 'gpt-5-nano-2025-08-07',
+    capabilities: {
+      temperature: true, topP: true,
+      reasoning: false,
+      vision: true, streaming: true,
+      contextWindow: 128_000, maxOutputTokens: 16_384,
+      maxCompletionTokens: true,
+    },
+  },
   // {
   //   id: 'openai/gpt-4o',
   //   provider: 'openai',

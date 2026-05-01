@@ -51,9 +51,10 @@ export class OpenAIAdapter {
       return m;
     });
 
+    const tokenParam = caps.maxCompletionTokens ? 'max_completion_tokens' : 'max_tokens';
     const req: Record<string, unknown> = {
       model: model.apiModelId,
-      max_tokens: maxTokens ?? caps.maxOutputTokens,
+      [tokenParam]: maxTokens ?? caps.maxOutputTokens,
       messages: mappedMessages,
     };
 

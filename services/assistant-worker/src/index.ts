@@ -1,5 +1,6 @@
 import { createClient } from 'redis';
 import { log, withRequestId } from './logger';
+import { report } from './reporter';
 import { LaravelClientImpl } from './api/LaravelClient';
 import { LLMClientImpl } from './llm/LLMClient';
 import { ConversationWorker } from './workers/ConversationWorker';
@@ -32,22 +33,29 @@ async function main(): Promise<void> {
     const raw = await redis.brPop(QUEUE_KEY, 5);
     if (!raw) continue;
 
+    let job: { type: string; request_id?: string; [key: string]: unknown } | undefined;
     try {
-      const job = JSON.parse(raw.element) as { type: string; request_id?: string; [key: string]: unknown };
-      log.info('job received', { type: job.type });
+      job = JSON.parse(raw.element) as { type: string; request_id?: string; [key: string]: unknown };
+    } catch (err) {
+      log.error('failed to parse job', { raw: raw.element, err });
+      continue;
+    }
 
-      const process = async (): Promise<void> => {
-        if (job.type === 'process_message') {
+    log.info('job received', { type: job.type });
+
+    const process = async (): Promise<void> => {
+      try {
+        if (job!.type === 'process_message') {
           await conversationWorker.process(job as Parameters<typeof conversationWorker.process>[0]);
         } else {
-          log.warn('unknown job type', { type: job.type });
+          log.warn('unknown job type', { type: job!.type });
         }
-      };
+      } catch (err) {
+        report(err, { type: job!.type });
+      }
+    };
 
-      await (job.request_id ? withRequestId(job.request_id, process) : process());
-    } catch (err) {
-      log.error('failed to process job', { raw: raw.element, err });
-    }
+    await (job.request_id ? withRequestId(job.request_id, process) : process());
   }
 }
 
