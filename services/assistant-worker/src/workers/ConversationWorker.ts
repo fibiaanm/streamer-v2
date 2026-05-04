@@ -23,6 +23,7 @@ interface DbMessage {
   id: string | number;
   role: string;
   content: string;
+  created_at?: string;
 }
 
 interface UserContext {
@@ -132,7 +133,9 @@ export class ConversationWorker {
     const contextResponse = await this.laravel.get(`/api/v1/internal/context/${job.session_id}`);
     const { user, messages: dbMessages, memories } = (contextResponse as { data: { user: UserContext; messages: DbMessage[]; memories: MemoryEntry[] } }).data;
 
-    const systemPrompt = await renderSystemPrompt(user, memories);
+    const lastUserMsg  = [...(dbMessages as DbMessage[])].reverse().find(m => m.role === 'user');
+    const messageNow   = lastUserMsg?.created_at ? new Date(lastUserMsg.created_at) : new Date();
+    const systemPrompt = await renderSystemPrompt(user, memories, messageNow);
     const systemMsg: StandardMessage = { role: 'system', content: systemPrompt };
 
     const historyMsgs = (dbMessages as DbMessage[]).map(toStandardMessage);

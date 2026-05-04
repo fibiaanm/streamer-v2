@@ -15,27 +15,27 @@ interface MemoryEntry {
   content: string;
 }
 
-function formatDatetimeInTimezone(timezone: string): string {
+function formatDatetimeInTimezone(timezone: string, now: Date): string {
   return new Intl.DateTimeFormat('es-ES', {
     timeZone: timezone,
     dateStyle: 'full',
     timeStyle: 'short',
-  }).format(new Date());
+  }).format(now);
 }
 
-function formatDateInTimezone(timezone: string): string {
+function formatDateInTimezone(timezone: string, now: Date): string {
   return new Intl.DateTimeFormat('es-ES', {
     timeZone: timezone,
     dateStyle: 'full',
-  }).format(new Date());
+  }).format(now);
 }
 
-export function renderSystemPrompt(user: UserContext, memories: MemoryEntry[]): Promise<string> {
+export function renderSystemPrompt(user: UserContext, memories: MemoryEntry[], now: Date): Promise<string> {
   return new Promise((resolve, reject) => {
     env.render('system.njk', {
       user,
       memories,
-      current_datetime:   formatDatetimeInTimezone(user.timezone),
+      current_datetime:   formatDatetimeInTimezone(user.timezone, now),
       effective_timezone: user.timezone,
       timezone_override:  null,
     }, (err, result) => {
@@ -55,7 +55,7 @@ export function renderMemoryPrompt(
       user,
       messages,
       memories,
-      current_date: formatDateInTimezone(user.timezone),
+      current_date: formatDateInTimezone(user.timezone, new Date()),
     }, (err, result) => {
       if (err) reject(err);
       else resolve(result ?? '');

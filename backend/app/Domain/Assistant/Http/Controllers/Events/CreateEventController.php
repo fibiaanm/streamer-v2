@@ -8,6 +8,7 @@ use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Models\TypeCatalog;
 use App\Domain\Assistant\Support\MorphTypeMap;
+use App\Domain\Assistant\Support\SeriesEndResolver;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,6 +95,7 @@ class CreateEventController extends Controller
             'event_end'               => isset($data['event_end']) ? Carbon::parse($data['event_end']) : null,
             'type'                    => $data['type'],
             'recurrence_rule'         => $data['recurrence_rule'],
+            'series_ends_at'          => SeriesEndResolver::resolve($data['recurrence_rule'], $eventAt),
             'reminders_template_json' => $template,
             'status'                  => 'active',
             'referenceable_type'      => $type,

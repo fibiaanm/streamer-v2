@@ -137,6 +137,29 @@ export interface ApiResponse<T> {
   data: T
 }
 
+// ── Assistant events ─────────────────────────────────────────────────────────
+
+export interface EventReminder {
+  id:       string
+  fire_at:  string
+  message:  string
+  status:   'pending' | 'fired' | 'failed'
+}
+
+export interface AssistantEvent {
+  id:               string
+  virtual:          boolean
+  series_id:        string | null
+  content:          string
+  event_at:         string
+  event_end:        string | null
+  type:             string | null
+  recurrence_rule:  string | null
+  status:           'active' | 'cancelled' | 'completed'
+  reference:        { type: string; id: string; label: string } | null
+  reminders:        EventReminder[]
+}
+
 // ── Workspaces ───────────────────────────────────────────────────────────────
 
 export interface WorkspaceOwner {

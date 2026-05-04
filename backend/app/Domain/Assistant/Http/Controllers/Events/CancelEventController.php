@@ -27,7 +27,7 @@ class CancelEventController extends Controller
                 ? $resolved->master()
                 : ($resolved->model()->master ?? $resolved->model());
 
-            $master->update(['status' => 'cancelled']);
+            $master->update(['status' => 'cancelled', 'series_ends_at' => now()]);
 
             AssistantEvent::where('series_id', $master->id)
                 ->where('event_at', '>', now())

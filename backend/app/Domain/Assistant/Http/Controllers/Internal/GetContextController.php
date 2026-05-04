@@ -27,9 +27,10 @@ class GetContextController
             ->orderBy('created_at')
             ->get()
             ->map(fn ($m) => [
-                'id'      => $m->getHashId(),
-                'role'    => $m->role,
-                'content' => $m->content,
+                'id'         => $m->getHashId(),
+                'role'       => $m->role,
+                'content'    => $m->content,
+                'created_at' => $m->created_at?->toIso8601String(),
             ])
             ->values();
 

@@ -21,6 +21,7 @@ class AssistantEvent extends Model
         'user_id',
         'sender_id',
         'series_id',
+        'series_ends_at',
         'content',
         'event_at',
         'event_end',
@@ -37,6 +38,7 @@ class AssistantEvent extends Model
         'event_at'                => 'datetime',
         'event_end'               => 'datetime',
         'occurrence_at'           => 'datetime',
+        'series_ends_at'          => 'datetime',
         'reminders_template_json' => 'array',
     ];
 

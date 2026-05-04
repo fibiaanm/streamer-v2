@@ -46,11 +46,14 @@ class GetEventsController extends Controller
 
         $events = $events->merge($singleQuery->with('reminders')->get());
 
-        // Masters with recurrence
+        // Masters with recurrence — bounded by window to use idx_events_masters
         $masters = AssistantEvent::where('user_id', $userId)
             ->whereNull('series_id')
             ->whereNotNull('recurrence_rule')
             ->where('status', '!=', 'cancelled')
+            ->where('event_at', '<=', $to)
+            ->where(fn ($q) => $q->whereNull('series_ends_at')
+                                 ->orWhere('series_ends_at', '>=', $from))
             ->get();
 
         // Materialized occurrences in range

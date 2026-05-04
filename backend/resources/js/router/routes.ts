@@ -34,6 +34,11 @@ const routes: RouteRecordRaw[] = [
     meta: { appName: 'Asistente', appIcon: 'ui/message-circle', appMenu: true, appProduct: 'assistant' },
   },
   {
+    path: '/app/assistant/reminders',
+    component: () => import('@/views/RemindersView.vue'),
+    meta: { appName: 'Recordatorios', appProduct: 'assistant' },
+  },
+  {
     path: '/app/image-studio',
     component: () => import('@/Pages/ImageStudio.vue'),
     meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true, appProduct: 'core' },

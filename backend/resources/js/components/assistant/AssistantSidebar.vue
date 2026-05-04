@@ -11,6 +11,7 @@
           v-for="shortcut in shortcuts"
           :key="shortcut.label"
           class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/50 hover:text-white/80 hover:bg-white/6 transition-colors text-sm text-left cursor-pointer"
+          @click="shortcutRoutes[shortcut.label] && router.push(shortcutRoutes[shortcut.label])"
         >
           <AppIcon :name="shortcut.icon" size="sm" class="shrink-0" />
           {{ shortcut.label }}
@@ -61,6 +62,7 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useRouter }  from 'vue-router'
 import AppIcon        from '@/components/AppIcon.vue'
 import SessionListItem from './SessionListItem.vue'
 import { useSessions } from '@/composables/assistant/useSessions'
@@ -68,9 +70,14 @@ import { useSessions } from '@/composables/assistant/useSessions'
 defineProps<{ activeSessionId?: string }>()
 const emit = defineEmits<{ selectSession: [id: string]; newSession: [id: string] }>()
 
+const router = useRouter()
 const { sessions, loading, hasMore, creating, loadSessions, loadMore, createSession } = useSessions()
 
 onMounted(loadSessions)
+
+const shortcutRoutes: Record<string, string> = {
+    'Recordatorios': '/app/assistant/reminders',
+}
 
 async function handleNewSession() {
   const session = await createSession()
