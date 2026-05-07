@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Domain\Assistant\Models\EventReminder;
+use App\Domain\Assistant\Models\ReminderRun;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -14,8 +14,8 @@ class AdminJobDetailController
 
         abort_if(! $job, 404);
 
-        $reminder = EventReminder::where('job_id', (string) $id)
-            ->with(['event.user'])
+        $run = ReminderRun::where('job_id', (string) $id)
+            ->with(['reminders.event.user'])
             ->first();
 
         return response()->json([
@@ -26,23 +26,28 @@ class AdminJobDetailController
                 'attempts'     => $job->attempts,
                 'available_at' => $job->available_at,
                 'created_at'   => $job->created_at,
-                'reminder'     => $reminder ? [
-                    'id'       => $reminder->id,
-                    'message'  => $reminder->message,
-                    'fire_at'  => $reminder->fire_at,
-                    'status'   => $reminder->status,
-                    'fired_at' => $reminder->fired_at,
-                    'event'    => $reminder->event ? [
-                        'id'       => $reminder->event->id,
-                        'content'  => $reminder->event->content,
-                        'event_at' => $reminder->event->event_at,
-                        'type'     => $reminder->event->type,
-                        'user_id'  => $reminder->event->user_id,
-                        'user'     => $reminder->event->user ? [
-                            'name'  => $reminder->event->user->name,
-                            'email' => $reminder->event->user->email,
+                'run'          => $run ? [
+                    'id'         => $run->id,
+                    'kind'       => $run->kind,
+                    'run_at'     => $run->run_at,
+                    'status'     => $run->status,
+                    'reminders'  => $run->reminders->map(fn ($r) => [
+                        'id'       => $r->id,
+                        'kind'     => $r->kind,
+                        'fire_at'  => $r->fire_at,
+                        'status'   => $r->status,
+                        'fired_at' => $r->fired_at,
+                        'event'    => $r->event ? [
+                            'id'       => $r->event->id,
+                            'content'  => $r->event->content,
+                            'event_at' => $r->event->event_at,
+                            'type'     => $r->event->type,
+                            'user'     => $r->event->user ? [
+                                'name'  => $r->event->user->name,
+                                'email' => $r->event->user->email,
+                            ] : null,
                         ] : null,
-                    ] : null,
+                    ]),
                 ] : null,
             ],
         ]);

@@ -3,7 +3,7 @@
 namespace App\Domain\Assistant\Jobs;
 
 use App\Domain\Assistant\Models\AssistantEvent;
-use App\Domain\Assistant\Models\EventReminder;
+use App\Domain\Assistant\Support\ReminderScheduler;
 use Carbon\Carbon;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -25,6 +25,7 @@ class MaterializeSeriesWindow implements ShouldQueue
         AssistantEvent::whereNull('series_id')
             ->whereNotNull('recurrence_rule')
             ->where('status', 'active')
+            ->with('user')
             ->each(function (AssistantEvent $master) use ($now, $windowEnd) {
                 $this->materializeMaster($master, $now, $windowEnd);
             });
@@ -48,12 +49,14 @@ class MaterializeSeriesWindow implements ShouldQueue
             ->get()
             ->keyBy(fn ($e) => Carbon::parse($e->occurrence_at)->toDateTimeString());
 
+        $timezone = $master->user->timezone ?? 'UTC';
+
         foreach ($occurrences as $dt) {
             $occurrenceAt = Carbon::instance($dt);
             $key          = $occurrenceAt->toDateTimeString();
 
             if (isset($existing[$key])) {
-                continue; // already materialized (active or exception)
+                continue;
             }
 
             $occurrence = AssistantEvent::create([
@@ -66,33 +69,7 @@ class MaterializeSeriesWindow implements ShouldQueue
                 'status'        => 'active',
             ]);
 
-            $this->createReminders($occurrence, $master, $occurrenceAt);
-        }
-    }
-
-    private function createReminders(AssistantEvent $event, AssistantEvent $master, Carbon $eventAt): void
-    {
-        $template = $master->reminders_template_json ?? [];
-
-        foreach ($template as $tpl) {
-            try {
-                $fireAt = $eventAt->copy()->modify($tpl['offset']);
-            } catch (Throwable) {
-                continue;
-            }
-
-            if ($fireAt->isPast()) {
-                continue;
-            }
-
-            $reminder = EventReminder::create([
-                'event_id' => $event->id,
-                'fire_at'  => $fireAt,
-                'message'  => $tpl['message'],
-                'status'   => 'pending',
-            ]);
-
-            FireEventReminder::dispatch($reminder->id)->delay($fireAt);
+            ReminderScheduler::scheduleForEvent($occurrence, $timezone);
         }
     }
 }

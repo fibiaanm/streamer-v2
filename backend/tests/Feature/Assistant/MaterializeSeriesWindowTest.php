@@ -12,9 +12,8 @@ it('creates occurrence rows + reminders for master within next 14 days', functio
     $user = User::factory()->create();
 
     AssistantEvent::factory()->master('FREQ=DAILY')->create([
-        'user_id'                 => $user->id,
-        'event_at'                => now()->startOfDay(),
-        'reminders_template_json' => [['offset' => '-1 day', 'message' => 'Tomorrow']],
+        'user_id'  => $user->id,
+        'event_at' => now()->addDay()->startOfDay(),
     ]);
 
     (new MaterializeSeriesWindow)->handle();
@@ -27,24 +26,25 @@ it('does not duplicate rows when occurrence already materialized', function () {
     $user   = User::factory()->create();
     $master = AssistantEvent::factory()->master('FREQ=DAILY')->create([
         'user_id'  => $user->id,
-        'event_at' => now()->startOfDay(),
+        'event_at' => now()->addDay()->startOfDay(),
     ]);
 
     AssistantEvent::factory()->occurrence($master)->create([
-        'event_at'      => now()->startOfDay(),
-        'occurrence_at' => now()->startOfDay(),
+        'event_at'      => now()->addDay()->startOfDay(),
+        'occurrence_at' => now()->addDay()->startOfDay(),
     ]);
 
     $countBefore = AssistantEvent::whereNotNull('series_id')->count();
 
     (new MaterializeSeriesWindow)->handle();
 
-    // the already-materialized slot should not be duplicated
     $countAfter = AssistantEvent::whereNotNull('series_id')->count();
     expect($countAfter)->toBeGreaterThanOrEqual($countBefore);
-    expect(AssistantEvent::where('series_id', $master->id)
-        ->where('occurrence_at', now()->startOfDay()->toDateTimeString())
-        ->count())->toBe(1);
+    expect(
+        AssistantEvent::where('series_id', $master->id)
+            ->whereDate('occurrence_at', now()->addDay()->toDateString())
+            ->count()
+    )->toBe(1);
 });
 
 it('ignores masters with status=cancelled', function () {
@@ -52,7 +52,7 @@ it('ignores masters with status=cancelled', function () {
 
     AssistantEvent::factory()->master('FREQ=DAILY')->cancelled()->create([
         'user_id'  => $user->id,
-        'event_at' => now()->startOfDay(),
+        'event_at' => now()->addDay()->startOfDay(),
     ]);
 
     (new MaterializeSeriesWindow)->handle();
@@ -64,22 +64,20 @@ it('ignores slots with existing cancelled exception', function () {
     $user   = User::factory()->create();
     $master = AssistantEvent::factory()->master('FREQ=DAILY')->create([
         'user_id'  => $user->id,
-        'event_at' => now()->startOfDay(),
+        'event_at' => now()->addDay()->startOfDay(),
     ]);
 
-    // cancelled exception for today's slot
     AssistantEvent::factory()->occurrence($master)->cancelled()->create([
-        'event_at'      => now()->startOfDay(),
-        'occurrence_at' => now()->startOfDay(),
+        'event_at'      => now()->addDay()->startOfDay(),
+        'occurrence_at' => now()->addDay()->startOfDay(),
     ]);
 
     (new MaterializeSeriesWindow)->handle();
 
-    // the cancelled slot should not have an active duplicate
     expect(
         AssistantEvent::where('series_id', $master->id)
             ->where('status', 'active')
-            ->whereDate('occurrence_at', now()->toDateString())
+            ->whereDate('occurrence_at', now()->addDay()->toDateString())
             ->count()
     )->toBe(0);
 });

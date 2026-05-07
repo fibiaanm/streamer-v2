@@ -18,27 +18,18 @@ export const EVENT_TOOLS: StandardTool[] = [
   },
   {
     name: 'create_event',
-    description: 'Crea un evento con sus disparos de recordatorio.',
+    description:
+      'Crea un evento. Los recordatorios se calculan automáticamente por el sistema según la distancia al evento. ' +
+      'No es necesario ni posible especificarlos.',
     inputSchema: {
       type: 'object',
-      required: ['content', 'event_at', 'type', 'reminders'],
+      required: ['content', 'event_at', 'type'],
       properties: {
         content:         { type: 'string' },
         event_at:        { type: 'string', description: 'ISO 8601 UTC' },
         event_end:       { type: 'string', description: 'ISO 8601 UTC, solo para bloques con duración' },
         type:            { type: 'string' },
         recurrence_rule: { type: 'string', description: 'iCal RRULE, ej: FREQ=WEEKLY;BYDAY=MO' },
-        reminders: {
-          type: 'array',
-          items: {
-            type: 'object',
-            required: ['offset', 'message'],
-            properties: {
-              offset:  { type: 'string', description: 'Offset relativo, ej: "-7 days", "-1 day", "0"' },
-              message: { type: 'string' },
-            },
-          },
-        },
         referenceable: {
           type: 'object',
           required: ['type', 'id'],

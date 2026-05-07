@@ -2,6 +2,7 @@
 
 use App\Console\Commands\ExpireInvitationsCommand;
 use App\Console\Commands\PruneFailedJobsCommand;
+use App\Domain\Assistant\Jobs\SweepPendingReminders;
 use App\Domain\Assistant\Jobs\SweepTokenUsageRollupJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -17,6 +18,10 @@ Schedule::command(ExpireInvitationsCommand::class)
 
 Schedule::job(new SweepTokenUsageRollupJob())
     ->everyThirtyMinutes()
+    ->withoutOverlapping();
+
+Schedule::job(new SweepPendingReminders())
+    ->everyFifteenMinutes()
     ->withoutOverlapping();
 
 Schedule::command(PruneFailedJobsCommand::class, ['--months=1'])

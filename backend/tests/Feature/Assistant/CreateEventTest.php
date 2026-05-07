@@ -1,9 +1,10 @@
 <?php
 
-use App\Domain\Assistant\Jobs\FireEventReminder;
+use App\Domain\Assistant\Jobs\FireReminderRun;
 use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\AssistantList;
 use App\Domain\Assistant\Models\EventReminder;
+use App\Domain\Assistant\Models\ReminderRun;
 use App\Domain\Assistant\Models\TypeCatalog;
 use Illuminate\Support\Facades\Queue;
 
@@ -12,28 +13,27 @@ beforeEach(fn () => Queue::fake());
 function createEventPayload(array $overrides = []): array
 {
     return array_merge([
-        'content'   => 'Test event',
-        'event_at'  => '2026-06-01T10:00:00Z',
-        'type'      => 'meeting',
-        'reminders' => [
-            ['offset' => '-1 day', 'message' => 'Tomorrow is the meeting'],
-        ],
+        'content'  => 'Test event',
+        'event_at' => now()->addDays(5)->toIso8601String(),
+        'type'     => 'meeting',
     ], $overrides);
 }
 
-it('creates a single event with reminders and correct fire_at', function () {
+it('creates a single event and schedules reminders via matrix', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $this->withHeaders(asstHdr($token, $enterprise))
-        ->postJson('/api/v1/assistant/events', createEventPayload())
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at' => now()->addDays(5)->toIso8601String(),
+        ]))
         ->assertCreated()
         ->assertJsonStructure(['data' => ['id', 'content', 'event_at', 'reminders']]);
 
     expect(AssistantEvent::where('user_id', $user->id)->count())->toBe(1);
-    expect(EventReminder::count())->toBe(1);
 
-    $reminder = EventReminder::first();
-    expect($reminder->fire_at->toDateString())->toBe('2026-05-31'); // -1 day from 2026-06-01
+    // 5 days away → 1 ahead (-1 day) + 1 digest = 2 reminders
+    expect(EventReminder::count())->toBe(2);
+    expect(ReminderRun::count())->toBe(2);
 });
 
 it('creates master + first materialized occurrence when recurrence_rule is present', function () {
@@ -42,6 +42,7 @@ it('creates master + first materialized occurrence when recurrence_rule is prese
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson('/api/v1/assistant/events', createEventPayload([
             'recurrence_rule' => 'FREQ=WEEKLY;BYDAY=MO',
+            'event_at'        => now()->addDays(5)->toIso8601String(),
         ]))
         ->assertCreated();
 
@@ -53,25 +54,20 @@ it('creates master + first materialized occurrence when recurrence_rule is prese
 
     $occurrence = AssistantEvent::where('series_id', $master->id)->first();
     expect($occurrence)->not->toBeNull();
-    expect($occurrence->occurrence_at)->not->toBeNull();
 });
 
-it('saves reminders_template_json in the master', function () {
+it('does not store reminders_template_json', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson('/api/v1/assistant/events', createEventPayload([
             'recurrence_rule' => 'FREQ=DAILY',
-            'reminders'       => [
-                ['offset' => '-1 day', 'message' => 'Tomorrow'],
-                ['offset' => '-7 days', 'message' => 'Next week'],
-            ],
+            'event_at'        => now()->addDays(5)->toIso8601String(),
         ]))
         ->assertCreated();
 
     $master = AssistantEvent::whereNotNull('recurrence_rule')->where('user_id', $user->id)->firstOrFail();
-    expect($master->reminders_template_json)->toHaveCount(2);
-    expect($master->reminders_template_json[0]['offset'])->toBe('-1 day');
+    expect($master->toArray())->not->toHaveKey('reminders_template_json');
 });
 
 it('auto-creates TypeCatalog when type does not exist for user', function () {
@@ -89,7 +85,7 @@ it('assigns referenceable correctly', function () {
 
     $list = AssistantList::factory()->create(['user_id' => $user->id]);
 
-    $response = $this->withHeaders(asstHdr($token, $enterprise))
+    $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson('/api/v1/assistant/events', createEventPayload([
             'referenceable' => ['type' => 'list', 'id' => $list->getHashId()],
         ]))
@@ -110,38 +106,75 @@ it('returns 422 for invalid referenceable type alias', function () {
         ->assertUnprocessable();
 });
 
-it('dispatches one FireEventReminder job per future reminder', function () {
+it('dispatches FireReminderRun jobs for scheduled runs', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson('/api/v1/assistant/events', createEventPayload([
-            'event_at'  => now()->addMonths(2)->toIso8601String(),
-            'reminders' => [
-                ['offset' => '-7 days', 'message' => 'One week before'],
-                ['offset' => '-1 day',  'message' => 'Day before'],
-                ['offset' => '0',       'message' => 'Day of'],
-            ],
+            'event_at' => now()->addDays(5)->toIso8601String(),
         ]))
         ->assertCreated();
 
-    Queue::assertPushed(FireEventReminder::class, 3);
+    Queue::assertPushed(FireReminderRun::class);
 });
 
-it('does not dispatch a job for reminders whose fire_at is already past', function () {
+it('schedules inline reminders for same-day events', function () {
     [$user, $enterprise, $token] = asstCtx();
 
-    // event in 3 days → "-7 days" fires 4 days ago (past), "0" fires in 3 days (future)
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson('/api/v1/assistant/events', createEventPayload([
-            'event_at'  => now()->addDays(3)->toIso8601String(),
-            'reminders' => [
-                ['offset' => '-7 days', 'message' => 'Already past'],
-                ['offset' => '0',       'message' => 'Day of'],
-            ],
+            'event_at' => now()->addHours(3)->toIso8601String(),
         ]))
         ->assertCreated();
 
-    Queue::assertPushed(FireEventReminder::class, 1);
+    $reminders = EventReminder::all();
+    expect($reminders->pluck('kind')->unique()->values()->all())->toBe(['inline']);
+});
+
+it('schedules digest + ahead reminders for future events', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at' => now()->addDays(5)->toIso8601String(),
+        ]))
+        ->assertCreated();
+
+    $kinds = EventReminder::pluck('kind')->sort()->values()->all();
+    expect($kinds)->toContain('ahead');
+    expect($kinds)->toContain('digest');
+});
+
+it('schedules more ahead reminders for events far in the future', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at' => now()->addYear()->addDays(10)->toIso8601String(),
+        ]))
+        ->assertCreated();
+
+    // ≥1 year: 3 ahead (-1M, -1W, -1D) + 1 digest = 4
+    expect(EventReminder::count())->toBe(4);
+});
+
+it('groups reminders on the same day into a shared ReminderRun', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $eventAt = now()->addDays(5)->toIso8601String();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload(['event_at' => $eventAt]))
+        ->assertCreated();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload(['event_at' => $eventAt, 'content' => 'Second event']))
+        ->assertCreated();
+
+    // Both digest reminders share the same ReminderRun at 6am
+    $digestRuns = ReminderRun::where('kind', 'digest')->get();
+    expect($digestRuns->count())->toBe(1);
+    expect($digestRuns->first()->reminders()->count())->toBe(2);
 });
 
 it('returns 403 when referenceable does not belong to user', function () {

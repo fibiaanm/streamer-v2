@@ -3,40 +3,35 @@
 namespace App\Domain\Assistant\Http\Controllers\Events;
 
 use App\Domain\Assistant\Http\Resources\AssistantEventResource;
-use App\Domain\Assistant\Jobs\FireEventReminder;
 use App\Domain\Assistant\Models\AssistantEvent;
-use App\Domain\Assistant\Models\EventReminder;
-use Illuminate\Support\Facades\Queue;
 use App\Domain\Assistant\Models\TypeCatalog;
 use App\Domain\Assistant\Support\MorphTypeMap;
+use App\Domain\Assistant\Support\ReminderScheduler;
 use App\Domain\Assistant\Support\SeriesEndResolver;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use InvalidArgumentException;
-use Throwable;
 
 class CreateEventController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'content'                  => 'required|string',
-            'event_at'                 => 'required|date',
-            'event_end'                => 'nullable|date|after:event_at',
-            'type'                     => 'required|string',
-            'recurrence_rule'          => 'nullable|string',
-            'reminders'                => 'required|array',
-            'reminders.*.offset'       => 'required|string',
-            'reminders.*.message'      => 'required|string',
+            'content'         => 'required|string',
+            'event_at'        => 'required|date',
+            'event_end'       => 'nullable|date|after:event_at',
+            'type'            => 'required|string',
+            'recurrence_rule' => 'nullable|string',
             'referenceable'            => 'nullable|array',
             'referenceable.type'       => 'required_with:referenceable|string',
             'referenceable.id'         => 'required_with:referenceable|string',
         ]);
 
-        $user    = $request->user();
-        $eventAt = Carbon::parse($validated['event_at']);
+        $user     = $request->user();
+        $eventAt  = Carbon::parse($validated['event_at']);
+        $timezone = $user->timezone ?? 'UTC';
 
         $this->ensureTypeCatalog($user->id, $validated['type']);
 
@@ -46,9 +41,9 @@ class CreateEventController extends Controller
         );
 
         if (! empty($validated['recurrence_rule'])) {
-            $event = $this->createRecurring($user->id, $validated, $eventAt, $referenceableType, $referenceableId);
+            $event = $this->createRecurring($user->id, $validated, $eventAt, $referenceableType, $referenceableId, $timezone);
         } else {
-            $event = $this->createSingle($user->id, $validated, $eventAt, $referenceableType, $referenceableId);
+            $event = $this->createSingle($user->id, $validated, $eventAt, $referenceableType, $referenceableId, $timezone);
         }
 
         $event->load('reminders');
@@ -58,49 +53,49 @@ class CreateEventController extends Controller
             ->setStatusCode(201);
     }
 
-    private function createSingle(int $userId, array $data, Carbon $eventAt, ?string $type, mixed $id): AssistantEvent
-    {
-        $template = collect($data['reminders'])->map(fn ($r) => [
-            'offset'  => $r['offset'],
-            'message' => $r['message'],
-        ])->all();
-
+    private function createSingle(
+        int $userId,
+        array $data,
+        Carbon $eventAt,
+        ?string $type,
+        mixed $id,
+        string $timezone,
+    ): AssistantEvent {
         $event = AssistantEvent::create([
-            'user_id'                 => $userId,
-            'content'                 => $data['content'],
-            'event_at'                => $eventAt,
-            'event_end'               => isset($data['event_end']) ? Carbon::parse($data['event_end']) : null,
-            'type'                    => $data['type'],
-            'status'                  => 'active',
-            'reminders_template_json' => $template ?: null,
-            'referenceable_type'      => $type,
-            'referenceable_id'        => $id,
+            'user_id'            => $userId,
+            'content'            => $data['content'],
+            'event_at'           => $eventAt,
+            'event_end'          => isset($data['event_end']) ? Carbon::parse($data['event_end']) : null,
+            'type'               => $data['type'],
+            'status'             => 'active',
+            'referenceable_type' => $type,
+            'referenceable_id'   => $id,
         ]);
 
-        $this->createReminders($event, $data['reminders'], $eventAt);
+        ReminderScheduler::scheduleForEvent($event, $timezone);
 
         return $event;
     }
 
-    private function createRecurring(int $userId, array $data, Carbon $eventAt, ?string $type, mixed $id): AssistantEvent
-    {
-        $template = collect($data['reminders'])->map(fn ($r) => [
-            'offset'  => $r['offset'],
-            'message' => $r['message'],
-        ])->all();
-
+    private function createRecurring(
+        int $userId,
+        array $data,
+        Carbon $eventAt,
+        ?string $type,
+        mixed $id,
+        string $timezone,
+    ): AssistantEvent {
         $master = AssistantEvent::create([
-            'user_id'                 => $userId,
-            'content'                 => $data['content'],
-            'event_at'                => $eventAt,
-            'event_end'               => isset($data['event_end']) ? Carbon::parse($data['event_end']) : null,
-            'type'                    => $data['type'],
-            'recurrence_rule'         => $data['recurrence_rule'],
-            'series_ends_at'          => SeriesEndResolver::resolve($data['recurrence_rule'], $eventAt),
-            'reminders_template_json' => $template,
-            'status'                  => 'active',
-            'referenceable_type'      => $type,
-            'referenceable_id'        => $id,
+            'user_id'         => $userId,
+            'content'         => $data['content'],
+            'event_at'        => $eventAt,
+            'event_end'       => isset($data['event_end']) ? Carbon::parse($data['event_end']) : null,
+            'type'            => $data['type'],
+            'recurrence_rule' => $data['recurrence_rule'],
+            'series_ends_at'  => SeriesEndResolver::resolve($data['recurrence_rule'], $eventAt),
+            'status'          => 'active',
+            'referenceable_type' => $type,
+            'referenceable_id'   => $id,
         ]);
 
         $occurrence = AssistantEvent::create([
@@ -114,37 +109,9 @@ class CreateEventController extends Controller
             'status'        => 'active',
         ]);
 
-        $this->createReminders($occurrence, $data['reminders'], $eventAt);
+        ReminderScheduler::scheduleForEvent($occurrence, $timezone);
 
         return $occurrence;
-    }
-
-    private function createReminders(AssistantEvent $event, array $reminders, Carbon $eventAt): void
-    {
-        foreach ($reminders as $r) {
-            $fireAt = $this->parseOffset($r['offset'], $eventAt);
-
-            $reminder = EventReminder::create([
-                'event_id' => $event->id,
-                'fire_at'  => $fireAt,
-                'message'  => $r['message'],
-                'status'   => 'pending',
-            ]);
-
-            if ($fireAt->isFuture()) {
-                $jobId = Queue::laterOn('assistant', $fireAt, new FireEventReminder($reminder->id));
-                $reminder->update(['job_id' => $jobId]);
-            }
-        }
-    }
-
-    private function parseOffset(string $offset, Carbon $base): Carbon
-    {
-        if ($offset === '0') {
-            return $base->copy();
-        }
-
-        return $base->copy()->modify($offset);
     }
 
     private function ensureTypeCatalog(int $userId, string $type): void
@@ -166,7 +133,6 @@ class CreateEventController extends Controller
             abort(422, "Invalid referenceable type: {$ref['type']}");
         }
 
-        // Resolve via hash ID (HasHashId::resolveRouteBinding decodes the hash)
         $model = null;
         $instance = new $class;
         if (method_exists($instance, 'resolveRouteBinding')) {

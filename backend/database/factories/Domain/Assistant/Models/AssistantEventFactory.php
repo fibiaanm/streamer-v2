@@ -27,10 +27,9 @@ class AssistantEventFactory extends Factory
     public function master(string $rrule = 'FREQ=WEEKLY'): static
     {
         return $this->state([
-            'series_id'              => null,
-            'occurrence_at'          => null,
-            'recurrence_rule'        => $rrule,
-            'reminders_template_json' => [],
+            'series_id'       => null,
+            'occurrence_at'   => null,
+            'recurrence_rule' => $rrule,
         ]);
     }
 

@@ -2,17 +2,16 @@
 
 use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\EventReminder;
+use App\Domain\Assistant\Models\ReminderRun;
 use Illuminate\Support\Facades\DB;
 
 beforeEach(fn () => config(['queue.default' => 'database']));
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function fakeJobRow(): int
 {
     return DB::table('jobs')->insertGetId([
-        'queue'        => 'default',
-        'payload'      => json_encode(['displayName' => 'FireEventReminder']),
+        'queue'        => 'assistant',
+        'payload'      => json_encode(['displayName' => 'FireReminderRun']),
         'attempts'     => 0,
         'reserved_at'  => null,
         'available_at' => now()->addWeek()->timestamp,
@@ -20,68 +19,55 @@ function fakeJobRow(): int
     ]);
 }
 
-function pendingReminder(int $eventId, int $jobId): EventReminder
+function pendingRun(int $userId, int $jobId, string $kind = 'ahead'): ReminderRun
 {
-    return EventReminder::factory()->create([
-        'event_id' => $eventId,
-        'fire_at'  => now()->addWeek(),
-        'status'   => 'pending',
-        'job_id'   => $jobId,
+    return ReminderRun::create([
+        'user_id' => $userId,
+        'run_at'  => now()->addWeek(),
+        'kind'    => $kind,
+        'job_id'  => (string) $jobId,
+        'status'  => 'pending',
     ]);
 }
 
-// ── Create: job_id se guarda ──────────────────────────────────────────────────
-
-it('stores job_id on reminder after creating a single event', function () {
-    [$user, $enterprise, $token] = asstCtx();
-
-    $this->withHeaders(asstHdr($token, $enterprise))
-        ->postJson('/api/v1/assistant/events', [
-            'content'   => 'Call mom',
-            'event_at'  => now()->addMonth()->toIso8601String(),
-            'type'      => 'reminder',
-            'reminders' => [
-                ['offset' => '-1 day', 'message' => 'Tomorrow'],
-            ],
-        ])
-        ->assertCreated();
-
-    $reminder = EventReminder::where('status', 'pending')->first();
-    expect($reminder)->not->toBeNull();
-    expect($reminder->job_id)->not->toBeNull();
-});
-
-it('does not set job_id when reminder fire_at is in the past', function () {
-    [$user, $enterprise, $token] = asstCtx();
-
-    // event in 3 days, offset -7 days → fire_at 4 days ago
-    $this->withHeaders(asstHdr($token, $enterprise))
-        ->postJson('/api/v1/assistant/events', [
-            'content'   => 'Past reminder',
-            'event_at'  => now()->addDays(3)->toIso8601String(),
-            'type'      => 'reminder',
-            'reminders' => [
-                ['offset' => '-7 days', 'message' => 'Already past'],
-            ],
-        ])
-        ->assertCreated();
-
-    $reminder = EventReminder::first();
-    expect($reminder->job_id)->toBeNull();
-});
-
-// ── Update: job antiguo se borra, nuevo se crea ───────────────────────────────
-
-it('deletes the queued job when event_at is updated', function () {
-    [$user, $enterprise, $token] = asstCtx();
-
-    $event  = AssistantEvent::factory()->create([
-        'user_id'                 => $user->id,
-        'event_at'                => now()->addMonth(),
-        'reminders_template_json' => [['offset' => '-1 day', 'message' => 'Tomorrow']],
+function pendingReminderForRun(int $eventId, ReminderRun $run): EventReminder
+{
+    return EventReminder::create([
+        'event_id'        => $eventId,
+        'kind'            => $run->kind,
+        'fire_at'         => $run->run_at,
+        'reminder_run_id' => $run->id,
+        'status'          => 'pending',
     ]);
-    $jobId  = fakeJobRow();
-    pendingReminder($event->id, $jobId);
+}
+
+// ── Create: ReminderRun gets a job_id ────────────────────────────────────────
+
+it('creates a ReminderRun with job_id when creating a future event', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', [
+            'content'  => 'Call mom',
+            'event_at' => now()->addMonth()->toIso8601String(),
+            'type'     => 'reminder',
+        ])
+        ->assertCreated();
+
+    $run = ReminderRun::where('user_id', $user->id)->where('status', 'pending')->first();
+    expect($run)->not->toBeNull();
+    expect($run->job_id)->not->toBeNull();
+});
+
+// ── Update: old run cancelled, new one created ────────────────────────────────
+
+it('deletes the queued job when event_at is updated and run becomes empty', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $event = AssistantEvent::factory()->create(['user_id' => $user->id, 'event_at' => now()->addMonth()]);
+    $jobId = fakeJobRow();
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($event->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->patchJson("/api/v1/assistant/events/{$event->getHashId()}", [
@@ -90,18 +76,16 @@ it('deletes the queued job when event_at is updated', function () {
         ->assertOk();
 
     expect(DB::table('jobs')->where('id', $jobId)->exists())->toBeFalse();
+    expect(ReminderRun::find($run->id))->toBeNull();
 });
 
-it('creates a new job with job_id after recalculating reminders on update', function () {
+it('creates a new ReminderRun with a new job after recalculating on update', function () {
     [$user, $enterprise, $token] = asstCtx();
 
-    $event = AssistantEvent::factory()->create([
-        'user_id'                 => $user->id,
-        'event_at'                => now()->addMonth(),
-        'reminders_template_json' => [['offset' => '-1 day', 'message' => 'Tomorrow']],
-    ]);
+    $event = AssistantEvent::factory()->create(['user_id' => $user->id, 'event_at' => now()->addMonth()]);
     $jobId = fakeJobRow();
-    pendingReminder($event->id, $jobId);
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($event->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->patchJson("/api/v1/assistant/events/{$event->getHashId()}", [
@@ -109,18 +93,18 @@ it('creates a new job with job_id after recalculating reminders on update', func
         ])
         ->assertOk();
 
-    $newReminder = EventReminder::where('event_id', $event->id)->where('status', 'pending')->first();
-    expect($newReminder)->not->toBeNull();
-    expect($newReminder->job_id)->not->toBeNull();
-    expect($newReminder->job_id)->not->toBe($jobId);
+    $newRuns = ReminderRun::where('user_id', $user->id)->where('status', 'pending')->get();
+    expect($newRuns->count())->toBeGreaterThan(0);
+    expect($newRuns->pluck('job_id')->filter()->isNotEmpty())->toBeTrue();
 });
 
-it('does not touch jobs when update does not change event_at', function () {
+it('does not touch runs when update does not change event_at', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $event = AssistantEvent::factory()->create(['user_id' => $user->id]);
     $jobId = fakeJobRow();
-    pendingReminder($event->id, $jobId);
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($event->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->patchJson("/api/v1/assistant/events/{$event->getHashId()}", [
@@ -133,30 +117,31 @@ it('does not touch jobs when update does not change event_at', function () {
 
 // ── Cancel: job se borra ──────────────────────────────────────────────────────
 
-it('deletes the queued job when a single event is cancelled', function () {
+it('deletes the queued job and run when a single event is cancelled', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $event = AssistantEvent::factory()->create(['user_id' => $user->id]);
     $jobId = fakeJobRow();
-    pendingReminder($event->id, $jobId);
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($event->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson("/api/v1/assistant/events/{$event->getHashId()}/cancel", ['series' => false])
         ->assertOk();
 
     expect(DB::table('jobs')->where('id', $jobId)->exists())->toBeFalse();
+    expect(ReminderRun::find($run->id))->toBeNull();
 });
 
 it('deletes queued jobs for future occurrences when series is cancelled', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $master     = AssistantEvent::factory()->master('FREQ=DAILY')->create(['user_id' => $user->id]);
-    $occurrence = AssistantEvent::factory()->occurrence($master)->create([
-        'event_at' => now()->addDays(3),
-    ]);
+    $occurrence = AssistantEvent::factory()->occurrence($master)->create(['event_at' => now()->addDays(3)]);
 
     $jobId = fakeJobRow();
-    pendingReminder($occurrence->id, $jobId);
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($occurrence->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
         ->postJson("/api/v1/assistant/events/{$occurrence->getHashId()}/cancel", ['series' => true])
@@ -165,20 +150,22 @@ it('deletes queued jobs for future occurrences when series is cancelled', functi
     expect(DB::table('jobs')->where('id', $jobId)->exists())->toBeFalse();
 });
 
-it('deletes queued jobs on master when series is cancelled', function () {
+it('preserves a shared run when only one event is cancelled and others share the run', function () {
     [$user, $enterprise, $token] = asstCtx();
 
-    $master = AssistantEvent::factory()->master('FREQ=DAILY')->create(['user_id' => $user->id]);
-    $jobId  = fakeJobRow();
-    pendingReminder($master->id, $jobId);
+    $event1 = AssistantEvent::factory()->create(['user_id' => $user->id]);
+    $event2 = AssistantEvent::factory()->create(['user_id' => $user->id]);
 
-    $occurrence = AssistantEvent::factory()->occurrence($master)->create([
-        'event_at' => now()->addDays(3),
-    ]);
+    $jobId = fakeJobRow();
+    $run   = pendingRun($user->id, $jobId);
+    pendingReminderForRun($event1->id, $run);
+    pendingReminderForRun($event2->id, $run);
 
     $this->withHeaders(asstHdr($token, $enterprise))
-        ->postJson("/api/v1/assistant/events/{$occurrence->getHashId()}/cancel", ['series' => true])
+        ->postJson("/api/v1/assistant/events/{$event1->getHashId()}/cancel", ['series' => false])
         ->assertOk();
 
-    expect(DB::table('jobs')->where('id', $jobId)->exists())->toBeFalse();
+    // Run still has event2's reminder → job must stay
+    expect(DB::table('jobs')->where('id', $jobId)->exists())->toBeTrue();
+    expect(ReminderRun::find($run->id))->not->toBeNull();
 });

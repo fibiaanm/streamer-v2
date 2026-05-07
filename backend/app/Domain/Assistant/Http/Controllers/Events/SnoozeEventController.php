@@ -3,10 +3,9 @@
 namespace App\Domain\Assistant\Http\Controllers\Events;
 
 use App\Domain\Assistant\Http\Resources\AssistantEventResource;
-use App\Domain\Assistant\Jobs\FireEventReminder;
 use App\Domain\Assistant\Models\AssistantEvent;
-use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Support\EventResolver;
+use App\Domain\Assistant\Support\ReminderScheduler;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +23,7 @@ class SnoozeEventController extends Controller
 
         $eventId  = (string) ($request->route('event') ?? $request->route('eventId'));
         $userId   = $request->user()->id;
+        $timezone = $request->user()->timezone ?? 'UTC';
         $resolved = EventResolver::resolve($eventId, $userId);
         $until    = Carbon::parse($validated['until']);
 
@@ -37,15 +37,14 @@ class SnoozeEventController extends Controller
             abort(422, 'No future occurrences found after the given until date.');
         }
 
-        // Cancel the current occurrence
         if ($resolved->isVirtual()) {
             $resolved->materialize(['status' => 'cancelled']);
         } else {
-            $resolved->model()->update(['status' => 'cancelled']);
-            $resolved->model()->reminders()->where('status', 'pending')->delete();
+            $model = $resolved->model();
+            ReminderScheduler::releaseByEventIds([$model->id]);
+            $model->update(['status' => 'cancelled']);
         }
 
-        // Create the next materialized occurrence
         $next = AssistantEvent::create([
             'user_id'       => $master->user_id,
             'series_id'     => $master->id,
@@ -56,7 +55,7 @@ class SnoozeEventController extends Controller
             'status'        => 'active',
         ]);
 
-        $this->createRemindersFromTemplate($next, $master, $nextAt);
+        ReminderScheduler::scheduleForEvent($next, $timezone);
 
         $next->load('reminders');
 
@@ -66,8 +65,8 @@ class SnoozeEventController extends Controller
     private function nextOccurrenceAfter(AssistantEvent $master, Carbon $after): ?Carbon
     {
         try {
-            $rrule = new RRule($master->recurrence_rule, $master->event_at);
-            $end   = $after->copy()->addYear();
+            $rrule       = new RRule($master->recurrence_rule, $master->event_at);
+            $end         = $after->copy()->addYear();
             $occurrences = $rrule->getOccurrencesBetween($after->toDateTime(), $end->toDateTime());
 
             foreach ($occurrences as $dt) {
@@ -81,26 +80,5 @@ class SnoozeEventController extends Controller
         }
 
         return null;
-    }
-
-    private function createRemindersFromTemplate(AssistantEvent $event, AssistantEvent $master, Carbon $eventAt): void
-    {
-        $template = $master->reminders_template_json ?? [];
-
-        foreach ($template as $tpl) {
-            $offset = $tpl['offset'];
-            $fireAt = $offset === '0' ? $eventAt->copy() : $eventAt->copy()->modify($offset);
-
-            $reminder = EventReminder::create([
-                'event_id' => $event->id,
-                'fire_at'  => $fireAt,
-                'message'  => $tpl['message'],
-                'status'   => 'pending',
-            ]);
-
-            if ($fireAt->isFuture()) {
-                FireEventReminder::dispatch($reminder->id)->delay($fireAt);
-            }
-        }
     }
 }

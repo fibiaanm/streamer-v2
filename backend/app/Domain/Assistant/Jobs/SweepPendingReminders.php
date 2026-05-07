@@ -2,7 +2,7 @@
 
 namespace App\Domain\Assistant\Jobs;
 
-use App\Domain\Assistant\Models\EventReminder;
+use App\Domain\Assistant\Models\ReminderRun;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -12,8 +12,8 @@ class SweepPendingReminders implements ShouldQueue
 
     public function handle(): void
     {
-        EventReminder::where('status', 'pending')
-            ->where('fire_at', '<=', now())
-            ->each(fn ($reminder) => FireEventReminder::dispatch($reminder->id));
+        ReminderRun::where('status', 'pending')
+            ->where('run_at', '<=', now())
+            ->each(fn ($run) => FireReminderRun::dispatch($run->id));
     }
 }

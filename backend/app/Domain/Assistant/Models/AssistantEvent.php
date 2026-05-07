@@ -28,18 +28,16 @@ class AssistantEvent extends Model
         'occurrence_at',
         'type',
         'recurrence_rule',
-        'reminders_template_json',
         'status',
         'referenceable_type',
         'referenceable_id',
     ];
 
     protected $casts = [
-        'event_at'                => 'datetime',
-        'event_end'               => 'datetime',
-        'occurrence_at'           => 'datetime',
-        'series_ends_at'          => 'datetime',
-        'reminders_template_json' => 'array',
+        'event_at'      => 'datetime',
+        'event_end'     => 'datetime',
+        'occurrence_at' => 'datetime',
+        'series_ends_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

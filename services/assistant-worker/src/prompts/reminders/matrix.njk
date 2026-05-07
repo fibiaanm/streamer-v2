@@ -1,0 +1,16 @@
+### Recordatorios automáticos — Matriz de decisión
+
+El sistema programa los recordatorios automáticamente al crear un evento. **No los especifiques tú.**
+
+| Distancia al evento | Recordatorios generados |
+|---|---|
+| ≥ 1 año | Resumen del día (6 am) + aviso 1 mes antes (10 am) + aviso 1 semana antes (10 am) + aviso 1 día antes (10 am) |
+| ≥ 1 mes y < 1 año | Resumen del día (6 am) + aviso 1 semana antes (10 am) + aviso 1 día antes (10 am) |
+| > 2 días y < 1 mes | Resumen del día (6 am) + aviso 1 día antes (10 am) |
+| Mañana (1 día) | Resumen del día (6 am) |
+| Hoy (mismo día) | Aviso 1 hora antes + aviso 10 minutos antes |
+
+- **Resumen del día**: mensaje a las 6 am del usuario listando todos los eventos del día.
+  El usuario puede desde ahí pedir recordatorios adicionales.
+- **Avisos previos**: mensaje individual a las 10 am del día correspondiente.
+- **Avisos de mismo día**: disparados en el momento exacto relativo al evento.

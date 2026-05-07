@@ -10,9 +10,8 @@ it('snoozes a real recurring occurrence to the next slot after until', function 
     [$user, $enterprise, $token] = asstCtx();
 
     $master = AssistantEvent::factory()->master('FREQ=WEEKLY;BYDAY=MO')->create([
-        'user_id'                 => $user->id,
-        'event_at'                => '2026-05-04 10:00:00',
-        'reminders_template_json' => [['offset' => '-1 day', 'message' => 'Reminder']],
+        'user_id'  => $user->id,
+        'event_at' => '2026-05-04 10:00:00',
     ]);
     $occurrence = AssistantEvent::factory()->occurrence($master)->create([
         'event_at'      => '2026-05-04 10:00:00',
@@ -25,10 +24,8 @@ it('snoozes a real recurring occurrence to the next slot after until', function 
         ])
         ->assertOk();
 
-    // original occurrence should be cancelled
     expect($occurrence->fresh()->status)->toBe('cancelled');
 
-    // new occurrence should be created for the next Monday after 2026-05-10 (= 2026-05-11)
     $next = AssistantEvent::where('series_id', $master->id)
         ->where('status', 'active')
         ->first();
@@ -36,13 +33,12 @@ it('snoozes a real recurring occurrence to the next slot after until', function 
     expect($next->event_at->toDateString())->toBe('2026-05-11');
 });
 
-it('creates reminders from template on the snoozed occurrence', function () {
+it('schedules reminders from the matrix on the snoozed occurrence', function () {
     [$user, $enterprise, $token] = asstCtx();
 
     $master = AssistantEvent::factory()->master('FREQ=WEEKLY;BYDAY=MO')->create([
-        'user_id'                 => $user->id,
-        'event_at'                => '2026-05-04 10:00:00',
-        'reminders_template_json' => [['offset' => '-1 day', 'message' => 'Day before']],
+        'user_id'  => $user->id,
+        'event_at' => '2026-05-04 10:00:00',
     ]);
     $occurrence = AssistantEvent::factory()->occurrence($master)->create([
         'event_at'      => '2026-05-04 10:00:00',
@@ -56,5 +52,6 @@ it('creates reminders from template on the snoozed occurrence', function () {
         ->assertOk();
 
     $next = AssistantEvent::where('series_id', $master->id)->where('status', 'active')->first();
-    expect(EventReminder::where('event_id', $next->id)->count())->toBe(1);
+    // 2026-05-11 is 5 days from now (2026-05-06) → 1 ahead (-1 day) + 1 digest
+    expect(EventReminder::where('event_id', $next->id)->count())->toBe(2);
 });
