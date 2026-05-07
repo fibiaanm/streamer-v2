@@ -170,28 +170,28 @@ it('requires message_ids to mark processed', function () {
         ->assertStatus(422);
 });
 
-// ── POST conversations/{id}/typing ────────────────────────────────────────────
+// ── POST sessions/{id}/typing ─────────────────────────────────────────────────
 
 it('rejects typing indicator without service token', function () {
-    $conversation = Conversation::factory()->create();
-    $this->postJson("/api/v1/internal/conversations/{$conversation->id}/typing")
+    $session = AssistantSession::factory()->for(Conversation::factory())->create();
+    $this->postJson("/api/v1/internal/sessions/{$session->id}/typing")
         ->assertUnauthorized();
 });
 
 it('typing indicator returns ok with valid token', function () {
-    $conversation = Conversation::factory()->create();
+    $session = AssistantSession::factory()->for(Conversation::factory())->create();
 
     $this->withHeaders(serviceHdr())
-        ->postJson("/api/v1/internal/conversations/{$conversation->id}/typing")
+        ->postJson("/api/v1/internal/sessions/{$session->id}/typing")
         ->assertOk()
         ->assertJsonPath('ok', true);
 });
 
-// ── POST conversations/{id}/messages (internal) ───────────────────────────────
+// ── POST sessions/{id}/messages (internal) ───────────────────────────────────
 
 it('rejects save message without service token', function () {
-    $conversation = Conversation::factory()->create();
-    $this->postJson("/api/v1/internal/conversations/{$conversation->id}/messages", [
+    $session = AssistantSession::factory()->for(Conversation::factory())->create();
+    $this->postJson("/api/v1/internal/sessions/{$session->id}/messages", [
         'role' => 'assistant', 'content' => 'Hello',
     ])->assertUnauthorized();
 });
@@ -199,10 +199,10 @@ it('rejects save message without service token', function () {
 it('saves assistant message and returns hash id', function () {
     $user         = User::factory()->create();
     $conversation = Conversation::factory()->create(['user_id' => $user->id]);
-    AssistantSession::factory()->create(['conversation_id' => $conversation->id]);
+    $session      = AssistantSession::factory()->create(['conversation_id' => $conversation->id]);
 
     $response = $this->withHeaders(serviceHdr())
-        ->postJson("/api/v1/internal/conversations/{$conversation->id}/messages", [
+        ->postJson("/api/v1/internal/sessions/{$session->id}/messages", [
             'role'    => 'assistant',
             'content' => 'Sure, here is the answer.',
         ])

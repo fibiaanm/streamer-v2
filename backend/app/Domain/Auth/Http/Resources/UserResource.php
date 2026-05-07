@@ -23,11 +23,13 @@ class UserResource extends JsonResource
             : null;
 
         return [
-            'id'         => $this->getHashId(),
-            'name'       => $this->name,
-            'email'      => $this->email,
-            'is_admin'   => (bool) $this->is_admin,
-            'avatar_url' => $this->getAvatarUrls(),
+            'id'               => $this->getHashId(),
+            'name'             => $this->name,
+            'email'            => $this->email,
+            'is_admin'         => (bool) $this->is_admin,
+            'avatar_url'       => $this->getAvatarUrls(),
+            'timezone'         => $this->timezone ?? 'UTC',
+            'default_currency' => $this->default_currency ?? 'USD',
             'enterprise' => [
                 'id'          => $enterprise->getHashId(),
                 'name'        => $enterprise->name,

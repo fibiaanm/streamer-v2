@@ -8,7 +8,7 @@
       <UserMenu />
     </template>
 
-    <div class="flex items-start p-6 gap-6">
+    <div class="flex items-start pt-[68px] px-6 pb-6 gap-6">
 
       <SettingsSidebar />
 

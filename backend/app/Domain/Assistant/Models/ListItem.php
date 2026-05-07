@@ -4,6 +4,7 @@ namespace App\Domain\Assistant\Models;
 
 use App\Models\User;
 use App\Traits\HasHashId;
+use Database\Factories\Domain\Assistant\Models\ListItemFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ListItem extends Model
 {
     use HasFactory, HasHashId;
+
+    protected static function newFactory(): ListItemFactory
+    {
+        return ListItemFactory::new();
+    }
 
     protected $table = 'list_items';
 

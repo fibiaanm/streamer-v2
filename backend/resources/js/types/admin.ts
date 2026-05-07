@@ -83,11 +83,52 @@ export interface AdminConversationDetail {
   messages: AdminConversationMessage[]
 }
 
+export interface AdminJob {
+  id: number
+  queue: string
+  display_name: string
+  attempts: number
+  available_at: number
+  created_at: number
+}
+
+export interface AdminJobDetail extends AdminJob {
+  reminder: {
+    id: number
+    message: string
+    fire_at: string
+    status: string
+    fired_at: string | null
+    event: {
+      id: number
+      content: string
+      event_at: string
+      type: string
+      user_id: number
+      user: { name: string; email: string } | null
+    } | null
+  } | null
+}
+
 export interface AdminPagination {
   current_page: number
   last_page?: number
   total?: number
   has_more?: boolean
+}
+
+export interface FailedJobsSummary {
+  total: number
+  last_failed_at: string | null
+  most_failing_job: string | null
+  by_queue: Array<{ queue: string; count: number }>
+  queues: string[]
+}
+
+export interface FailedJobsTimelinePoint {
+  date: string
+  queue: string
+  count: number
 }
 
 export type BreakdownGroupBy = 'model' | 'provider' | 'type'

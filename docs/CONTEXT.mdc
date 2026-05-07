@@ -174,8 +174,8 @@ app/Domain/
 
 - **Documentación:** completa para las 23 etapas del streamer + 8 etapas del assistant
 - **Implementación streamer:** etapas 01–15 completadas (foundation → workspaces)
-- **Implementación assistant:** etapas 01–03b completadas (foundation, API core, Node worker texto, frontend mock)
-- **Próximo paso:** assistant etapa 04 (Tools — Eventos)
+- **Implementación assistant:** etapas 01–04 completadas (foundation, API core, Node worker texto, frontend mock, UI polish, tools eventos)
+- **Próximo paso:** assistant etapa 05 (Tools — Listas)
 
 ---
 

@@ -93,4 +93,12 @@ class FireEventReminder implements ShouldQueue
             Log::error('assistant.fire_reminder_broadcast_failed', ['exception' => $e]);
         }
     }
+
+    public function failed(Throwable $exception): void
+    {
+        Log::error('assistant.fire_reminder_failed', [
+            'reminder_id' => $this->reminderId,
+            'exception'   => $exception->getMessage(),
+        ]);
+    }
 }

@@ -22,6 +22,9 @@ class DatabaseSeeder extends Seeder
             WorkspaceSeeder::class,
             TypeCatalogSeeder::class,
             AssistantUserSeeder::class,
+            TokenUsageSeeder::class,
+            AssistantConversationSeeder::class,
+            FailedJobsSeeder::class,
         ]);
     }
 }

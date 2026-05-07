@@ -1,0 +1,147 @@
+---
+description: Gaps conocidos del producto Assistant — bugs, incompletos y mejoras pendientes
+type: gaps
+status: activo
+---
+
+# Assistant — Gaps conocidos
+
+Archivo vivo. Marcar `[x]` al resolver. Añadir entradas nuevas con fecha de descubrimiento.
+
+---
+
+## 🔴 Críticos — roto o engañoso
+
+### G-01 · `read_memory` no existe como tool
+**Descubierto:** 2026-05-04
+
+El `system.njk` instruye al LLM a llamar `read_memory(category)` cuando hay memorias relevantes.
+`ToolRegistry` solo registra `EVENT_TOOLS + OPTION_TOOLS`. El LLM intenta llamarla, `ToolExecutor`
+cae en el `default` y devuelve `{ error: "Unknown tool: read_memory" }` — el LLM toma decisiones
+sin contexto de memoria.
+
+**Fix:** implementar la tool + endpoint `GET /api/v1/internal/users/{userId}/memories?category=X`
+y registrarla en `ToolRegistry`.
+
+- [ ] Endpoint Laravel
+- [ ] Tool en `ToolExecutor` + `eventTools.ts` (o archivo propio `memoryTools.ts`)
+- [ ] Registrada en `ToolRegistry` para ambos tiers
+
+---
+
+### G-02 · Mensaje del reminder llega sin acciones
+**Descubierto:** 2026-05-04
+
+`FireEventReminder` emite `actions_json ?? []` — siempre array vacío. El frontend renderiza
+`message.actions` pero nunca recibe nada. El usuario tiene que escribirle al LLM para reaccionar
+al reminder en vez de usar botones directos.
+
+**Fix:** `FireEventReminder` debe construir `actions_json` con acciones rápidas:
+
+```json
+[
+  { "label": "Posponer 1 h",    "value": "snooze_event:{event_id}:1h" },
+  { "label": "Posponer a mañana", "value": "snooze_event:{event_id}:tomorrow" },
+  { "label": "Marcar como hecho", "value": "complete_event:{event_id}" }
+]
+```
+
+Requiere también resolver G-03 (complete_event).
+
+- [ ] Construir `actions_json` en `FireEventReminder`
+- [ ] El frontend envía el `value` como mensaje de usuario al hacer clic (ya funciona para otros casos)
+
+---
+
+## 🟡 Funcionalidad incompleta
+
+### G-03 · No hay `complete_event`
+**Descubierto:** 2026-05-04
+
+`status = 'completed'` existe en el modelo y en el validador de `GetEventsController`, pero no hay
+tool ni endpoint para marcar un evento como completado. El LLM solo puede cancelar, no completar.
+
+**Fix:**
+- Endpoint `POST /api/v1/assistant/events/{event}/complete` (acepta ID virtual)
+- Tool `complete_event` en `eventTools.ts` y `ToolExecutor`
+- Registrar en `ToolRegistry`
+
+- [ ] Endpoint + controlador
+- [ ] Tool en worker
+- [ ] Tests
+
+---
+
+### G-04 · Límites `events_monthly` y `reminders_active` no se validan
+**Descubierto:** 2026-05-04
+
+Los límites están definidos en los planes (Free: 20 eventos/mes, 3 reminders activos) pero
+`CreateEventController` no llama a ningún `LimitService`. Los límites son decoración.
+
+**Fix:** en `CreateEventController`, antes de crear, validar contra `LimitService`:
+- `events_monthly`: contar eventos del mes en curso del usuario
+- `reminders_active`: contar reminders con `status = pending` del usuario
+
+- [ ] Validación en `CreateEventController`
+- [ ] Tests de límite (devuelve 403 con `ErrorCode` adecuado)
+
+---
+
+### G-05 · `update_user_timezone` y `schedule_timezone_override` prometidas pero no existen
+**Descubierto:** 2026-05-04
+
+`system.njk` tiene instrucciones detalladas sobre cuándo llamarlas, pero no están en `ToolExecutor`
+ni en ningún endpoint de Laravel. Si el LLM detecta un cambio de timezone, intenta llamarlas y falla.
+
+**Fix:**
+- `PATCH /api/v1/assistant/user/timezone` — actualiza `users.timezone`
+- `POST /api/v1/assistant/user/timezone-override` — guarda override temporal (necesita columna o tabla)
+- Tools en worker + `ToolRegistry`
+
+- [ ] Endpoint timezone permanente
+- [ ] Endpoint timezone temporal (definir modelo/columna)
+- [ ] Tools en worker
+
+---
+
+## 🟢 Calidad / menor
+
+### G-06 · `startOfWeek` / `endOfWeek` en `RemindersView` usan timezone del browser
+**Descubierto:** 2026-05-04
+
+Después de mover `isoDate` a `useDate`, las funciones `startOfWeek` y `endOfWeek` siguen usando
+`setHours(0,0,0,0)` (browser timezone). Los rangos "esta semana" / "próxima semana" pueden
+estar desajustados si `user.timezone` ≠ timezone del browser.
+
+**Fix:** calcular el inicio de semana usando `Intl.DateTimeFormat` con `user.timezone` para
+obtener el día de la semana correcto, en vez de `Date.getDay()`.
+
+- [ ] Refactorizar helpers de semana en `RemindersView` para usar `useDate`
+
+---
+
+### G-07 · `MaterializeSeriesWindow` expande RRULEs en UTC
+**Descubierto:** 2026-05-04
+
+El job usa `now()` PHP (UTC) como punto de referencia. Para usuarios en timezones alejadas de UTC,
+la ventana de 14 días puede materializar un slot en el día incorrecto.
+
+**Fix:** usar `now()->setTimezone($event->user->timezone)` al construir el punto de referencia
+antes de expandir el RRULE.
+
+- [ ] Ajuste en `MaterializeSeriesWindow`
+- [ ] Test con usuario en timezone UTC-12 / UTC+14
+
+---
+
+## 📋 Seguimiento
+
+| ID | Severidad | Estado |
+|---|---|---|
+| G-01 | 🔴 Crítico | pendiente |
+| G-02 | 🔴 Crítico | pendiente |
+| G-03 | 🟡 Incompleto | pendiente |
+| G-04 | 🟡 Incompleto | pendiente |
+| G-05 | 🟡 Incompleto | pendiente |
+| G-06 | 🟢 Menor | pendiente |
+| G-07 | 🟢 Menor | pendiente |

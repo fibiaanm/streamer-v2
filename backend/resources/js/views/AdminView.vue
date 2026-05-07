@@ -31,11 +31,14 @@
           <AdminSidebarItem to="/admin/usage"         icon="ui/bar-chart-2"    label="Token Usage" />
           <AdminSidebarItem to="/admin/users"         icon="ui/users"          label="Users" />
           <AdminSidebarItem to="/admin/conversations" icon="ui/message-square" label="Conversations" />
+          <AdminSidebarItem to="/admin/jobs"          icon="ui/clock"          label="Jobs Queue" />
+          <AdminSidebarItem to="/admin/failed-jobs"   icon="ui/alert-triangle" label="Failed Jobs" />
         </nav>
       </div>
     </template>
 
-    <div class="h-full overflow-y-auto pretty-scroll px-6 pb-6 pt-[92px]">
+    <div class="h-full overflow-y-auto pretty-scroll px-6 pb-6">
+      <div class="shrink-0 h-[68px]" />
       <RouterView :key="reloadKey" />
     </div>
   </AppLayout>

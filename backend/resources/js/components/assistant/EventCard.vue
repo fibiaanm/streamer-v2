@@ -111,7 +111,7 @@
           :class="r.status === 'fired' ? 'text-white/25' : 'text-brand-400/50'"
         />
         <span>{{ r.message }}</span>
-        <span class="text-white/20">· {{ formatFireAt(r.fire_at) }}</span>
+        <span class="text-white/20">· {{ formatDatetime(r.fire_at) }}</span>
       </div>
     </div>
 
@@ -180,6 +180,7 @@
 import { ref, computed } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import type { AssistantEvent } from '@/types'
+import { useDate } from '@/composables/core/useDate'
 
 const props = defineProps<{ event: AssistantEvent }>()
 const emit  = defineEmits<{
@@ -187,6 +188,8 @@ const emit  = defineEmits<{
   snooze: [id: string, until: string]
   update: [id: string, payload: Partial<AssistantEvent>]
 }>()
+
+const { formatEventAt, formatTime, formatDatetime } = useDate()
 
 const editing       = ref(false)
 const confirmCancel = ref(false)
@@ -201,29 +204,14 @@ const editForm = ref({
 })
 
 function toLocalDatetimeInput(iso: string): string {
-  const d = new Date(iso)
+  const d   = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const formattedDate = computed(() => {
-  const d = new Date(props.event.event_at)
-  return d.toLocaleString('es', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: '2-digit', minute: '2-digit',
-  })
-})
+const formattedDate = computed(() => formatEventAt(props.event.event_at))
 
-const formattedEnd = computed(() => {
-  if (!props.event.event_end) return ''
-  return new Date(props.event.event_end).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
-})
-
-function formatFireAt(iso: string): string {
-  return new Date(iso).toLocaleString('es', {
-    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-  })
-}
+const formattedEnd = computed(() => props.event.event_end ? formatTime(props.event.event_end) : '')
 
 function startEdit() {
   editForm.value = {

@@ -6,6 +6,7 @@ use App\Domain\Assistant\Http\Resources\AssistantEventResource;
 use App\Domain\Assistant\Jobs\FireEventReminder;
 use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\EventReminder;
+use Illuminate\Support\Facades\Queue;
 use App\Domain\Assistant\Models\TypeCatalog;
 use App\Domain\Assistant\Support\MorphTypeMap;
 use App\Domain\Assistant\Support\SeriesEndResolver;
@@ -131,7 +132,8 @@ class CreateEventController extends Controller
             ]);
 
             if ($fireAt->isFuture()) {
-                FireEventReminder::dispatch($reminder->id)->delay($fireAt);
+                $jobId = Queue::laterOn('assistant', $fireAt, new FireEventReminder($reminder->id));
+                $reminder->update(['job_id' => $jobId]);
             }
         }
     }

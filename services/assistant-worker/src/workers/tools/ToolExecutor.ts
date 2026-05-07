@@ -50,6 +50,22 @@ export class ToolExecutor {
           return await this.snoozeEvent(input);
         case 'detach_event_reference':
           return await this.detachEventReference(input);
+        case 'get_lists':
+          return await this.getLists(input);
+        case 'get_list':
+          return await this.getList(input);
+        case 'create_list':
+          return await this.createList(input);
+        case 'delete_list':
+          return await this.deleteList(input);
+        case 'add_to_list':
+          return await this.addToList(input);
+        case 'update_list_item':
+          return await this.updateListItem(input);
+        case 'remove_from_list':
+          return await this.removeFromList(input);
+        case 'clear_completed_items':
+          return await this.clearCompletedItems(input);
         case 'send_options':
           return JSON.stringify({ __virtual__: 'send_options', ...input });
         default:
@@ -100,5 +116,50 @@ export class ToolExecutor {
   private async detachEventReference(input: Record<string, unknown>): Promise<string> {
     const res = await this.laravel.delete(`${this.base}/events/${String(input.event_id)}/reference`) as { data: Record<string, unknown> };
     return JSON.stringify({ data: projectEvent(res?.data ?? {}) });
+  }
+
+  private async getLists(input: Record<string, unknown>): Promise<string> {
+    const params = new URLSearchParams();
+    if (input.include_shared) params.set('include_shared', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await this.laravel.get(`${this.base}/lists${query}`) as { data: unknown[] };
+    return JSON.stringify({ data: res?.data ?? [] });
+  }
+
+  private async getList(input: Record<string, unknown>): Promise<string> {
+    const res = await this.laravel.get(`${this.base}/lists/${String(input.id)}`) as { data: unknown };
+    return JSON.stringify({ data: res?.data ?? {} });
+  }
+
+  private async createList(input: Record<string, unknown>): Promise<string> {
+    const res = await this.laravel.post(`${this.base}/lists`, input) as { data: unknown };
+    return JSON.stringify({ data: res?.data ?? {} });
+  }
+
+  private async deleteList(input: Record<string, unknown>): Promise<string> {
+    await this.laravel.delete(`${this.base}/lists/${String(input.id)}`);
+    return JSON.stringify({ success: true });
+  }
+
+  private async addToList(input: Record<string, unknown>): Promise<string> {
+    const { id, items } = input;
+    const res = await this.laravel.post(`${this.base}/lists/${String(id)}/items`, { items }) as { data: unknown[] };
+    return JSON.stringify({ data: res?.data ?? [] });
+  }
+
+  private async updateListItem(input: Record<string, unknown>): Promise<string> {
+    const { list_id, item_id, ...body } = input;
+    const res = await this.laravel.patch(`${this.base}/lists/${String(list_id)}/items/${String(item_id)}`, body) as { data: unknown };
+    return JSON.stringify({ data: res?.data ?? {} });
+  }
+
+  private async removeFromList(input: Record<string, unknown>): Promise<string> {
+    await this.laravel.delete(`${this.base}/lists/${String(input.list_id)}/items/${String(input.item_id)}`);
+    return JSON.stringify({ success: true });
+  }
+
+  private async clearCompletedItems(input: Record<string, unknown>): Promise<string> {
+    await this.laravel.delete(`${this.base}/lists/${String(input.id)}/items/completed`);
+    return JSON.stringify({ success: true });
   }
 }

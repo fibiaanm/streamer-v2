@@ -8,7 +8,49 @@ status: activo
 
 ---
 
-## Main LLM
+## Arquitectura modular del Main LLM
+
+El system prompt del Main LLM se compone de módulos Nunjucks independientes
+que se concatenan en `system.njk`:
+
+```
+soul.njk       — personalidad y voz del asistente ("Blue")
+core.njk       — contexto, comportamiento general, listas, amigos, confirmación
+reminders.njk  — eventos, recordatorios, zona horaria
+finance.njk    — gastos y finanzas
+```
+
+`system.njk` es solo la composición:
+
+```nunjucks
+{% include "soul.njk" %}
+{% include "core.njk" %}
+{% include "reminders.njk" %}
+{% include "finance.njk" %}
+```
+
+Para añadir un nuevo dominio: crear `nombre.njk` y añadir un `{% include %}` en `system.njk`.
+
+### Tradeoff: scope de variables compartido
+
+Todos los módulos comparten el mismo contexto Nunjucks (`user`, `memories`,
+`current_datetime`, `effective_timezone`, `timezone_override`). No hay
+namespacing entre módulos.
+
+**Consecuencias:**
+- Si dos módulos usan la misma variable con significados distintos, se pisan.
+- El orden de los includes importa: el LLM lee el prompt de arriba a abajo,
+  así que las instrucciones de `core.njk` tienen mayor peso que las de módulos
+  posteriores en caso de conflicto implícito.
+- El budget de tokens (6 000 tokens de contexto histórico) se reduce con cada
+  módulo que se añade. Un módulo grande puede desplazar mensajes del historial.
+- La inclusión condicional (p.ej. no cargar `finance.njk` en el plan free)
+  requiere cambiar el renderer — los includes de Nunjucks no reciben variables
+  de control por sí solos.
+
+---
+
+## Main LLM (contenido de referencia en español)
 
 Renderizado con Nunjucks antes de cada llamada al LLM principal.
 

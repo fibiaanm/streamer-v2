@@ -25,6 +25,7 @@
 import { computed } from 'vue'
 import AppBadge from '@/components/AppBadge.vue'
 import type { AssistantSession } from '@/composables/assistant/useSessions'
+import { useDate } from '@/composables/core/useDate'
 
 const props = defineProps<{
   session:    AssistantSession
@@ -32,6 +33,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ select: [id: string] }>()
+
+const { formatShortDate } = useDate()
 
 const relativeDate = computed(() => {
   if (!props.session.started_at) return ''
@@ -43,6 +46,6 @@ const relativeDate = computed(() => {
   if (diff < 3_600)        return `Hace ${Math.floor(diff / 60)} min`
   if (diff < 86_400)       return `Hace ${Math.floor(diff / 3_600)} h`
   if (diff < 86_400 * 7)   return `Hace ${Math.floor(diff / 86_400)} días`
-  return date.toLocaleDateString('es', { day: 'numeric', month: 'short' })
+  return formatShortDate(props.session.started_at)
 })
 </script>

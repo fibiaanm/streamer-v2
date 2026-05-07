@@ -2,36 +2,78 @@
   <div :class="{ dark: isDark }">
     <PageBackground>
       <div
-        class="h-screen flex flex-col overflow-hidden transition-[padding-left] duration-200 ease-in-out"
-        :style="{ paddingLeft: sidebarOpen && isDesktop ? '19.5rem' : '0' }"
+        class="h-screen flex flex-col overflow-hidden transition-[padding-left,padding-right] duration-200 ease-in-out"
+        :style="{
+          paddingLeft:  sidebarOpen      && isDesktop ? '19.5rem' : '0',
+          paddingRight: sidebarRightOpen && isDesktop ? '19.5rem' : '0',
+        }"
       >
-        <AppHeader>
-          <template #left>
-            <button
-              v-if="$slots.sidebar"
-              class="w-8 h-8 flex items-center justify-center rounded-xl text-white/50
-                     hover:text-white/80 hover:bg-white/8 transition-colors cursor-pointer shrink-0"
-              @click="sidebarOpen = !sidebarOpen"
-            >
-              <AppIcon name="ui/menu" size="sm" />
-            </button>
-            <slot name="header-left" />
-          </template>
-          <template v-if="$slots['header-center']" #center>
-            <slot name="header-center" />
-          </template>
-          <template v-if="$slots['header-right']" #right>
-            <slot name="header-right" />
-          </template>
-        </AppHeader>
+        <!-- Área de contenido: posicionada después del padding del sidebar -->
+        <div class="flex-1 relative overflow-hidden">
 
-        <div class="flex-1 -mt-[68px] overflow-hidden">
+          <!-- Header flotante: absolute dentro del área de contenido, igual que ChatInput -->
+          <div class="absolute inset-x-0 top-0 z-[150]">
+            <AppHeader>
+              <template #left>
+                <button
+                  v-if="$slots.sidebar"
+                  class="w-8 h-8 flex items-center justify-center rounded-xl text-white/50
+                         hover:text-white/80 hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                  @click="sidebarOpen = !sidebarOpen"
+                >
+                  <AppIcon name="ui/menu" size="sm" />
+                </button>
+                <slot name="header-left" />
+              </template>
+              <template v-if="$slots['header-center']" #center>
+                <slot name="header-center" />
+              </template>
+              <template v-if="$slots['header-right'] || $slots['sidebar-right']" #right>
+                <slot name="header-right" />
+                <button
+                  v-if="$slots['sidebar-right']"
+                  class="w-8 h-8 flex items-center justify-center rounded-xl text-white/50
+                         hover:text-white/80 hover:bg-white/8 transition-colors cursor-pointer shrink-0"
+                  @click="sidebarRightOpen = !sidebarRightOpen"
+                >
+                  <AppIcon name="ui/panel-right" size="sm" />
+                </button>
+              </template>
+            </AppHeader>
+          </div>
+
           <slot />
         </div>
       </div>
     </PageBackground>
 
-    <!-- Sidebar: siempre fixed overlay, mismo DOM en mobile y desktop -->
+    <!-- Sidebar derecho -->
+    <template v-if="$slots['sidebar-right']">
+      <Teleport to="body">
+
+        <Transition name="sb-fade">
+          <div
+            v-if="sidebarRightOpen && !isDesktop"
+            class="fixed inset-0 z-[399] bg-black/30"
+            @click="sidebarRightOpen = false"
+          />
+        </Transition>
+
+        <Transition name="sbr-slide">
+          <div
+            v-if="sidebarRightOpen"
+            class="fixed right-3 top-3 bottom-3 w-72 z-[400]
+                   bg-white/6 backdrop-blur-xl rounded-2xl
+                   flex flex-col overflow-hidden"
+          >
+            <slot name="sidebar-right" />
+          </div>
+        </Transition>
+
+      </Teleport>
+    </template>
+
+    <!-- Sidebar izquierdo -->
     <template v-if="$slots.sidebar">
       <Teleport to="body">
 
@@ -39,7 +81,7 @@
         <Transition name="sb-fade">
           <div
             v-if="sidebarOpen && !isDesktop"
-            class="fixed inset-0 z-[199] bg-black/30"
+            class="fixed inset-0 z-[399] bg-black/30"
             @click="sidebarOpen = false"
           />
         </Transition>
@@ -48,7 +90,7 @@
         <Transition name="sb-slide">
           <div
             v-if="sidebarOpen"
-            class="fixed left-3 top-3 bottom-3 w-72 z-[200]
+            class="fixed left-3 top-3 bottom-3 w-72 z-[400]
                    bg-white/6 backdrop-blur-xl rounded-2xl
                    flex flex-col overflow-hidden"
           >
@@ -70,8 +112,9 @@ import { useTheme }   from '@/composables/core/useTheme'
 
 const { isDark } = useTheme()
 
-const isDesktop   = ref(typeof window !== 'undefined' && window.innerWidth >= 768)
-const sidebarOpen = ref(isDesktop.value)
+const isDesktop        = ref(typeof window !== 'undefined' && window.innerWidth >= 768)
+const sidebarOpen      = ref(isDesktop.value)
+const sidebarRightOpen = ref(false)
 
 function onResize() {
   isDesktop.value = window.innerWidth >= 768
@@ -98,5 +141,14 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
 .sb-slide-enter-from,
 .sb-slide-leave-to {
   transform: translateX(-110%);
+}
+
+.sbr-slide-enter-active,
+.sbr-slide-leave-active {
+  transition: transform 0.2s ease;
+}
+.sbr-slide-enter-from,
+.sbr-slide-leave-to {
+  transform: translateX(110%);
 }
 </style>

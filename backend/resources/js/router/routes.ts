@@ -39,6 +39,11 @@ const routes: RouteRecordRaw[] = [
     meta: { appName: 'Recordatorios', appProduct: 'assistant' },
   },
   {
+    path: '/app/assistant/lists',
+    component: () => import('@/views/ListsView.vue'),
+    meta: { appName: 'Listas', appProduct: 'assistant' },
+  },
+  {
     path: '/app/image-studio',
     component: () => import('@/Pages/ImageStudio.vue'),
     meta: { appName: 'Image Studio', appIcon: 'ui/image', appMenu: true, appProduct: 'core' },
@@ -63,6 +68,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'usage',         component: () => import('@/views/Admin/UsageDashboard.vue') },
       { path: 'users',         component: () => import('@/views/Admin/UsersView.vue') },
       { path: 'conversations', component: () => import('@/views/Admin/ConversationsView.vue') },
+      { path: 'jobs',         component: () => import('@/views/Admin/JobsView.vue') },
+      { path: 'failed-jobs', component: () => import('@/views/Admin/FailedJobsView.vue') },
     ],
   },
 

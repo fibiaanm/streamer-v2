@@ -125,11 +125,32 @@ Los límites booleanos (ej. `send_reminders_to_friends`) se almacenan en `limits
 
 ## Zona horaria
 
-- `users.timezone` — string IANA (ej. `"America/Bogota"`), default `UTC`
-- Se solicita en el **registro** (campo obligatorio del onboarding)
-- **Canal web:** se actualiza automáticamente desde el timezone del browser en cada inicio de sesión
-- **Canal WhatsApp:** el LLM infiere desde señales de contexto ("son las 3pm aquí", menciones de ciudad) y actualiza vía tool `update_user_timezone`. Si no hay timezone guardado y no hay señales, pregunta una vez en la primera sesión
-- Los eventos pasados no se modifican — están en UTC y se renderizan siempre en la zona vigente
+### Almacenamiento
+- Toda fecha en la base de datos se guarda en **UTC** — `event_at`, `fire_at`, `fired_at`, `spent_at`, etc.
+- Laravel app timezone: `UTC` (`config/app.php`). No hay conversión implícita al persistir.
+- `users.timezone` — string IANA (ej. `"America/Bogota"`), default `UTC`.
+
+### Cómo se actualiza
+- Se solicita en el **registro** (campo obligatorio del onboarding).
+- **Canal web:** se actualiza automáticamente desde el timezone del browser en cada inicio de sesión.
+- **Canal WhatsApp:** el LLM infiere desde señales de contexto ("son las 3pm aquí", menciones de ciudad) y actualiza vía tool `update_user_timezone`. Si no hay timezone guardado y no hay señales, pregunta una vez en la primera sesión.
+
+### LLM → backend
+- El system prompt pasa al LLM la fecha/hora actual **formateada en la zona del usuario** (`current_datetime`) y el nombre IANA de la zona (`effective_timezone`).
+- Los tools (`create_event`, `update_event`, `snooze_event`) reciben `event_at` / `until` como **ISO 8601 UTC**. El LLM debe interpretar las horas del usuario en su zona local y convertirlas a UTC antes de llamar al tool.
+- Trampas conocidas: si el LLM usa la fecha UTC del servidor (en lugar de la fecha local del usuario) para resolver "mañana" / "hoy", el evento puede quedar un día o varias horas desfasado. El system prompt lo mitiga con la instrucción explícita de usar `current_datetime` como referencia.
+
+### Frontend — renderizado
+- **Nunca** usar `new Date(iso).toLocaleString()` ni métodos de instancia (`getHours()`, `getDate()`, etc.) sin especificar timezone; esos métodos usan la zona del browser, no la del usuario logueado.
+- Usar siempre el composable `useDate` (`resources/js/composables/core/useDate.ts`), que lee `user.timezone` de la sesión:
+  - `formatEventAt(iso)` — fecha + hora completa (event cards)
+  - `formatDatetime(iso)` — compacto sin año (reminder fire_at)
+  - `formatTime(iso)` — solo hora
+  - `formatShortDate(iso)` — solo fecha corta
+  - `formatTimestamp(ts)` — Unix timestamp en segundos (jobs queue, `available_at`)
+  - `isoDate(d?)` — `YYYY-MM-DD` en zona del usuario (parámetros `from`/`to` de la API)
+- Los strings de MySQL (`2026-05-06 08:00:00`, sin `T` ni `Z`) se deben normalizar a ISO UTC antes de pasarlos al composable: `d.replace(' ', 'T') + 'Z'`.
+- Los eventos pasados no se modifican — están en UTC y se renderizan siempre en la zona vigente del usuario.
 
 ---
 

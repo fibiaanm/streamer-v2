@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Assistant\Jobs\FireEventReminder;
 use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\AssistantList;
 use App\Domain\Assistant\Models\EventReminder;
@@ -107,6 +108,40 @@ it('returns 422 for invalid referenceable type alias', function () {
             'referenceable' => ['type' => 'invalid_type', 'id' => '123'],
         ]))
         ->assertUnprocessable();
+});
+
+it('dispatches one FireEventReminder job per future reminder', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at'  => now()->addMonths(2)->toIso8601String(),
+            'reminders' => [
+                ['offset' => '-7 days', 'message' => 'One week before'],
+                ['offset' => '-1 day',  'message' => 'Day before'],
+                ['offset' => '0',       'message' => 'Day of'],
+            ],
+        ]))
+        ->assertCreated();
+
+    Queue::assertPushed(FireEventReminder::class, 3);
+});
+
+it('does not dispatch a job for reminders whose fire_at is already past', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    // event in 3 days → "-7 days" fires 4 days ago (past), "0" fires in 3 days (future)
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at'  => now()->addDays(3)->toIso8601String(),
+            'reminders' => [
+                ['offset' => '-7 days', 'message' => 'Already past'],
+                ['offset' => '0',       'message' => 'Day of'],
+            ],
+        ]))
+        ->assertCreated();
+
+    Queue::assertPushed(FireEventReminder::class, 1);
 });
 
 it('returns 403 when referenceable does not belong to user', function () {

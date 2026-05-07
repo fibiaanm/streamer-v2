@@ -133,21 +133,17 @@ import UserMenu         from '@/components/UserMenu.vue'
 import AssistantSidebar from '@/components/assistant/AssistantSidebar.vue'
 import EventCard        from '@/components/assistant/EventCard.vue'
 import { useEvents }    from '@/composables/assistant/useEvents'
+import { useDate }      from '@/composables/core/useDate'
 import type { AssistantEvent } from '@/types'
 
 const router = useRouter()
 const { events, loading, loadEvents, cancelEvent, snoozeEvent, updateEvent, replaceEvent, removeEvent } = useEvents()
+const { isoDate } = useDate()
 
 const pastExpanded = ref(false)
 const dropdownOpen = ref(false)
 const dropdownRef  = ref<HTMLElement | null>(null)
 const period       = ref('3m')
-
-// ── Period helpers ────────────────────────────────────────────────────────────
-
-function isoDate(d: Date) {
-    return d.toISOString().split('T')[0]
-}
 
 function startOfWeek(d: Date): Date {
     const day  = d.getDay()

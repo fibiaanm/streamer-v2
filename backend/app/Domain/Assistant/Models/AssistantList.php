@@ -2,6 +2,8 @@
 
 namespace App\Domain\Assistant\Models;
 
+use App\Domain\Assistant\Support\HasEventReference;
+use App\Domain\Assistant\Support\NotifiesOrphanedEventReferences;
 use App\Models\User;
 use App\Traits\HasHashId;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class AssistantList extends Model
 {
-    use HasFactory, HasHashId, SoftDeletes;
+    use HasFactory, HasHashId, SoftDeletes, HasEventReference, NotifiesOrphanedEventReferences;
 
     protected $table = 'assistant_lists';
 
@@ -31,5 +33,11 @@ class AssistantList extends Model
     public function shares(): HasMany
     {
         return $this->hasMany(ListShare::class, 'list_id');
+    }
+
+    public function eventReferenceLabel(): string
+    {
+        $pending = $this->items()->where('status', 'pending')->count();
+        return "lista '{$this->name}' ({$pending} ítems pendientes)";
     }
 }

@@ -68,6 +68,8 @@ export interface SessionUser {
   email: string
   is_admin: boolean
   avatar_url: AvatarUrl
+  timezone: string
+  default_currency: string
   enterprise: Enterprise
 }
 
@@ -135,6 +137,28 @@ export interface ApiError {
 
 export interface ApiResponse<T> {
   data: T
+}
+
+// ── Assistant lists ──────────────────────────────────────────────────────────
+
+export interface ListItem {
+  id:       string
+  content:  string
+  status:   'pending' | 'done'
+  position: number
+  added_by: string
+}
+
+export interface AssistantList {
+  id:                 string
+  name:               string
+  type:               string | null
+  owner_id:           string
+  is_shared_with_me:  boolean
+  my_permission:      'read' | 'write'
+  items_count:        { pending: number; done: number }
+  items?:             ListItem[]
+  created_at:         string
 }
 
 // ── Assistant events ─────────────────────────────────────────────────────────

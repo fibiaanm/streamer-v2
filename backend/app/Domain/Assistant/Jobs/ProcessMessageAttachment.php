@@ -11,7 +11,7 @@ class ProcessMessageAttachment implements ShouldQueue
 
     public function __construct(
         public readonly int $messageId,
-        public readonly int $conversationId,
+        public readonly int $sessionId,
         public readonly int $userId,
     ) {}
 
@@ -21,9 +21,9 @@ class ProcessMessageAttachment implements ShouldQueue
         // will be implemented in etapa 03 with LLM/Whisper integrations.
 
         ProcessAssistantMessage::dispatch(
-            messageId:      $this->messageId,
-            conversationId: $this->conversationId,
-            userId:         $this->userId,
+            messageId: $this->messageId,
+            sessionId: $this->sessionId,
+            userId:    $this->userId,
         )->onQueue('assistant');
     }
 }

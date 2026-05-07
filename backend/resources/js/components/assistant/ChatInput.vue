@@ -6,7 +6,7 @@
       ref="textareaEl"
       v-model="text"
       class="flex-1 min-h-[5rem] bg-transparent text-sm text-white/90 placeholder-white/30
-             resize-none outline-none leading-relaxed overflow-y-auto pretty-scroll"
+             resize-none outline-none leading-relaxed overflow-y-auto pretty-scroll px-2 pt-1"
       placeholder="Escribe un mensaje..."
       :disabled="sending"
       @keydown.enter.exact.prevent="submit"

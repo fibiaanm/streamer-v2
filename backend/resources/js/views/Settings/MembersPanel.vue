@@ -153,6 +153,7 @@ import { useMembersApi }   from '@/composables/api/useMembersApi'
 import { useMembersState } from '@/composables/core/useMembersState'
 import { useMembersSync }  from '@/composables/core/useMembersSync'
 import { useToasts }       from '@/composables/core/useToasts'
+import { useDate }         from '@/composables/core/useDate'
 import type { Member } from '@/composables/api/useMembersApi'
 import AppButton          from '@/components/AppButton.vue'
 import AppBadge           from '@/components/AppBadge.vue'
@@ -259,8 +260,6 @@ const cancelInvite = async (inv: { id: string }) => {
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────────
-const formatExpiry = (iso: string) => {
-  const d = new Date(iso)
-  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-}
+const { formatShortDate } = useDate()
+const formatExpiry = (iso: string) => formatShortDate(iso)
 </script>

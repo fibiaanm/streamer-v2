@@ -1,5 +1,8 @@
 <template>
-  <div ref="listEl" class="absolute inset-0 overflow-y-auto pretty-scroll pt-[84px] flex flex-col gap-0.5" :style="{ paddingBottom: bottomOffset + 'px' }" @scroll="onScroll">
+  <div ref="listEl" class="h-full overflow-y-auto pretty-scroll flex flex-col gap-0.5" @scroll="onScroll">
+    <!-- Spacer: reserva espacio del header flotante -->
+    <div class="shrink-0 h-[68px]" />
+
     <!-- Loading skeleton -->
     <template v-if="loading">
       <div v-for="i in 4" :key="i" class="px-4 py-1 flex" :class="i % 2 === 0 ? 'justify-end' : 'justify-start'">
@@ -21,6 +24,9 @@
 
       <TypingIndicator v-if="isTyping" />
     </template>
+
+    <!-- Spacer: reserva espacio del input flotante -->
+    <div class="shrink-0" :style="{ height: (bottomOffset ?? 0) + 'px' }" />
 
     <div ref="anchorEl" />
   </div>

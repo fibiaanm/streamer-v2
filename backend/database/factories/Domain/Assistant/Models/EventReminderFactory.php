@@ -20,6 +20,7 @@ class EventReminderFactory extends Factory
             'fire_at'  => now()->addHours(fake()->numberBetween(1, 72)),
             'message'  => fake()->sentence(),
             'status'   => 'pending',
+            'job_id'   => null,
         ];
     }
 

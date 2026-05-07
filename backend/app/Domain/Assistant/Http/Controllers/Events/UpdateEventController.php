@@ -6,6 +6,7 @@ use App\Domain\Assistant\Http\Resources\AssistantEventResource;
 use App\Domain\Assistant\Jobs\FireEventReminder;
 use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Support\EventResolver;
+use Illuminate\Support\Facades\Queue;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,7 @@ class UpdateEventController extends Controller
 
     private function recalculateReminders(\App\Domain\Assistant\Models\AssistantEvent $event, Carbon $newEventAt): void
     {
+        EventReminder::cancelJobsByEventIds([$event->id]);
         $event->reminders()->where('status', 'pending')->delete();
 
         $master   = $event->master;
@@ -69,7 +71,8 @@ class UpdateEventController extends Controller
             ]);
 
             if ($fireAt->isFuture()) {
-                FireEventReminder::dispatch($reminder->id)->delay($fireAt);
+                $jobId = Queue::laterOn('assistant', $fireAt, new FireEventReminder($reminder->id));
+                $reminder->update(['job_id' => $jobId]);
             }
         }
     }

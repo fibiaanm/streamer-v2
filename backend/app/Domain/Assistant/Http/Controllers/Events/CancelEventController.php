@@ -4,6 +4,7 @@ namespace App\Domain\Assistant\Http\Controllers\Events;
 
 use App\Domain\Assistant\Http\Resources\AssistantEventResource;
 use App\Domain\Assistant\Models\AssistantEvent;
+use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Support\EventResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +28,17 @@ class CancelEventController extends Controller
                 ? $resolved->master()
                 : ($resolved->model()->master ?? $resolved->model());
 
+            $futureOccurrenceIds = AssistantEvent::where('series_id', $master->id)
+                ->where('event_at', '>', now())
+                ->pluck('id')
+                ->all();
+
+            if ($futureOccurrenceIds) {
+                EventReminder::cancelJobsByEventIds($futureOccurrenceIds);
+            }
+
+            EventReminder::cancelJobsByEventIds([$master->id]);
+
             $master->update(['status' => 'cancelled', 'series_ends_at' => now()]);
 
             AssistantEvent::where('series_id', $master->id)
@@ -42,6 +54,7 @@ class CancelEventController extends Controller
             $model = $resolved->materialize(['status' => 'cancelled']);
         } else {
             $model = $resolved->model();
+            EventReminder::cancelJobsByEventIds([$model->id]);
             $model->update(['status' => 'cancelled']);
             $model->reminders()->where('status', 'pending')->delete();
         }

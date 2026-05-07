@@ -1,5 +1,7 @@
 <?php
 
+require __DIR__ . '/Feature/Assistant/Helpers.php';
+
 use Database\Seeders\EnterprisePermissionSeeder;
 use Database\Seeders\EnterpriseRolePermissionSeeder;
 use Database\Seeders\EnterpriseRoleSeeder;

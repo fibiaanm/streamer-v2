@@ -27,6 +27,17 @@ No commits sin aprobación previa, hacer un commit no es permiso para hacer comm
 - **`use Throwable;` siempre** — nunca `\Throwable` inline en catch blocks ni en type hints.
   Lo mismo aplica a cualquier clase del namespace global que uses en un archivo con namespace propio
   (`RuntimeException`, `Exception`, `Throwable`, `Closure`, etc.).
+- **Imports siempre arriba** — nunca usar el FQCN inline (`\Illuminate\Support\Facades\DB::...`).
+  Cualquier clase que se use dentro de un archivo con namespace propio debe declararse con `use` al inicio.
+
+## Manejo de fechas y horas
+
+- **Todo se almacena en UTC** — base de datos, Laravel (`config/app.php timezone: UTC`), jobs queue.
+- **Frontend: usar siempre `useDate`** (`resources/js/composables/core/useDate.ts`). Nunca `toLocaleString()` sin `timeZone`, ni `getHours()` / `getDate()` de instancia (usan la zona del browser, no la del usuario).
+  - Para Unix timestamps (segundos): `formatTimestamp(ts)`.
+  - Para strings de MySQL (`2026-05-06 08:00:00`): normalizar a ISO UTC primero → `d.replace(' ', 'T') + 'Z'`.
+- **LLM → tools**: los campos `event_at`, `until`, etc. se envían como ISO 8601 UTC. El system prompt pasa la hora actual en la zona del usuario para que el modelo convierta correctamente.
+- Detalle completo → `docs/assistant/overview.mdc` § Zona horaria.
 
 ## Referencia rápida
 

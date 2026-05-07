@@ -77,12 +77,11 @@ import { computed } from 'vue'
 import type { AssistantMessage } from '@/composables/assistant/useMessages'
 import DatetimePicker from '@/components/assistant/DatetimePicker.vue'
 import { renderMarkdown } from '@/lib/markdown'
+import { useDate } from '@/composables/core/useDate'
 
 const props = defineProps<{ message: AssistantMessage }>()
 const emit  = defineEmits<{ 'select-option': [messageId: string, value: string] }>()
 
-const time = computed(() => {
-  const d = new Date(props.message.created_at)
-  return d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
-})
+const { formatTime } = useDate()
+const time = computed(() => formatTime(props.message.created_at))
 </script>

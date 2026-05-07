@@ -77,6 +77,7 @@ onMounted(loadSessions)
 
 const shortcutRoutes: Record<string, string> = {
     'Recordatorios': '/app/assistant/reminders',
+    'Listas':        '/app/assistant/lists',
 }
 
 async function handleNewSession() {

@@ -7,7 +7,7 @@
       <UserMenu />
     </template>
 
-    <div class="flex items-start p-6 gap-4" style="height: calc(100vh - 4.5rem)">
+    <div class="flex items-start pt-[68px] px-6 pb-6 gap-4 h-full">
 
       <!-- Sidebar -->
       <div class="w-56 shrink-0 h-full flex flex-col rounded-2xl border border-white/8 bg-white/3 overflow-hidden">
