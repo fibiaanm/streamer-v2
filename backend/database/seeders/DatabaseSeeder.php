@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             EnterpriseTeamSeeder::class,
             WorkspaceSeeder::class,
             TypeCatalogSeeder::class,
+            ExpenseCategorySeeder::class,
             AssistantUserSeeder::class,
             TokenUsageSeeder::class,
             AssistantConversationSeeder::class,

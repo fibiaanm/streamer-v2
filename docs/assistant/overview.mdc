@@ -263,11 +263,15 @@ Las categorías son **dinámicas**: el Memory Worker las crea orgánicamente. An
 ### Gastos
 | Tool | Descripción |
 |---|---|
-| `create_expense(amount, currency?, description, type?, spent_at?)` | Registra un gasto. `amount` en centavos. `currency` ISO 4217 — si omitido usa `users.default_currency` |
-| `get_expenses(filters?)` | Consulta gastos — filtros: `type`, `from`, `to` |
-| `get_expense_summary(period?)` | Totales agrupados por tipo — útil para "cuánto gasté este mes" |
-| `update_expense(id, changes)` | Modifica campos: `amount`, `description`, `type`, `spent_at` |
-| `delete_expense(id)` | Elimina un gasto |
+| `get_expense_categories()` | Lista categorías del usuario con emoji y conteo de gastos |
+| `create_expense_category(name, emoji)` | Crea categoría; si el plan no permite más → 422, usar "other" |
+| `create_expense(amount_cents, currency?, description, category_name?, category_id?, spent_at?)` | Registra movimiento. Positivo = gasto, negativo = ingreso/reembolso. Resuelve la categoría internamente; si el plan no permite más, registra en "other" y retorna `category_warning` |
+| `get_expenses(filters?)` | Consulta movimientos — filtros: `category_id`, `from`, `to`, `currency`, `direction` (income\|expense) |
+| `get_expense_summary(period?)` | Totales por categoría y moneda, separando ingresos de gastos |
+| `update_expense(id, changes)` | Modifica campos: `amount_cents`, `description`, `category_id`, `spent_at` |
+| `delete_expense(id)` | Elimina un movimiento |
+| `get_savings()` | Consulta el saldo en `user_savings` del usuario |
+| `update_savings(delta_cents?, balance_cents?, currency?)` | Suma/resta al saldo (`delta_cents`) o lo fija absoluto (`balance_cents`) |
 
 ### Amigos
 | Tool | Descripción |
@@ -506,14 +510,34 @@ type_catalogs
   name    string
   UNIQUE(user_id, domain, name)
 
--- Gastos
+-- Categorías de gastos
+expense_categories
+  id
+  user_id       FK users nullable        — null si es de empresa o sistema
+  enterprise_id FK enterprises nullable  — null si es de usuario o sistema
+  name          string                   — "other" (user_id=null, enterprise_id=null) es la categoría global de fallback
+  emoji         string                   — emoji UTF-8 representativo
+  created_at, updated_at
+  UNIQUE(user_id, name)
+  UNIQUE(enterprise_id, name)
+
+-- Gastos / movimientos
 expenses
   id, user_id FK
-  amount_cents  integer            — almacenado en centavos
-  currency      string ISO 4217    — detectada del mensaje; si no se especifica, usa users.default_currency
+  amount_cents  bigInteger          — firmado: positivo = gasto, negativo = ingreso/reembolso; sin índice propio
+  currency      string ISO 4217     — detectada del mensaje; si no se especifica, usa users.default_currency
   description   string
-  type          string nullable     — ref soft a type_catalogs (domain=expense)
+  category_id   FK expense_categories nullable (nullOnDelete)
   spent_at      datetime UTC
+  created_at    datetime UTC        — indexado
+  updated_at
+
+-- Ahorros del usuario
+user_savings
+  id
+  user_id       FK users unique → cascadeOnDelete
+  balance_cents bigInteger default 0
+  currency      string(3) ISO 4217
   created_at, updated_at
 
 -- Red de amigos

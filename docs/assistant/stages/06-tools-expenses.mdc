@@ -1,5 +1,5 @@
 ---
-description: Etapa 06 — Tools de gastos: CRUD y resumen por período
+description: Etapa 06 — Tools de gastos/ingresos: CRUD, categorías con emoji, ahorros y resumen por período
 type: stage
 stage: "assistant-06"
 status: pendiente
@@ -9,74 +9,181 @@ depends_on: assistant-04
 # Etapa 06 — Tools — Gastos
 
 ## Objetivo
-CRUD completo de gastos con detección automática de moneda. El LLM puede registrar, consultar, modificar y eliminar gastos, y generar resúmenes por período y tipo.
+
+CRUD completo de movimientos (gastos e ingresos) con `amount_cents` firmado, categorías propias por usuario o empresa (con emoji y límite por suscripción), control de saldo de ahorros y resúmenes por período agrupados por categoría y moneda.
+
+---
+
+## Nuevas migraciones
+
+### `0071_create_expense_categories_table`
+```
+id
+user_id         FK users nullable        — null si es de empresa o sistema
+enterprise_id   FK enterprises nullable  — null si es de usuario o sistema
+name            string
+emoji           string                   — un emoji UTF-8 (1–4 bytes)
+created_at, updated_at
+UNIQUE(user_id, name)         — para categorías de usuario
+UNIQUE(enterprise_id, name)   — para categorías de empresa
+```
+> La categoría `"other"` tiene `user_id = null` y `enterprise_id = null` — es una fila global sembrada
+> por seeder. No se puede eliminar ni editar. No cuenta hacia ningún límite de plan.
+
+### `0072_update_expenses_table`
+Modifica la tabla existente `expenses`:
+- Cambiar `amount_cents` de `unsignedBigInteger` a `bigInteger` (firmado): positivo = gasto, negativo = ingreso/reembolso. Sin índice propio.
+- Drop column `type`
+- Add column `category_id` FK nullable → `expense_categories` (nullOnDelete)
+- Add index en `created_at`
+
+### `0073_create_user_savings_table`
+```
+id
+user_id         FK users unique → cascadeOnDelete
+balance_cents   bigInteger default 0
+currency        string(3) ISO 4217
+created_at, updated_at
+```
+
+---
+
+## Seeder — `ExpenseCategorySeeder`
+
+Sembrar la fila global de sistema:
+```php
+ExpenseCategory::firstOrCreate(
+    ['name' => 'other', 'user_id' => null, 'enterprise_id' => null],
+    ['emoji' => '📦'],
+);
+```
 
 ---
 
 ## Rutas Laravel
 
 ```
-GET    /api/v1/assistant/expenses            — lista gastos (filtros: type, from, to, currency)
-GET    /api/v1/assistant/expenses/summary    — totales agrupados por tipo y moneda
-POST   /api/v1/assistant/expenses            — registra gasto
-PATCH  /api/v1/assistant/expenses/{expense}  — modifica gasto
-DELETE /api/v1/assistant/expenses/{expense}  — elimina gasto
+// Categorías
+GET    /api/v1/assistant/expense-categories             — lista categorías del usuario (+ enterprise activa)
+POST   /api/v1/assistant/expense-categories             — crea categoría de usuario
+PATCH  /api/v1/assistant/expense-categories/{category}  — renombra o cambia emoji
+DELETE /api/v1/assistant/expense-categories/{category}  — elimina; gastos quedan con category_id = null
+
+// Gastos / movimientos
+GET    /api/v1/assistant/expenses            — lista (filtros: category_id, from, to, currency, direction)
+GET    /api/v1/assistant/expenses/summary    — totales por categoría y moneda
+POST   /api/v1/assistant/expenses            — registra movimiento (resuelve categoría internamente)
+PATCH  /api/v1/assistant/expenses/{expense}  — modifica movimiento
+DELETE /api/v1/assistant/expenses/{expense}  — elimina movimiento
+
+// Ahorros
+GET    /api/v1/assistant/savings   — consulta saldo actual
+PATCH  /api/v1/assistant/savings   — actualiza saldo (delta o absoluto)
 ```
+
+---
+
+## Categorías — lógica de límite en `CreateExpenseController`
+
+El límite del plan se evalúa **al registrar un movimiento**, no al gestionar categorías directamente.
+
+Flujo en `CreateExpenseController` cuando llega `category_name` (string):
+1. Buscar categoría por nombre entre las del usuario y las de su enterprise activa.
+2. Si existe → usar su `id`.
+3. Si no existe → intentar crear (verificar `limits.expense_categories` excluyendo "other").
+4. Si el límite está alcanzado → asignar `category_id` de la fila "other" global.
+5. Registrar el movimiento y devolver el resource con `category_warning` si se usó "other".
+
+```json
+// Respuesta cuando se cayó a "other":
+{
+  "data": { ...ExpenseResource... },
+  "category_warning": {
+    "requested": "viajes",
+    "reason": "plan_limit_reached",
+    "assigned": "other"
+  }
+}
+```
+
+El worker Node lee `category_warning` y lo comunica al usuario en el mismo turno de respuesta.
 
 ---
 
 ## Controladores
 
 `app/Domain/Assistant/Http/Expenses/`
+`app/Domain/Assistant/Http/ExpenseCategories/`
+`app/Domain/Assistant/Http/Savings/`
+
+### `GetExpenseCategoriesController`
+Lista las categorías del usuario (`user_id = auth`) y las de la enterprise activa del header `X-Enterprise-ID`, con conteo de movimientos por categoría. No incluye "other" en el listado — es una categoría de sistema.
+
+### `CreateExpenseCategoryController`
+- Crea categoría de usuario (`user_id = auth, enterprise_id = null`).
+- Verifica límite de plan: cuenta solo las del usuario, excluye "other".
+- Si límite alcanzado → 422 `EXPENSE_CATEGORIES_LIMIT_REACHED`.
+- Nombre en minúsculas; emoji validado (mín 1 char, máx 10 bytes).
+
+### `UpdateExpenseCategoryController`
+- Solo el dueño (usuario o admin de enterprise) puede modificar.
+- No se puede editar la fila "other" (`user_id = null, enterprise_id = null`).
+
+### `DeleteExpenseCategoryController`
+- Hard delete.
+- Movimientos asociados → `category_id` queda `null` (nullOnDelete del FK).
+- No se puede eliminar "other".
 
 ### `GetExpensesController`
-- Filtros: `type` (string), `from` (date), `to` (date), `currency` (ISO 4217)
+- Filtros: `category_id`, `from` (date), `to` (date), `currency` (ISO 4217), `direction` (`income` | `expense`)
+  - `income` → `amount_cents < 0`; `expense` → `amount_cents > 0`
 - Ordenado por `spent_at DESC`
 - Paginado: 50 por página
 
 ### `GetExpenseSummaryController`
-- Recibe `period`: `this_month` | `last_month` | `this_year` | `custom` (requiere `from` + `to`)
-- Agrupa por `(type, currency)` — monedas distintas no se mezclan
+- `period`: `this_month` | `last_month` | `this_year` | `custom` (requiere `from` + `to`)
+- Agrupa por `(category_id, currency)` — monedas distintas no se mezclan
+- Separa ingresos y gastos en el resumen
 - Retorna:
 ```json
 {
   "period": { "from": "2026-04-01", "to": "2026-04-30" },
-  "totals": [
-    { "type": "food",      "currency": "COP", "total_cents": 250000, "count": 8 },
-    { "type": "transport", "currency": "EUR", "total_cents": 4500,   "count": 3 }
+  "by_category": [
+    {
+      "category": { "id": "...", "name": "food", "emoji": "🍔" },
+      "currency": "COP",
+      "expenses_cents": 250000,
+      "income_cents": 0,
+      "count": 8
+    }
   ],
   "grand_total_by_currency": [
-    { "currency": "COP", "total_cents": 350000 },
-    { "currency": "EUR", "total_cents": 4500 }
+    { "currency": "COP", "expenses_cents": 350000, "income_cents": 80000 }
   ]
 }
 ```
 
 ### `CreateExpenseController`
-- Recibe: `amount_cents`, `currency?`, `description`, `type?`, `spent_at?`
-- Si `currency` omitido → usa `user.default_currency`
-- Si `spent_at` omitido → `now()` en UTC
-- Auto-crea `TypeCatalog` si el tipo no existe
+- Acepta `category_name` (string) o `category_id` (ID) — mutuamente excluyentes; `category_name` tiene precedencia.
+- Resuelve la categoría con la lógica de límite descrita arriba.
+- `amount_cents` firmado: positivo = gasto, negativo = ingreso/reembolso.
+- `currency` omitido → `user.default_currency`; `spent_at` omitido → `now()` UTC.
 
 ### `UpdateExpenseController`
-- Campos modificables: `amount_cents`, `currency`, `description`, `type`, `spent_at`
-- Solo el dueño puede modificar
+- Campos modificables: `amount_cents`, `currency`, `description`, `category_id`, `spent_at`
+- Solo el dueño puede modificar.
 
 ### `DeleteExpenseController`
-- Soft delete o hard delete — dado que gastos no tienen dependencias críticas, hard delete es aceptable
+- Hard delete (sin dependencias críticas).
 
----
+### `GetSavingsController`
+- Retorna el registro de savings del usuario.
+- Si no existe → lo crea con `balance_cents = 0` y `currency = user.default_currency`.
 
-## Lógica de moneda
-
-```
-Entrada del LLM:
-  "gasté 50000" → amount_cents: 50000, currency: user.default_currency
-  "gasté 50 EUR" → amount_cents: 5000, currency: "EUR"
-  "gasté $50" → amount_cents: 5000, currency: user.default_currency (el LLM infiere)
-```
-
-El LLM es responsable de convertir el importe a centavos y detectar la moneda del texto. No hay conversión de divisas — los gastos se guardan en la moneda en que se expresaron.
+### `UpdateSavingsController`
+- Acepta `delta_cents` (suma/resta al saldo) o `balance_cents` (fija absoluto; tiene precedencia).
+- `currency` solo necesario al crear el registro o al cambiarlo explícitamente.
+- Si no existe el registro → lo crea.
 
 ---
 
@@ -85,48 +192,69 @@ El LLM es responsable de convertir el importe a centavos y detectar la moneda de
 ```ts
 const EXPENSE_TOOLS: StandardTool[] = [
   {
+    name: 'get_expense_categories',
+    description: 'Lista las categorías de gastos del usuario y de su empresa, con emoji y conteo de movimientos.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_expense_category',
+    description: 'Crea una categoría de gasto personal con nombre y emoji.',
+    parameters: {
+      type: 'object',
+      required: ['name', 'emoji'],
+      properties: {
+        name:  { type: 'string' },
+        emoji: { type: 'string', description: 'Un emoji representativo, ej: 🍔 🚗 🏠 💊' },
+      },
+    },
+  },
+  {
     name: 'create_expense',
-    description: 'Registra un gasto. amount en centavos. currency ISO 4217 — si se omite usa la moneda por defecto del usuario.',
+    description: `Registra un movimiento. amount_cents positivo = gasto, negativo = ingreso o reembolso.
+Si se pasa category_name y el plan ya alcanzó el límite de categorías, el movimiento se registra
+en "other" y la respuesta incluye category_warning — comunícalo al usuario en el mismo turno.`,
     parameters: {
       type: 'object',
       required: ['amount_cents', 'description'],
       properties: {
-        amount_cents: { type: 'integer' },
-        currency:     { type: 'string', description: 'ISO 4217, ej: COP, EUR, USD' },
-        description:  { type: 'string' },
-        type:         { type: 'string' },
-        spent_at:     { type: 'string', description: 'ISO 8601 UTC. Si no se especifica, se usa la hora actual.' },
-      }
-    }
+        amount_cents:  { type: 'integer', description: 'En centavos. Positivo = gasto, negativo = ingreso/reembolso.' },
+        currency:      { type: 'string',  description: 'ISO 4217. Si omitido usa la moneda por defecto del usuario.' },
+        description:   { type: 'string' },
+        category_name: { type: 'string',  description: 'Nombre de la categoría. El backend la busca o crea. Tiene precedencia sobre category_id.' },
+        category_id:   { type: 'string',  description: 'ID de la categoría si ya se conoce.' },
+        spent_at:      { type: 'string',  description: 'ISO 8601 UTC. Si omitido usa la hora actual.' },
+      },
+    },
   },
   {
     name: 'get_expenses',
-    description: 'Consulta gastos del usuario',
+    description: 'Consulta movimientos del usuario.',
     parameters: {
       type: 'object',
       properties: {
-        type:     { type: 'string' },
-        from:     { type: 'string' },
-        to:       { type: 'string' },
-        currency: { type: 'string' },
-      }
-    }
+        category_id: { type: 'string' },
+        from:        { type: 'string' },
+        to:          { type: 'string' },
+        currency:    { type: 'string' },
+        direction:   { type: 'string', enum: ['income', 'expense'], description: 'income = negativos, expense = positivos' },
+      },
+    },
   },
   {
     name: 'get_expense_summary',
-    description: 'Totales de gastos agrupados por tipo y moneda',
+    description: 'Totales agrupados por categoría y moneda, separando ingresos de gastos.',
     parameters: {
       type: 'object',
       properties: {
         period: { type: 'string', enum: ['this_month', 'last_month', 'this_year', 'custom'] },
         from:   { type: 'string' },
         to:     { type: 'string' },
-      }
-    }
+      },
+    },
   },
   {
     name: 'update_expense',
-    description: 'Modifica un gasto existente',
+    description: 'Modifica un movimiento existente.',
     parameters: {
       type: 'object',
       required: ['id'],
@@ -135,48 +263,115 @@ const EXPENSE_TOOLS: StandardTool[] = [
         amount_cents: { type: 'integer' },
         currency:     { type: 'string' },
         description:  { type: 'string' },
-        type:         { type: 'string' },
+        category_id:  { type: 'string' },
         spent_at:     { type: 'string' },
-      }
-    }
+      },
+    },
   },
   {
     name: 'delete_expense',
-    description: 'Elimina un gasto',
+    description: 'Elimina un movimiento.',
     parameters: {
       type: 'object',
       required: ['id'],
-      properties: { id: { type: 'string' } }
-    }
+      properties: { id: { type: 'string' } },
+    },
+  },
+  {
+    name: 'get_savings',
+    description: 'Consulta el saldo de ahorros del usuario.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'update_savings',
+    description: 'Modifica el saldo de ahorros. delta_cents suma/resta al saldo actual; balance_cents fija el saldo absoluto (tiene precedencia).',
+    parameters: {
+      type: 'object',
+      properties: {
+        delta_cents:   { type: 'integer', description: 'Suma al saldo actual. Negativo para restar.' },
+        balance_cents: { type: 'integer', description: 'Fija el saldo absoluto. Tiene precedencia sobre delta_cents.' },
+        currency:      { type: 'string',  description: 'ISO 4217. Solo necesario al crear o cambiar la moneda.' },
+      },
+    },
   },
 ]
 ```
 
 ---
 
-## Resource
+## Resources
+
+### `ExpenseCategoryResource`
+```json
+{
+  "id": "...",
+  "name": "food",
+  "emoji": "🍔",
+  "scope": "user",
+  "expense_count": 12
+}
+```
+`scope`: `"user"` | `"enterprise"` | `"system"` (para "other").
 
 ### `ExpenseResource`
 ```json
 {
   "id": "...",
-  "amount_cents": 45000,
+  "amount_cents": -45000,
   "currency": "COP",
-  "amount_formatted": "$ 450",
-  "description": "Almuerzo",
-  "type": "food",
+  "amount_formatted": "-$ 450",
+  "direction": "income",
+  "description": "Reembolso cliente",
+  "category": { "id": "...", "name": "freelance", "emoji": "💻", "scope": "user" },
   "spent_at": "2026-04-21T14:30:00Z"
 }
+```
+
+### `SavingsResource`
+```json
+{
+  "balance_cents": 1500000,
+  "currency": "COP",
+  "balance_formatted": "$ 15.000"
+}
+```
+
+---
+
+## Seeder — `AssistantPlanSeeder` (actualizar)
+
+Añadir `expense_categories` a `limits_json` en los tres planes:
+
+```php
+// Free  (expenses_enabled = false; se define igualmente para consistencia)
+'expense_categories' => ['type' => 'permanent', 'max' => 0],
+
+// Pro
+'expense_categories' => ['type' => 'permanent', 'max' => 10],
+
+// Premium
+'expense_categories' => ['type' => 'permanent', 'max' => -1],
 ```
 
 ---
 
 ## Tests
 
+- `CreateExpenseController`: `amount_cents` positivo → `direction` expense
+- `CreateExpenseController`: `amount_cents` negativo → `direction` income
+- `CreateExpenseController`: `category_name` existente → lo asigna correctamente
+- `CreateExpenseController`: `category_name` nuevo dentro del límite → crea categoría y asigna
+- `CreateExpenseController`: `category_name` nuevo con límite alcanzado → registra en "other", retorna `category_warning`
 - `CreateExpenseController`: currency omitida → usa `user.default_currency`
-- `CreateExpenseController`: currency explícita → usa la provista, ignora default
-- `CreateExpenseController`: auto-crea TypeCatalog para tipo nuevo
 - `GetExpenseSummaryController`: `this_month` calcula rango correcto según timezone del usuario
 - `GetExpenseSummaryController`: monedas distintas no se mezclan en totales
+- `GetExpenseSummaryController`: ingresos y gastos se reportan por separado
 - `UpdateExpenseController`: usuario no dueño recibe 403
-- `DeleteExpenseController`: elimina correctamente, no aparece en listado posterior
+- `DeleteExpenseController`: elimina correctamente; no aparece en listado posterior
+- `CreateExpenseCategoryController`: crea con nombre y emoji; `scope` = user
+- `CreateExpenseCategoryController`: límite alcanzado → 422 `EXPENSE_CATEGORIES_LIMIT_REACHED`
+- `DeleteExpenseCategoryController`: retorna 422 al intentar eliminar "other"
+- `DeleteExpenseCategoryController`: movimientos de la categoría eliminada quedan con `category_id = null`
+- `UpdateSavingsController`: `delta_cents` suma al saldo existente
+- `UpdateSavingsController`: `balance_cents` fija el saldo sin importar el valor anterior
+- `GetSavingsController`: si no existe registro → crea con balance 0 y default_currency del usuario
