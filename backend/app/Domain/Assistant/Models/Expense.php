@@ -19,7 +19,7 @@ class Expense extends Model
         'amount_cents',
         'currency',
         'description',
-        'type',
+        'category_id',
         'spent_at',
     ];
 
@@ -30,5 +30,10 @@ class Expense extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ExpenseCategory::class, 'category_id');
     }
 }
