@@ -13,6 +13,7 @@ return [
     'ahead_month'   => "en 1 mes",
     'ahead_months'  => "en :count meses",
 
+    'inline_now'     => "Tu evento \u{AB}:content\u{BB} empieza ahora.",
     'inline_missed'  => "Se me pasó avisarte: \u{AB}:content\u{BB} ya empezó.",
     'inline_minutes' => "Tu evento \u{AB}:content\u{BB} empieza en :count minutos.",
     'inline_hour'    => "Tu evento \u{AB}:content\u{BB} empieza en 1 hora.",

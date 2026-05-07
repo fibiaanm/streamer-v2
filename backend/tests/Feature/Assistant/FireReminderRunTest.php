@@ -96,7 +96,7 @@ it('builds a digest message listing events when kind is digest', function () {
 
     $message = AssistantMessage::where('conversation_id', $conversation->id)->where('role', 'system')->first();
     expect($message->content)->toContain($event->content);
-    expect($message->content)->toContain('hoy');
+    expect($message->content)->toContain('today');
 });
 
 it('digest formats event time in user timezone, not UTC', function () {
@@ -137,6 +137,29 @@ it('marks run and reminders as fired and does not loop when no session exists', 
     expect($reminder->fresh()->status)->toBe('fired');
     expect($reminder->fresh()->reminder_run_id)->toBeNull();
     expect(AssistantMessage::count())->toBe(0);
+});
+
+it('inline message says "now" when job fires at event_at within grace window', function () {
+    [$user, $conversation, , , $run, $reminder] = runCtx('inline');
+
+    // Simulate the event already started 2 minutes ago (queue latency / sweep delay)
+    $reminder->event->update(['event_at' => now()->subMinutes(2)]);
+
+    (new FireReminderRun($run->id))->handle();
+
+    $message = AssistantMessage::where('conversation_id', $conversation->id)->where('role', 'system')->first();
+    expect($message->content)->toContain('starting now');
+});
+
+it('inline message says "missed" when job fires more than 5 min after event_at', function () {
+    [$user, $conversation, , , $run, $reminder] = runCtx('inline');
+
+    $reminder->event->update(['event_at' => now()->subMinutes(10)]);
+
+    (new FireReminderRun($run->id))->handle();
+
+    $message = AssistantMessage::where('conversation_id', $conversation->id)->where('role', 'system')->first();
+    expect($message->content)->toContain('already started');
 });
 
 it('deletes the run if it has no reminders when fired', function () {

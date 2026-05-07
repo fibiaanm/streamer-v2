@@ -144,8 +144,14 @@ class FireReminderRun implements ShouldQueue
         $event       = $reminders->first()->event;
         $minutesLeft = (int) now()->diffInMinutes($event->event_at, false);
 
+        // Queue latency or sweep delay can fire the job seconds/minutes after event_at.
+        // Treat anything within 5 min past as "starting now", not missed.
+        if ($minutesLeft < -5) {
+            return __('reminders.inline_missed', ['content' => $event->content]);
+        }
+
         if ($minutesLeft <= 0) {
-            return __('reminders.inline_missed',   ['content' => $event->content]);
+            return __('reminders.inline_now', ['content' => $event->content]);
         }
 
         if ($minutesLeft <= 15) {
