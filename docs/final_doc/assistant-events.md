@@ -90,7 +90,7 @@ Si el evento tiene `referenceable` (lista o gasto), se valida con `MorphTypeMap`
 1. Carga el `ReminderRun` con sus `EventReminder` y eventos asociados
 2. Si no hay reminders activos → elimina el run y abort
 3. Encuentra la sesión activa del usuario en su conversación
-4. Construye el mensaje según `kind`: digest (lista del día), ahead (aviso de evento próximo), inline (aviso inmediato)
+4. Construye el mensaje según `kind`: digest (lista del día), ahead (aviso de evento próximo), inline (aviso inmediato). Los textos son traducciones estáticas (`lang/*/reminders.php`), no LLM
 5. `AssistantMessage::create(role: system)` en la sesión
 6. Por cada `EventReminder` del run: `reminder_run_id = null`, `status = fired`, `fired_at = now()`
 7. `run->update(status: fired)`
