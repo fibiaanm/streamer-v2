@@ -23,7 +23,7 @@ Implementar las tools de eventos en el stack completo: controladores Laravel + i
 | null | null | set | **Master de serie** |
 | set | set | null | Ocurrencia materializada (normal o excepción) |
 
-- **Master**: define la serie. Contiene `recurrence_rule` y `reminders_template_json`. No se devuelve directamente al LLM.
+- **Master**: define la serie. Contiene `recurrence_rule`. No se devuelve directamente al LLM.
 - **Ocurrencia materializada**: fila real creada para la ventana próxima (14 días) o cuando el LLM actúa sobre una ocurrencia virtual.
 - **Excepción**: ocurrencia materializada con `event_at` distinto de `occurrence_at` (movida) o `status = cancelled`.
 
@@ -44,18 +44,29 @@ El LLM recibe estos IDs en `get_events` y los usa en `cancel_event`, `update_eve
 0051_add_series_columns_to_assistant_events
   series_id            bigint nullable FK → assistant_events(id) ON DELETE SET NULL
   occurrence_at        timestamp nullable   — slot RRULE que representa esta fila
-  reminders_template_json json nullable     — solo en masters; offsets para MaterializeSeriesWindow
   INDEX(series_id)
 
 0052_add_referenceable_to_assistant_events
   referenceable_type   string nullable
   referenceable_id     string nullable
   INDEX(referenceable_type, referenceable_id)
-```
 
-`reminders_template_json` formato:
-```json
-[{ "offset": "-7 days", "message": "En una semana es X" }, ...]
+0068_create_reminder_runs_table
+  id, user_id FK
+  run_at   datetime UTC   — momento exacto del disparo (agrupador de reminders)
+  kind     enum: digest | ahead | inline
+  job_id   bigint nullable — FK jobs.id; nulo si el run fue dispatched con delay o cancelado
+  status   enum: pending | fired | cancelled
+  UNIQUE(user_id, run_at, kind)
+
+0069_refactor_event_reminders
+  — Elimina: message (texto generado por LLM), job_id (legacy)
+  — Añade: kind enum(digest|ahead|inline)
+  — Añade: reminder_run_id bigint nullable FK → reminder_runs(id) ON DELETE SET NULL
+           null = liberado (fired o cancelled); non-null = pendiente de despachar
+
+0070_drop_reminders_template_json_from_assistant_events
+  — Elimina: reminders_template_json de assistant_events
 ```
 
 ---
@@ -187,15 +198,15 @@ Algoritmo:
 Excluye `status = cancelled` por defecto salvo que se pida explícitamente.
 
 ### `CreateEventController`
-Recibe: `content`, `event_at`, `type`, `reminders[]`, `recurrence_rule?`, `event_end?`, `referenceable?`.
+Recibe: `content`, `event_at`, `type`, `recurrence_rule?`, `event_end?`, `referenceable?`.
 
 - Si `recurrence_rule` está presente:
   - Crea la fila **master** (series_id null, occurrence_at null, recurrence_rule set)
-  - Guarda `reminders_template_json` con los offsets recibidos
   - Crea la **primera ocurrencia** materializada (series_id = master.id, occurrence_at = event_at)
-  - Crea reminders para esa primera ocurrencia y despacha `FireEventReminder` jobs
+  - Llama `ReminderScheduler::scheduleForEvent($occurrence, $user->timezone)`
 - Si no hay `recurrence_rule`:
-  - Crea evento único directamente con reminders
+  - Crea evento único
+  - Llama `ReminderScheduler::scheduleForEvent($event, $user->timezone)`
 - Si `type` no existe en `type_catalogs` para el usuario → lo crea automáticamente
 - Si `referenceable` presente: valida con `MorphTypeMap`, verifica pertenencia, asigna
 
@@ -205,7 +216,7 @@ Campos modificables: `content`, `event_at`, `event_end`, `type`.
 Usa `EventResolver::resolve()`:
 - **ID virtual**: materializa como excepción con los cambios, devuelve la nueva fila
 - **ID real**: actualiza la fila directamente
-- Si cambia `event_at`: recalcula y reemplaza reminders pending
+- Si cambia `event_at`: llama `ReminderScheduler::releaseByEventIds([$event->id])` + `scheduleForEvent($event, $user->timezone)` para recalcular
 
 ### `CancelEventController`
 Parámetros: `series` (bool, default false).
@@ -213,12 +224,13 @@ Parámetros: `series` (bool, default false).
 Con `series = false`:
 - **ID virtual**: crea excepción con `status = cancelled` para ese slot
 - **ID real**: `status = cancelled` en esa fila
+- Llama `ReminderScheduler::releaseByEventIds([$event->id])` para liberar reminders
 
 Con `series = true`:
 - Resuelve master (desde ID virtual o desde `series_id` de la fila real)
 - `master.status = cancelled`
-- Elimina ocurrencias materializadas futuras (`series_id = master.id AND event_at > now()`)
-- Cancela reminders pendientes asociados
+- Obtiene IDs de ocurrencias materializadas futuras, llama `ReminderScheduler::releaseByEventIds($ids)`
+- Elimina las ocurrencias materializadas futuras (`series_id = master.id AND event_at > now()`)
 
 ### `SnoozeEventController`
 Recibe `until` (ISO 8601).
@@ -226,8 +238,8 @@ Recibe `until` (ISO 8601).
 Resuelve el master de la ocurrencia:
 1. Expande RRULE desde `until` en adelante → toma la primera fecha
 2. Crea ocurrencia materializada con `event_at = primera_fecha` y `occurrence_at = primera_fecha`
-3. Crea reminders con la plantilla del master
-4. Cancela la ocurrencia actual (virtual → crea excepción cancelled; real → status=cancelled)
+3. Llama `ReminderScheduler::scheduleForEvent($newOccurrence, $user->timezone)`
+4. Cancela la ocurrencia actual: llama `releaseByEventIds([$current->id])`, luego `status=cancelled`
 
 ### `DetachEventReferenceController`
 `DELETE /api/v1/assistant/events/{event}/reference`
@@ -237,17 +249,20 @@ Nullifica `referenceable_type` y `referenceable_id` sin tocar reminders.
 
 ## Jobs
 
-### `FireEventReminder`
+### `FireReminderRun`
 ```
-1. Carga EventReminder (con event → referenceable eager load)
-2. Si status != pending → abort (idempotencia)
-3. Construye content:
-   - base: reminder.message
-   - si event.referenceable existe: append eventReferenceLabel()
-4. Crea AssistantMessage(role: system) en la conversación del usuario
-   metadata_json: { event_id, reminder_id, referenceable_type?, referenceable_id? }
-5. EventReminder: status = fired, fired_at = now()
-6. Broadcast MessageReceived al canal WebSocket del usuario
+1. Carga ReminderRun con reminders.event (eager load)
+2. Si el run no tiene reminders activos (reminder_run_id = this.id) → borra el run, abort
+3. Encuentra la conversación + sesión más reciente del usuario
+4. Construye mensaje según run.kind:
+   - digest  — lista de todos los eventos del día (run_at) del usuario
+   - ahead   — aviso de evento próximo por cada reminder vinculado
+   - inline  — aviso inmediato (-1h o -10m antes del evento)
+5. Crea AssistantMessage(role: system) en la sesión
+   metadata_json: { run_id, kind, event_ids[] }
+6. Por cada reminder: reminder_run_id = null, status = fired, fired_at = now()
+7. run.status = fired
+8. Broadcast MessageReceived al canal WebSocket del usuario
 ```
 
 No hay `ScheduleNextOccurrence` — la materialización la hace `MaterializeSeriesWindow`.
@@ -263,15 +278,45 @@ Para cada master activo (series_id null, recurrence_rule set, status = active):
     crear fila: { series_id, occurrence_at, event_at: occurrence_at,
                   content: master.content, type: master.type,
                   user_id: master.user_id, status: active }
-    para cada offset en master.reminders_template_json:
-      fire_at = occurrence_at + parse(offset)
-      si fire_at > now():
-        crear EventReminder(fire_at, message, status: pending)
-        dispatch FireEventReminder con delay
+    ReminderScheduler::scheduleForEvent($occurrence, $master->user->timezone)
 ```
 
-### `SweepPendingReminders` (cada minuto, Laravel Scheduler — safety net)
-Busca `EventReminder` con `status = pending` y `fire_at <= now()` → despacha `FireEventReminder`.
+### `SweepPendingReminders` (cada 15 min, Laravel Scheduler — safety net)
+Busca `ReminderRun` con `status = pending` y `run_at <= now()` → despacha `FireReminderRun`.
+
+---
+
+## Support
+
+### `ReminderScheduler`
+`app/Domain/Assistant/Support/ReminderScheduler.php`
+
+```
+scheduleForEvent(AssistantEvent $event, string $timezone):
+  1. Llama fromMatrix($event->event_at, $timezone) → lista de { kind, fire_at }
+  2. Para cada entrada:
+     - firstOrCreate ReminderRun(user_id, run_at, kind)
+     - crear EventReminder(event_id, kind, fire_at, reminder_run_id = run.id)
+     - si el ReminderRun es nuevo → dispatch FireReminderRun con delay hasta run_at
+
+releaseByEventIds(array $eventIds):
+  1. Carga EventReminder con reminder_run_id != null para esos eventos
+  2. Agrupa por reminder_run_id
+  3. Por cada reminder: reminder_run_id = null, status = cancelled
+  4. Por cada ReminderRun afectado: cancelIfEmpty()
+     cancelIfEmpty(): si no quedan reminders con ese run_id → cancela job en jobs table, borra run
+
+fromMatrix(Carbon $eventAt, string $timezone): array
+  Si el evento es el mismo día en zona del usuario:
+    → inline: fire_at = eventAt - 1 hour, eventAt - 10 min
+  Sino:
+    → digest siempre: fire_at = eventAt->startOfDay() @ 6am zona usuario
+    → ahead según días hasta el evento:
+        ≥ 365 días → [-1 month, -1 week, -1 day] @ 10am zona usuario
+        ≥ 30 días  → [-1 week, -1 day] @ 10am zona usuario
+        > 2 días   → [-1 day] @ 10am zona usuario
+        ≤ 2 días   → sin ahead
+```
 
 ---
 
@@ -294,27 +339,16 @@ const EVENT_TOOLS: StandardTool[] = [
   },
   {
     name: 'create_event',
-    description: 'Crea un evento con sus disparos de recordatorio.',
+    description: 'Crea un evento. Los recordatorios se calculan automáticamente por el sistema según la distancia al evento.',
     inputSchema: {
       type: 'object',
-      required: ['content', 'event_at', 'type', 'reminders'],
+      required: ['content', 'event_at', 'type'],
       properties: {
         content:          { type: 'string' },
         event_at:         { type: 'string', description: 'ISO 8601 UTC' },
         event_end:        { type: 'string', description: 'ISO 8601 UTC, solo para bloques con duración' },
         type:             { type: 'string' },
         recurrence_rule:  { type: 'string', description: 'iCal RRULE, ej: FREQ=WEEKLY;BYDAY=MO' },
-        reminders: {
-          type: 'array',
-          items: {
-            type: 'object',
-            required: ['offset', 'message'],
-            properties: {
-              offset:  { type: 'string', description: 'Offset relativo, ej: "-7 days", "-1 day", "0"' },
-              message: { type: 'string' },
-            },
-          },
-        },
         referenceable: {
           type: 'object',
           required: ['type', 'id'],
@@ -399,10 +433,7 @@ const EVENT_TOOLS: StandardTool[] = [
     "type": "list",
     "id": "...",
     "label": "Lista de compras"
-  },
-  "reminders": [
-    { "id": "...", "fire_at": "2026-05-08T...", "message": "...", "status": "pending" }
-  ]
+  }
 }
 ```
 
@@ -413,8 +444,7 @@ Para ocurrencias **virtuales** devueltas por `GetEventsController`:
   "virtual": true,
   "series_id": "xyz",
   "content": "Reunión semanal",
-  "event_at": "2026-06-09T10:00:00Z",
-  "reminders": []
+  "event_at": "2026-06-09T10:00:00Z"
 }
 ```
 
@@ -430,9 +460,8 @@ Para ocurrencias **virtuales** devueltas por `GetEventsController`:
 - Excluye `status = cancelled` por defecto; los incluye con `status=cancelled` explícito
 
 ### CreateEventController
-- Crea evento único con reminders y fire_at correcto por offset
+- Crea evento único y llama `ReminderScheduler::scheduleForEvent`
 - Crea master + primera ocurrencia materializada cuando hay `recurrence_rule`
-- Guarda `reminders_template_json` en el master
 - Auto-crea `TypeCatalog` si el tipo no existe
 - Asigna `referenceable` correctamente
 - Rechaza 422 si alias de `referenceable.type` es inválido
@@ -452,19 +481,25 @@ Para ocurrencias **virtuales** devueltas por `GetEventsController`:
 - Cancela la ocurrencia actual y crea la nueva materializada
 
 ### MaterializeSeriesWindow
-- Crea filas + reminders para ocurrencias del master en los próximos 14 días
+- Crea filas + llama `ReminderScheduler::scheduleForEvent` para ocurrencias en los próximos 14 días
 - No duplica filas si la ocurrencia ya está materializada
 - Ignora masters con `status = cancelled`
 - Ignora slots con excepción cancelled existente
 
-### FireEventReminder
-- Crea mensaje `role: system` en la conversación del usuario
-- El mensaje incluye el label del referenceable cuando existe
-- Es idempotente: segundo disparo no crea mensaje duplicado
+### ReminderScheduler
+- `scheduleForEvent`: crea los `ReminderRun` y `EventReminder` correctos según la matriz de distancia
+- `releaseByEventIds`: pone `reminder_run_id = null` en reminders activos y cancela runs vacíos
+- `fromMatrix`: mismo día → inline; sino → digest@6am + ahead@10am según tabla de distancia
+- `cancelIfEmpty`: si un run no tiene más reminders activos, cancela el job y borra el run
+
+### FireReminderRun
+- Crea mensaje `role: system` en la sesión activa del usuario
+- Construye mensaje correcto según `kind`: digest / ahead / inline
+- Pone `reminder_run_id = null` en todos los reminders del run al disparar
 - Hace broadcast `MessageReceived`
 
 ### SweepPendingReminders
-- Solo procesa reminders con `fire_at <= now()`
+- Solo procesa `ReminderRun` con `run_at <= now()` y `status = pending`
 
 ### NotifiesOrphanedEventReferences
 - Al eliminar entidad referenciada: crea mensaje de sistema con `actions_json` (no cancela automáticamente)

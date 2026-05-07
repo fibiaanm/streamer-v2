@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 
 include make/dev.mk
+include make/app-events.mk
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \

@@ -99,6 +99,46 @@ it('builds a digest message listing events when kind is digest', function () {
     expect($message->content)->toContain('hoy');
 });
 
+it('digest formats event time in user timezone, not UTC', function () {
+    $user = User::factory()->create(['timezone' => 'America/New_York']); // UTC-4 en verano
+    Conversation::factory()->create(['user_id' => $user->id]);
+    AssistantSession::factory()->create([
+        'conversation_id' => Conversation::where('user_id', $user->id)->value('id'),
+    ]);
+
+    // Evento a las 15:00 UTC = 11:00 America/New_York
+    $event = AssistantEvent::factory()->create([
+        'user_id'  => $user->id,
+        'event_at' => '2026-06-01 15:00:00',
+    ]);
+
+    $run = ReminderRun::create(['user_id' => $user->id, 'run_at' => now(), 'kind' => 'digest', 'status' => 'pending']);
+    EventReminder::create(['event_id' => $event->id, 'kind' => 'digest', 'fire_at' => now(), 'reminder_run_id' => $run->id, 'status' => 'pending']);
+
+    (new FireReminderRun($run->id))->handle();
+
+    $message = AssistantMessage::where('role', 'system')->first();
+    expect($message->content)->toContain('11:00');
+    expect($message->content)->not->toContain('15:00');
+});
+
+it('marks run and reminders as fired and does not loop when no session exists', function () {
+    $user = User::factory()->create();
+    Conversation::factory()->create(['user_id' => $user->id]);
+    // No session created intentionally
+
+    $event    = AssistantEvent::factory()->create(['user_id' => $user->id, 'event_at' => now()->addDay()]);
+    $run      = ReminderRun::create(['user_id' => $user->id, 'run_at' => now(), 'kind' => 'ahead', 'status' => 'pending']);
+    $reminder = EventReminder::create(['event_id' => $event->id, 'kind' => 'ahead', 'fire_at' => now(), 'reminder_run_id' => $run->id, 'status' => 'pending']);
+
+    (new FireReminderRun($run->id))->handle();
+
+    expect($run->fresh()->status)->toBe('fired');
+    expect($reminder->fresh()->status)->toBe('fired');
+    expect($reminder->fresh()->reminder_run_id)->toBeNull();
+    expect(AssistantMessage::count())->toBe(0);
+});
+
 it('deletes the run if it has no reminders when fired', function () {
     $user    = User::factory()->create();
     $run     = ReminderRun::create(['user_id' => $user->id, 'run_at' => now(), 'kind' => 'ahead', 'status' => 'pending']);

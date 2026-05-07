@@ -242,7 +242,7 @@ Las categorías son **dinámicas**: el Memory Worker las crea orgánicamente. An
 | Tool | Descripción |
 |---|---|
 | `get_events(filters?)` | Lista eventos — filtros: `type`, `status`, `from`, `to` |
-| `create_event(content, event_at, type, reminders[], recurrence_rule?, event_end?, referenceable?)` | Crea evento con sus disparos. `reminders` son offsets relativos. `referenceable: { type: 'list' \| 'expense', id }` vincula el evento a una entidad existente |
+| `create_event(content, event_at, type, recurrence_rule?, event_end?, referenceable?)` | Crea evento. Los recordatorios se calculan automáticamente por el sistema. `referenceable: { type: 'list' \| 'expense', id }` vincula el evento a una entidad existente |
 | `update_event(id, changes)` | Modifica campos: `content`, `event_at`, `event_end`, `type`, `recurrence_rule` |
 | `cancel_event(id, series?)` | Cancela esta ocurrencia (`series=false`) o toda la serie (`series=true`) |
 | `snooze_event(id, until)` | Pospone hasta una fecha |
@@ -321,11 +321,11 @@ Tipos globales de ejemplo: `birthday`, `appointment`, `task`, `reminder`, `deadl
 ### Ejemplo
 ```
 Usuario: "Cumpleaños de Carlos el 15 de mayo"
-LLM detecta: type=birthday, event_at=mayo 15, tiempo=~3 semanas
-LLM crea el evento con 3 disparos:
-  → mayo 8  — "En una semana es el cumpleaños de Carlos"
-  → mayo 13 — "En 2 días es el cumpleaños de Carlos"
-  → mayo 15 — "Hoy es el cumpleaños de Carlos"
+LLM detecta: type=birthday, event_at=mayo 15, tiempo=~11 días
+LLM llama create_event (sin reminders — el sistema los calcula):
+  ReminderScheduler agenda automáticamente:
+  → mayo 14 @ 10am — ahead: aviso de evento próximo
+  → mayo 15 @ 6am  — digest: lista de todos los eventos del día
 ```
 
 ### Recurrencia — modelo master + ocurrencias virtuales
@@ -367,11 +367,29 @@ get_events(from, to)
 | Modificar esta ocurrencia | — | Materializa como excepción con los cambios |
 
 ### Dispatch de disparos
-- Al crear cada ocurrencia materializada se despacha un **delayed job** (Redis) por cada `EventReminder`
-- **`MaterializeSeriesWindow`** (diario): materializa las próximas 2 semanas para cada serie activa
-- **`SweepPendingReminders`** (cada minuto, safety net): barre reminders `pending` con `fire_at <= now()`
-- Cuando un disparo se ejecuta: crea mensaje `role: system` en la conversación + broadcast WebSocket
-- Si el evento tiene `referenceable`, el mensaje incluye el label dinámico de la entidad (ej: "5 ítems pendientes en 'Supermercado'")
+
+Los recordatorios se agrupan en **`ReminderRun`**: un batch para el mismo usuario, momento y `kind`. Un solo job `FireReminderRun` gestiona el batch completo.
+
+**`ReminderScheduler::scheduleForEvent($event, $timezone)`** — llamado al crear o modificar un evento:
+- Calcula offsets desde la matriz según días hasta el evento (zona del usuario):
+  - Mismo día → inline: -1h y -10m antes del evento
+  - Sino → digest @ 6am en zona del usuario (siempre)
+  - Ahead @ 10am según distancia: ≥1Y → [-1M,-1W,-1D]; ≥1M → [-1W,-1D]; >2D → [-1D]; ≤2D → ninguno
+- Por cada momento: `firstOrCreate ReminderRun(user_id, run_at, kind)` + crea `EventReminder`
+- Si el `ReminderRun` es nuevo → `dispatch FireReminderRun` con delay hasta `run_at`
+
+**`ReminderScheduler::releaseByEventIds($eventIds)`** — llamado al cancelar o mover un evento:
+- Pone `reminder_run_id = null` + `status = cancelled` en los `EventReminder` activos
+- Por cada `ReminderRun` afectado: si no quedan reminders activos, cancela el job y borra el run
+
+**`MaterializeSeriesWindow`** (diario): materializa 2 semanas de cada serie activa, llama `scheduleForEvent` por cada nueva ocurrencia.
+
+**`SweepPendingReminders`** (cada 15 min, safety net): barre `ReminderRun` con `status=pending` y `run_at <= now()`, despacha `FireReminderRun`.
+
+Cuando `FireReminderRun` ejecuta:
+- Construye mensaje según `kind`: digest (lista del día), ahead (aviso de próximo evento), inline (-1h/-10m)
+- Crea mensaje `role: system` en la sesión + broadcast WebSocket
+- Pone `reminder_run_id = null` en todos los `EventReminder` del run (liberados)
 
 ---
 
@@ -484,10 +502,20 @@ events
 
 event_reminders
   id, event_id FK
-  fire_at datetime UTC
-  message string
-  status  enum: pending | fired | failed
-  fired_at datetime nullable
+  kind             enum: digest | ahead | inline
+  fire_at          datetime UTC
+  reminder_run_id  bigint nullable FK → reminder_runs(id) ON DELETE SET NULL
+                   — null = liberado (fired o cancelled); non-null = activo / pendiente
+  status           enum: pending | fired | cancelled
+  fired_at         datetime nullable
+
+reminder_runs
+  id, user_id FK
+  run_at   datetime UTC   — momento exacto del disparo (agrupador por usuario + tiempo + kind)
+  kind     enum: digest | ahead | inline
+  job_id   bigint nullable — referencia al job en la tabla jobs; nulo si el run fue dispatched
+  status   enum: pending | fired | cancelled
+  UNIQUE(user_id, run_at, kind)
 
 -- Listas
 lists

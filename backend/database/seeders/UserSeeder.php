@@ -25,6 +25,7 @@ class UserSeeder extends Seeder
                 [
                     'name'     => $data['name'],
                     'password' => Hash::make('password'),
+                    'lang'     => 'en',
                 ],
             );
 

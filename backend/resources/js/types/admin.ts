@@ -93,20 +93,25 @@ export interface AdminJob {
 }
 
 export interface AdminJobDetail extends AdminJob {
-  reminder: {
+  run: {
     id: number
-    message: string
-    fire_at: string
+    kind: string
+    run_at: string
     status: string
-    fired_at: string | null
-    event: {
+    reminders: Array<{
       id: number
-      content: string
-      event_at: string
-      type: string
-      user_id: number
-      user: { name: string; email: string } | null
-    } | null
+      kind: string
+      fire_at: string
+      status: string
+      fired_at: string | null
+      event: {
+        id: number
+        content: string
+        event_at: string
+        type: string
+        user: { name: string; email: string } | null
+      } | null
+    }>
   } | null
 }
 

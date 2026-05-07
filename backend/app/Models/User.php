@@ -18,7 +18,7 @@ class User extends Authenticatable implements JWTSubject, HasMedia
 {
     use HasFactory, HasHashId, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['name', 'email', 'password', 'timezone', 'default_currency', 'username', 'friend_code', 'is_admin'];
+    protected $fillable = ['name', 'email', 'password', 'timezone', 'lang', 'default_currency', 'username', 'friend_code', 'is_admin'];
 
     protected $hidden = ['password', 'remember_token'];
 

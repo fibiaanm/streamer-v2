@@ -13,56 +13,83 @@
     <div v-if="loadingDetail" class="py-10 text-center text-sm text-white/25">Loading…</div>
 
     <template v-else-if="detail">
-      <div v-if="detail.reminder" class="space-y-4">
-        <p class="text-[10px] font-bold uppercase tracking-widest text-white/30">Reminder</p>
+      <div v-if="detail.run" class="space-y-5">
 
-        <div class="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
-          <div class="flex items-start justify-between gap-4">
-            <p class="text-sm text-white/80 leading-relaxed">{{ detail.reminder.message }}</p>
-            <span
-              class="shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
-              :class="statusClass(detail.reminder.status)"
-            >{{ detail.reminder.status }}</span>
+        <!-- Run header -->
+        <div class="rounded-xl border border-white/8 bg-white/3 p-4 flex items-center justify-between gap-4">
+          <div class="space-y-1">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-white/30">Reminder Run</p>
+            <p class="text-sm text-white/70 tabular-nums">{{ formatDt(detail.run.run_at) }}</p>
           </div>
-
-          <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-            <div>
-              <p class="text-white/30 mb-0.5">Fire at</p>
-              <p class="text-white/70 tabular-nums">{{ formatDt(detail.reminder.fire_at) }}</p>
-            </div>
-            <div v-if="detail.reminder.fired_at">
-              <p class="text-white/30 mb-0.5">Fired at</p>
-              <p class="text-white/70 tabular-nums">{{ formatDt(detail.reminder.fired_at) }}</p>
-            </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/8 text-white/50">
+              {{ detail.run.kind }}
+            </span>
+            <span
+              class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+              :class="statusClass(detail.run.status)"
+            >{{ detail.run.status }}</span>
           </div>
         </div>
 
-        <div v-if="detail.reminder.event">
-          <p class="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">Event</p>
-          <div class="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
-            <p class="text-sm text-white/80">{{ detail.reminder.event.content }}</p>
-            <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-              <div>
-                <p class="text-white/30 mb-0.5">Event at</p>
-                <p class="text-white/70 tabular-nums">{{ formatDt(detail.reminder.event.event_at) }}</p>
+        <!-- Reminders list -->
+        <div>
+          <p class="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-3">
+            Recordatorios ({{ detail.run.reminders.length }})
+          </p>
+
+          <div class="space-y-3">
+            <div
+              v-for="reminder in detail.run.reminders"
+              :key="reminder.id"
+              class="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3"
+            >
+              <!-- Reminder meta -->
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/8 text-white/50">
+                    {{ reminder.kind }}
+                  </span>
+                  <span class="text-xs text-white/40 tabular-nums">{{ formatDt(reminder.fire_at) }}</span>
+                </div>
+                <span
+                  class="shrink-0 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  :class="statusClass(reminder.status)"
+                >{{ reminder.status }}</span>
               </div>
-              <div>
-                <p class="text-white/30 mb-0.5">Type</p>
-                <p class="text-white/70">{{ detail.reminder.event.type }}</p>
+
+              <div v-if="reminder.fired_at" class="text-xs text-white/30">
+                Fired at {{ formatDt(reminder.fired_at) }}
               </div>
-              <div v-if="detail.reminder.event.user" class="col-span-2">
-                <p class="text-white/30 mb-0.5">User</p>
-                <p class="text-white/70">
-                  {{ detail.reminder.event.user.name }}
-                  <span class="text-white/30">· {{ detail.reminder.event.user.email }}</span>
-                </p>
+
+              <!-- Event -->
+              <div v-if="reminder.event" class="pt-2 border-t border-white/6 space-y-2">
+                <p class="text-[10px] font-bold uppercase tracking-widest text-white/25">Evento</p>
+                <p class="text-sm text-white/80 leading-relaxed">{{ reminder.event.content }}</p>
+                <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                  <div>
+                    <p class="text-white/30 mb-0.5">Event at</p>
+                    <p class="text-white/70 tabular-nums">{{ formatDt(reminder.event.event_at) }}</p>
+                  </div>
+                  <div>
+                    <p class="text-white/30 mb-0.5">Type</p>
+                    <p class="text-white/70">{{ reminder.event.type }}</p>
+                  </div>
+                  <div v-if="reminder.event.user" class="col-span-2">
+                    <p class="text-white/30 mb-0.5">User</p>
+                    <p class="text-white/70">
+                      {{ reminder.event.user.name }}
+                      <span class="text-white/30">· {{ reminder.event.user.email }}</span>
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-else class="py-10 text-center text-sm text-white/25">No reminder linked to this job</div>
+      <div v-else class="py-10 text-center text-sm text-white/25">No reminder run linked to this job</div>
     </template>
   </AdminDetailPanel>
 </template>

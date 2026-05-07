@@ -10,6 +10,7 @@ use App\Domain\Assistant\Models\ReminderRun;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Throwable;
@@ -22,7 +23,7 @@ class FireReminderRun implements ShouldQueue
 
     public function handle(): void
     {
-        $run = ReminderRun::find($this->runId);
+        $run = ReminderRun::with('user')->find($this->runId);
 
         if (! $run || $run->status !== 'pending') {
             return;
@@ -45,10 +46,18 @@ class FireReminderRun implements ShouldQueue
 
         if (! $session) {
             Log::warning('assistant.fire_reminder_run_no_session', ['run_id' => $this->runId]);
+            EventReminder::where('reminder_run_id', $run->id)->update([
+                'reminder_run_id' => null,
+                'status'          => 'fired',
+                'fired_at'        => now(),
+            ]);
+            $run->update(['status' => 'fired']);
             return;
         }
 
-        $content = $this->buildMessage($run, $reminders);
+        $timezone = $run->user->timezone ?? 'UTC';
+        App::setLocale($run->user->lang ?? 'en');
+        $content  = $this->buildMessage($run, $reminders, $timezone);
 
         $message = AssistantMessage::create([
             'conversation_id'  => $conversation->id,
@@ -90,20 +99,24 @@ class FireReminderRun implements ShouldQueue
         }
     }
 
-    private function buildMessage(ReminderRun $run, Collection $reminders): string
+    private function buildMessage(ReminderRun $run, Collection $reminders, string $timezone): string
     {
         return match ($run->kind) {
-            'digest' => $this->buildDigestMessage($reminders),
+            'digest' => $this->buildDigestMessage($reminders, $timezone),
             'ahead'  => $this->buildAheadMessage($reminders),
             default  => $this->buildInlineMessage($reminders),
         };
     }
 
-    private function buildDigestMessage(Collection $reminders): string
+    private function buildDigestMessage(Collection $reminders, string $timezone): string
     {
-        $lines = $reminders->map(fn ($r) => '- ' . $r->event->content . ' a las ' . $r->event->event_at->format('H:i'))->join("\n");
+        $lines = $reminders->map(function ($r) use ($timezone) {
+            $time = $r->event->event_at->copy()->setTimezone($timezone)->format('H:i');
 
-        return "Estos son tus eventos de hoy:\n{$lines}";
+            return __('reminders.digest_item', ['content' => $r->event->content, 'time' => $time]);
+        })->join("\n");
+
+        return __('reminders.digest_header') . "\n" . $lines;
     }
 
     private function buildAheadMessage(Collection $reminders): string
@@ -112,18 +125,18 @@ class FireReminderRun implements ShouldQueue
             $days = (int) now()->startOfDay()->diffInDays($r->event->event_at->startOfDay());
 
             $when = match (true) {
-                $days === 1 => 'mañana',
-                $days <= 6  => "en {$days} días",
-                $days <= 13 => 'en 1 semana',
-                $days <= 27 => 'en ' . ceil($days / 7) . ' semanas',
-                $days <= 45 => 'en 1 mes',
-                default     => 'en ' . round($days / 30) . ' meses',
+                $days === 1 => __('reminders.ahead_tomorrow'),
+                $days <= 6  => __('reminders.ahead_days',   ['count' => $days]),
+                $days <= 13 => __('reminders.ahead_week'),
+                $days <= 27 => __('reminders.ahead_weeks',  ['count' => (int) ceil($days / 7)]),
+                $days <= 45 => __('reminders.ahead_month'),
+                default     => __('reminders.ahead_months', ['count' => (int) round($days / 30)]),
             };
 
-            return "- {$r->event->content}: {$when}";
+            return __('reminders.ahead_item', ['content' => $r->event->content, 'when' => $when]);
         })->join("\n");
 
-        return "Recordatorio de próximos eventos:\n{$lines}";
+        return __('reminders.ahead_header') . "\n" . $lines;
     }
 
     private function buildInlineMessage(Collection $reminders): string
@@ -131,11 +144,15 @@ class FireReminderRun implements ShouldQueue
         $event       = $reminders->first()->event;
         $minutesLeft = (int) now()->diffInMinutes($event->event_at, false);
 
-        if ($minutesLeft <= 15) {
-            return "Tu evento «{$event->content}» empieza en {$minutesLeft} minutos.";
+        if ($minutesLeft <= 0) {
+            return __('reminders.inline_missed',   ['content' => $event->content]);
         }
 
-        return "Tu evento «{$event->content}» empieza en 1 hora.";
+        if ($minutesLeft <= 15) {
+            return __('reminders.inline_minutes', ['content' => $event->content, 'count' => $minutesLeft]);
+        }
+
+        return __('reminders.inline_hour', ['content' => $event->content]);
     }
 
     public function failed(Throwable $exception): void

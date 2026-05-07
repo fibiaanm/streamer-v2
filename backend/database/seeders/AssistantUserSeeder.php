@@ -27,6 +27,7 @@ class AssistantUserSeeder extends Seeder
                 [
                     'name'        => $data['name'],
                     'password'    => Hash::make('password'),
+                    'lang'        => 'en',
                     'friend_code' => $this->uniqueFriendCode(),
                     'is_admin'    => $data['is_admin'] ?? false,
                 ],

@@ -131,6 +131,37 @@ it('schedules inline reminders for same-day events', function () {
     expect($reminders->pluck('kind')->unique()->values()->all())->toBe(['inline']);
 });
 
+it('schedules a single inline reminder at event_at for imminent events (< 10 min)', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $eventAt = now()->addMinutes(5);
+
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at' => $eventAt->toIso8601String(),
+        ]))
+        ->assertCreated();
+
+    $reminders = EventReminder::all();
+    expect($reminders->count())->toBe(1);
+    expect($reminders->first()->kind)->toBe('inline');
+    expect($reminders->first()->fire_at->toDateTimeString())->toBe($eventAt->toDateTimeString());
+});
+
+it('does not create reminders for past events', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    // event_at en el pasado → scheduleForEvent genera 0 reminders
+    $this->withHeaders(asstHdr($token, $enterprise))
+        ->postJson('/api/v1/assistant/events', createEventPayload([
+            'event_at' => now()->subHour()->toIso8601String(),
+        ]))
+        ->assertCreated();
+
+    expect(EventReminder::count())->toBe(0);
+    expect(ReminderRun::count())->toBe(0);
+});
+
 it('schedules digest + ahead reminders for future events', function () {
     [$user, $enterprise, $token] = asstCtx();
 

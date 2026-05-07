@@ -7,6 +7,7 @@ use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Models\ReminderRun;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 class ReminderScheduler
@@ -50,23 +51,28 @@ class ReminderScheduler
         int $userId,
         string $timezone,
     ): void {
-        $reminder = EventReminder::create([
-            'event_id' => $event->id,
-            'kind'     => $kind,
-            'fire_at'  => $fireAt,
-            'status'   => 'pending',
-        ]);
-
-        $run = ReminderRun::firstOrCreate(
-            ['user_id' => $userId, 'run_at' => $fireAt->toDateTimeString(), 'kind' => $kind, 'status' => 'pending'],
-        );
-
-        if (! $run->job_id) {
-            $jobId = Queue::laterOn('assistant', $fireAt, new FireReminderRun($run->id));
-            $run->update(['job_id' => (string) $jobId]);
+        if ($fireAt->isPast()) {
+            return;
         }
 
-        $reminder->update(['reminder_run_id' => $run->id]);
+        DB::transaction(function () use ($event, $kind, $fireAt, $userId) {
+            $run = ReminderRun::firstOrCreate(
+                ['user_id' => $userId, 'run_at' => $fireAt->toDateTimeString(), 'kind' => $kind, 'status' => 'pending'],
+            );
+
+            if (! $run->job_id) {
+                $jobId = Queue::laterOn('assistant', $fireAt, new FireReminderRun($run->id));
+                $run->update(['job_id' => (string) $jobId]);
+            }
+
+            EventReminder::create([
+                'event_id'        => $event->id,
+                'kind'            => $kind,
+                'fire_at'         => $fireAt,
+                'status'          => 'pending',
+                'reminder_run_id' => $run->id,
+            ]);
+        });
     }
 
     public static function fromMatrix(Carbon $eventAt, string $timezone): array
@@ -111,6 +117,11 @@ class ReminderScheduler
 
         if ($minus10m->isFuture()) {
             $entries[] = ['kind' => 'inline', 'fire_at' => $minus10m];
+        }
+
+        // Event is imminent (< 10 min): fire exactly at event_at so "remind me in 5m" works
+        if (empty($entries) && $eventAt->isFuture()) {
+            $entries[] = ['kind' => 'inline', 'fire_at' => $eventAt->copy()];
         }
 
         return $entries;
