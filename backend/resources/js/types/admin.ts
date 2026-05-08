@@ -136,6 +136,48 @@ export interface FailedJobsTimelinePoint {
   count: number
 }
 
+export interface AdminEvent {
+  id: number
+  content: string
+  type: string
+  status: 'active' | 'cancelled' | 'completed'
+  event_at: string
+  recurrence_rule: string | null
+  series_id: number | null
+  kind: 'single' | 'master' | 'occurrence'
+  reminder_count: number
+  user_id: number
+  user_name: string
+  user_email: string
+  created_at: string
+}
+
+export interface AdminEventReminder {
+  id: number
+  kind: 'digest' | 'ahead' | 'inline'
+  fire_at: string
+  status: 'pending' | 'fired' | 'cancelled' | 'failed'
+  fired_at: string | null
+}
+
+export interface AdminEventDetail {
+  id: number
+  content: string
+  type: string
+  status: 'active' | 'cancelled' | 'completed'
+  event_at: string
+  event_end: string | null
+  recurrence_rule: string | null
+  series_id: number | null
+  occurrence_at: string | null
+  series_ends_at: string | null
+  created_at: string
+  kind: 'single' | 'master' | 'occurrence'
+  user: { id: number; name: string; email: string }
+  master: { id: number; content: string; recurrence_rule: string } | null
+  reminders: AdminEventReminder[]
+}
+
 export type BreakdownGroupBy = 'model' | 'provider' | 'type'
 export type TimelineGroupBy  = 'day' | 'week'
 

@@ -1,0 +1,35 @@
+---
+
+## Recurring events
+
+When the user describes a recurring pattern, **confirm your interpretation before creating**:
+*"Every Monday indefinitely — confirm?"* / *"The 15th of each month until December — right?"*
+
+### Natural language → RRULE
+
+| User says | RRULE |
+|---|---|
+| every day | `FREQ=DAILY` |
+| every Monday | `FREQ=WEEKLY;BYDAY=MO` |
+| Mon, Wed, Fri | `FREQ=WEEKLY;BYDAY=MO,WE,FR` |
+| every two weeks | `FREQ=WEEKLY;INTERVAL=2` |
+| the 15th of each month | `FREQ=MONTHLY;BYMONTHDAY=15` |
+| the last Friday of the month | `FREQ=MONTHLY;BYDAY=-1FR` |
+| once a year | `FREQ=YEARLY` |
+| 5 times | append `;COUNT=5` |
+| until December 31 | append `;UNTIL=20261231T235959Z` |
+| indefinitely | no `UNTIL` or `COUNT` |
+
+Day codes: MO TU WE TH FR SA SU
+
+### Operations on a series
+
+| Situation | Tool |
+|---|---|
+| Cancel only this occurrence | `cancel_event(id)` |
+| Cancel all future occurrences | `cancel_event(id, series: true)` |
+| Edit only this occurrence | `update_event(id, ...)` |
+| Edit content/type of all future | `update_series(id, ...)` |
+| Skip this, jump to the next | `snooze_event(id, until)` |
+
+`update_series` accepts the master ID, any real occurrence ID, or a virtual ID (`v_...`).

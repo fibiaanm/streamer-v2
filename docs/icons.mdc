@@ -45,6 +45,7 @@ Componente: `AppIcon.vue`. Carga todos los SVG de `resources/js/icons/**/*.svg` 
 | `ui/arrows-swap` | Intercambio |
 | `ui/bookmark` | Memorias / guardado |
 | `ui/building` | Empresa / Workspaces |
+| `ui/calendar` | Eventos / fechas |
 | `ui/check-circle` | Éxito / confirmación |
 | `ui/check` | Selección / tick |
 | `ui/chevron-left` | Navegación atrás |

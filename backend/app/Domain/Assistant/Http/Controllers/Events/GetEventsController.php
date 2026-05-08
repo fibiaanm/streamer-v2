@@ -89,11 +89,14 @@ class GetEventsController extends Controller
                         continue; // virtual occurrences are always active
                     }
                     $events->push((object) [
-                        'id'        => "v_{$master->id}_{$date}",
-                        'series_id' => $master->id,
-                        'content'   => $master->content,
-                        'event_at'  => Carbon::instance($dt)->toIso8601String(),
-                        '_virtual'  => true,
+                        'id'              => "v_{$master->id}_{$date}",
+                        'series_id'       => $master->id,
+                        'content'         => $master->content,
+                        'type'            => $master->type,
+                        'event_at'        => Carbon::instance($dt)->toIso8601String(),
+                        'event_end'       => null,
+                        'recurrence_rule' => $master->recurrence_rule,
+                        '_virtual'        => true,
                     ]);
                 }
             }
@@ -107,12 +110,15 @@ class GetEventsController extends Controller
         $data = $sorted->map(function ($e) {
             if (is_object($e) && isset($e->_virtual) && $e->_virtual) {
                 return [
-                    'id'        => $e->id,
-                    'virtual'   => true,
-                    'series_id' => $e->series_id,
-                    'content'   => $e->content,
-                    'event_at'  => $e->event_at,
-                    'reminders' => [],
+                    'id'              => $e->id,
+                    'virtual'         => true,
+                    'series_id'       => $e->series_id,
+                    'content'         => $e->content,
+                    'type'            => $e->type,
+                    'event_at'        => $e->event_at,
+                    'event_end'       => $e->event_end,
+                    'recurrence_rule' => $e->recurrence_rule,
+                    'reminders'       => [],
                 ];
             }
 

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminConversationDetailController;
 use App\Http\Controllers\Admin\AdminConversationsController;
+use App\Http\Controllers\Admin\AdminEventsController;
 use App\Http\Controllers\Admin\AdminFailedJobsSummaryController;
 use App\Http\Controllers\Admin\AdminFailedJobsTimelineController;
 use App\Http\Controllers\Admin\AdminJobDetailController;
@@ -27,6 +28,10 @@ Route::prefix('admin')->middleware(['auth.jwt', 'admin'])->group(function () {
     // Conversations
     Route::get('conversations',      AdminConversationsController::class);
     Route::get('conversations/{id}', AdminConversationDetailController::class);
+
+    // Events
+    Route::get('events',      [AdminEventsController::class, 'index']);
+    Route::get('events/{id}', [AdminEventsController::class, 'show']);
 
     // Jobs queue
     Route::get('jobs',      AdminJobsController::class);

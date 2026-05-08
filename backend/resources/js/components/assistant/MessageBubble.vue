@@ -48,21 +48,15 @@
         </template>
 
         <template v-else>
-          <div class="flex flex-wrap gap-2 items-start">
-            <template v-for="opt in message.metadata.options" :key="opt.value">
-              <button
-                v-if="opt.type === 'button'"
-                @click="emit('select-option', message.id, opt.value)"
-                class="px-3 py-1 rounded-lg text-xs font-medium glass-brand text-brand-300 hover:text-brand-200 transition-colors"
-              >
-                {{ opt.label }}
-              </button>
-              <DatetimePicker
-                v-else-if="opt.type === 'datetime'"
-                :default-value="opt.default"
-                @confirm="emit('select-option', message.id, $event)"
-              />
-            </template>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="opt in message.metadata.options"
+              :key="opt.value"
+              class="px-3 py-1 rounded-lg text-xs font-medium glass-brand text-brand-300 hover:text-brand-200 transition-colors"
+              @click="emit('select-option', message.id, opt.value)"
+            >
+              {{ opt.label }}
+            </button>
           </div>
         </template>
       </div>
@@ -75,7 +69,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AssistantMessage } from '@/composables/assistant/useMessages'
-import DatetimePicker from '@/components/assistant/DatetimePicker.vue'
 import { renderMarkdown } from '@/lib/markdown'
 import { useDate } from '@/composables/core/useDate'
 

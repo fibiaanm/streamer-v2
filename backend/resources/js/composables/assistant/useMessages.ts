@@ -2,10 +2,8 @@ import { ref } from 'vue'
 import { useApi } from '@/lib/api'
 
 export interface MessageOption {
-  type:     'button' | 'datetime'
-  label:    string
-  value:    string
-  default?: string
+  label: string
+  value: string
 }
 
 export interface MessageMetadata {

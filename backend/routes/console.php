@@ -3,6 +3,7 @@
 use App\Console\Commands\ExpireInvitationsCommand;
 use App\Console\Commands\PruneFailedJobsCommand;
 use App\Domain\Assistant\Jobs\SweepPendingReminders;
+use App\Domain\Assistant\Jobs\SweepSeriesChains;
 use App\Domain\Assistant\Jobs\SweepTokenUsageRollupJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -22,6 +23,10 @@ Schedule::job(new SweepTokenUsageRollupJob())
 
 Schedule::job(new SweepPendingReminders())
     ->everyFifteenMinutes()
+    ->withoutOverlapping();
+
+Schedule::job(new SweepSeriesChains())
+    ->dailyAt('05:00')
     ->withoutOverlapping();
 
 Schedule::command(PruneFailedJobsCommand::class, ['--months=1'])

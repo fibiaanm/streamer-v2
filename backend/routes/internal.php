@@ -6,6 +6,7 @@ use App\Domain\Assistant\Http\Controllers\Events\DetachEventReferenceController;
 use App\Domain\Assistant\Http\Controllers\Events\GetEventsController;
 use App\Domain\Assistant\Http\Controllers\Events\SnoozeEventController;
 use App\Domain\Assistant\Http\Controllers\Events\UpdateEventController;
+use App\Domain\Assistant\Http\Controllers\Events\UpdateSeriesController;
 use App\Domain\Assistant\Http\Controllers\Lists\AddToListController;
 use App\Domain\Assistant\Http\Controllers\Lists\ClearCompletedItemsController;
 use App\Domain\Assistant\Http\Controllers\Lists\CreateListController;
@@ -44,6 +45,7 @@ Route::prefix('internal')->middleware('assistant.service')->group(function () {
         Route::get('events',                       GetEventsController::class);
         Route::post('events',                      CreateEventController::class);
         Route::patch('events/{eventId}',             UpdateEventController::class);
+        Route::patch('events/{eventId}/series',      UpdateSeriesController::class);
         Route::post('events/{eventId}/cancel',       CancelEventController::class);
         Route::post('events/{eventId}/snooze',       SnoozeEventController::class);
         Route::delete('events/{eventId}/reference',  DetachEventReferenceController::class);

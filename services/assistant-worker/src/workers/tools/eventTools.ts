@@ -83,6 +83,22 @@ export const EVENT_TOOLS: StandardTool[] = [
     },
   },
   {
+    name: 'update_series',
+    description:
+      'Actualiza el contenido, tipo o duración de TODOS los eventos futuros de una serie recurrente. ' +
+      'Acepta el ID del master, de cualquier ocurrencia real o de una ocurrencia virtual ("v_...").',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id:        { type: 'string' },
+        content:   { type: 'string' },
+        type:      { type: 'string' },
+        event_end: { type: 'string', description: 'ISO 8601 UTC' },
+      },
+    },
+  },
+  {
     name: 'detach_event_reference',
     description: 'Desasocia el evento de su lista/gasto vinculado sin cancelarlo.',
     inputSchema: {

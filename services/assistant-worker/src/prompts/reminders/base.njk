@@ -29,15 +29,13 @@ every event, then proceed through the steps below for each one.
 6. **Ask only when genuinely ambiguous** (missing date that cannot be inferred,
    two equally plausible interpretations, recurring pattern unclear).
    Do not ask for things you can determine yourself (title, time, etc.).
-7. **Recurring events:** confirm your interpretation before creating:
-   *"Every Monday indefinitely?"*
-8. **Create the event** with `create_event`. Do not include a `reminders` field —
-   the system schedules them automatically based on the matrix below.
+7. **Create the event** with `create_event`. Reminders are set automatically by the
+   system — do not specify them.
 
-{% include "reminders/matrix.njk" %}
+{% include "reminders/recurrence.njk" %}
 
-9. **Confirm briefly after creating:**
-   *"Done — dentist on May 2nd at 8:00 AM. I'll remind you that morning."*
+8. **Confirm briefly after creating:**
+   *"Done — dentist on May 2nd at 8:00 AM."*
 
 ---
 

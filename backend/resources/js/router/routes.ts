@@ -70,6 +70,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'conversations', component: () => import('@/views/Admin/ConversationsView.vue') },
       { path: 'jobs',         component: () => import('@/views/Admin/JobsView.vue') },
       { path: 'failed-jobs', component: () => import('@/views/Admin/FailedJobsView.vue') },
+      { path: 'events',     component: () => import('@/views/Admin/EventsView.vue') },
     ],
   },
 

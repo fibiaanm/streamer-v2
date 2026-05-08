@@ -33,6 +33,7 @@
           <AdminSidebarItem to="/admin/conversations" icon="ui/message-square" label="Conversations" />
           <AdminSidebarItem to="/admin/jobs"          icon="ui/clock"          label="Jobs Queue" />
           <AdminSidebarItem to="/admin/failed-jobs"   icon="ui/alert-triangle" label="Failed Jobs" />
+          <AdminSidebarItem to="/admin/events"        icon="ui/calendar"       label="Events" />
         </nav>
       </div>
     </template>

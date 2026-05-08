@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Assistant\Jobs\FireReminderRun;
+use App\Domain\Assistant\Jobs\MaterializeNextOccurrence;
 use App\Domain\Assistant\Models\AssistantEvent;
 use App\Domain\Assistant\Models\AssistantMessage;
 use App\Domain\Assistant\Models\AssistantSession;
@@ -8,6 +9,7 @@ use App\Domain\Assistant\Models\Conversation;
 use App\Domain\Assistant\Models\EventReminder;
 use App\Domain\Assistant\Models\ReminderRun;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
 
 beforeEach(fn () => Redis::partialMock());
@@ -169,4 +171,57 @@ it('deletes the run if it has no reminders when fired', function () {
     (new FireReminderRun($run->id))->handle();
 
     expect(ReminderRun::find($run->id))->toBeNull();
+});
+
+it('dispatches MaterializeNextOccurrence for series occurrences in a digest run', function () {
+    Queue::fake();
+
+    $user         = User::factory()->create();
+    $conversation = Conversation::factory()->create(['user_id' => $user->id]);
+    AssistantSession::factory()->create(['conversation_id' => $conversation->id]);
+
+    $master = AssistantEvent::factory()->master('FREQ=WEEKLY')->create([
+        'user_id'  => $user->id,
+        'event_at' => now()->subDay(),
+    ]);
+
+    $occurrence = AssistantEvent::factory()->occurrence($master)->create([
+        'user_id'       => $user->id,
+        'event_at'      => now()->subDay(),
+        'occurrence_at' => now()->subDay(),
+    ]);
+
+    $run      = ReminderRun::create(['user_id' => $user->id, 'run_at' => now(), 'kind' => 'digest', 'status' => 'pending']);
+    EventReminder::create(['event_id' => $occurrence->id, 'kind' => 'digest', 'fire_at' => now(), 'reminder_run_id' => $run->id, 'status' => 'pending']);
+
+    (new FireReminderRun($run->id))->handle();
+
+    Queue::assertPushed(MaterializeNextOccurrence::class, fn ($job) => $job->occurrenceId === $occurrence->id);
+});
+
+it('does not dispatch MaterializeNextOccurrence for single events in a digest run', function () {
+    Queue::fake();
+
+    $user         = User::factory()->create();
+    $conversation = Conversation::factory()->create(['user_id' => $user->id]);
+    AssistantSession::factory()->create(['conversation_id' => $conversation->id]);
+
+    $single   = AssistantEvent::factory()->create(['user_id' => $user->id, 'event_at' => now()->addDay()]);
+    $run      = ReminderRun::create(['user_id' => $user->id, 'run_at' => now(), 'kind' => 'digest', 'status' => 'pending']);
+    EventReminder::create(['event_id' => $single->id, 'kind' => 'digest', 'fire_at' => now(), 'reminder_run_id' => $run->id, 'status' => 'pending']);
+
+    (new FireReminderRun($run->id))->handle();
+
+    Queue::assertNotPushed(MaterializeNextOccurrence::class);
+});
+
+it('does not dispatch MaterializeNextOccurrence for ahead or inline runs', function () {
+    Queue::fake();
+
+    [$user, , , $event, $run] = runCtx('ahead');
+    EventReminder::create(['event_id' => $event->id, 'kind' => 'ahead', 'fire_at' => now(), 'reminder_run_id' => $run->id, 'status' => 'pending']);
+
+    (new FireReminderRun($run->id))->handle();
+
+    Queue::assertNotPushed(MaterializeNextOccurrence::class);
 });

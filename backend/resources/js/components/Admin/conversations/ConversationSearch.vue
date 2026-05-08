@@ -75,8 +75,12 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminConversations } from '@/composables/admin/useAdminConversations'
+import { useSession } from '@/composables/core/useSession'
+import { useDate } from '@/composables/core/useDate'
 
 const { conversations, pagination, loading, fetch } = useAdminConversations()
+const { user } = useSession()
+const { formatDatetime } = useDate()
 
 const route  = useRoute()
 const router = useRouter()
@@ -138,20 +142,15 @@ const fmt = (n: number) =>
   : n >= 1_000   ? `${(n / 1_000).toFixed(1)}K`
   : String(n)
 
-const formatDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+const formatDate = (d: string) => formatDatetime(d)
 
 onMounted(() => {
-  query.value = String(route.query.q    ?? '')
+  query.value = String(route.query.q    ?? user.value?.email ?? '')
   from.value  = String(route.query.from ?? '')
   to.value    = String(route.query.to   ?? '')
   page.value  = Number(route.query.page ?? 1)
 
-  const params    = buildParams()
-  const hasFilter = params.user_id || params.email || params.from || params.to
-  if (hasFilter) {
-    searched.value = true
-    fetch(params)
-  }
+  searched.value = true
+  fetch(buildParams())
 })
 </script>

@@ -48,6 +48,8 @@ export class ToolExecutor {
           return await this.cancelEvent(input);
         case 'snooze_event':
           return await this.snoozeEvent(input);
+        case 'update_series':
+          return await this.updateSeries(input);
         case 'detach_event_reference':
           return await this.detachEventReference(input);
         case 'get_lists':
@@ -110,6 +112,12 @@ export class ToolExecutor {
   private async snoozeEvent(input: Record<string, unknown>): Promise<string> {
     const { id, ...body } = input;
     const res = await this.laravel.post(`${this.base}/events/${String(id)}/snooze`, body) as { data: Record<string, unknown> };
+    return JSON.stringify({ data: projectEvent(res?.data ?? {}) });
+  }
+
+  private async updateSeries(input: Record<string, unknown>): Promise<string> {
+    const { id, ...body } = input;
+    const res = await this.laravel.patch(`${this.base}/events/${String(id)}/series`, body) as { data: Record<string, unknown> };
     return JSON.stringify({ data: projectEvent(res?.data ?? {}) });
   }
 

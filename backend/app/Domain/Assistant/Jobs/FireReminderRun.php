@@ -78,6 +78,12 @@ class FireReminderRun implements ShouldQueue
 
         $run->update(['status' => 'fired']);
 
+        if ($run->kind === 'digest') {
+            $reminders
+                ->filter(fn ($r) => $r->event?->series_id !== null)
+                ->each(fn ($r) => MaterializeNextOccurrence::dispatch($r->event_id)->onQueue('assistant-series'));
+        }
+
         try {
             Redis::connection('pubsub')->publish("assistant.{$session->getHashId()}", json_encode([
                 'event' => 'MessageReceived',
@@ -144,8 +150,8 @@ class FireReminderRun implements ShouldQueue
         $event       = $reminders->first()->event;
         $minutesLeft = (int) now()->diffInMinutes($event->event_at, false);
 
-        // Queue latency or sweep delay can fire the job seconds/minutes after event_at.
-        // Treat anything within 5 min past as "starting now", not missed.
+        // Queue latency or sweep delay can fire the job a few minutes after event_at.
+        // Treat up to 5 min past as "starting now"; beyond that as missed.
         if ($minutesLeft < -5) {
             return __('reminders.inline_missed', ['content' => $event->content]);
         }
