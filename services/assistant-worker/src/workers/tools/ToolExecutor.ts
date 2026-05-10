@@ -117,8 +117,23 @@ export class ToolExecutor {
 
   private async updateSeries(input: Record<string, unknown>): Promise<string> {
     const { id, ...body } = input;
-    const res = await this.laravel.patch(`${this.base}/events/${String(id)}/series`, body) as { data: Record<string, unknown> };
-    return JSON.stringify({ data: projectEvent(res?.data ?? {}) });
+    const res = await this.laravel.patch(`${this.base}/events/${String(id)}/series`, body) as {
+      data: Record<string, unknown>;
+      exceptions?: Array<{ id: string; event_at: string; occurrence_at: string }>;
+    };
+
+    const result: Record<string, unknown> = { data: projectEvent(res?.data ?? {}) };
+
+    if (res?.exceptions && res.exceptions.length > 0) {
+      const list = res.exceptions
+        .map((e) => `• ID ${e.id} — reprogramado para ${e.event_at} (slot original: ${e.occurrence_at})`)
+        .join('\n');
+      result.exceptions_note =
+        `Hay ${res.exceptions.length} ocurrencia(s) que ya fueron reprogramadas manualmente y no se modificaron:\n${list}\n` +
+        `¿Deseas cancelarlas o dejarlas como están?`;
+    }
+
+    return JSON.stringify(result);
   }
 
   private async detachEventReference(input: Record<string, unknown>): Promise<string> {

@@ -151,6 +151,38 @@ it('includes cancelled events when status=cancelled is requested', function () {
     expect($response->json('data'))->toHaveCount(1);
 });
 
+
+it('shows a moved occurrence in the range containing its new date', function () {
+    [$user, $enterprise, $token] = asstCtx();
+
+    $master = AssistantEvent::factory()->master('FREQ=WEEKLY;BYDAY=MO')->create([
+        'user_id'  => $user->id,
+        'event_at' => '2026-05-04 10:00:00',
+    ]);
+
+    // occurrence_at = May 4 (original slot), event_at = May 11 (moved)
+    $occ = AssistantEvent::factory()->occurrence($master)->create([
+        'user_id'       => $user->id,
+        'occurrence_at' => '2026-05-04 10:00:00',
+        'event_at'      => '2026-05-11 10:00:00',
+    ]);
+
+    // Range contains event_at (May 11) but NOT occurrence_at (May 4)
+    $response = $this->withHeaders(asstHdr($token, $enterprise))
+        ->getJson(eventsUrl(['from' => '2026-05-05', 'to' => '2026-05-15']))
+        ->assertOk();
+
+    $data = collect($response->json('data'));
+
+    // Must appear as a real (non-virtual) record with the moved event_at
+    $real = $data->first(fn ($e) => $e['virtual'] === false && str_starts_with($e['event_at'], '2026-05-11'));
+    expect($real)->not->toBeNull();
+
+    // Must NOT appear as virtual for that slot
+    $virtual = $data->first(fn ($e) => $e['virtual'] === true && str_contains($e['id'], '2026-05-11'));
+    expect($virtual)->toBeNull();
+});
+
 it('does not return events from another user', function () {
     [$user, $enterprise, $token] = asstCtx();
     $other = User::factory()->create();

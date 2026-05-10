@@ -30,6 +30,13 @@ Day codes: MO TU WE TH FR SA SU
 | Cancel all future occurrences | `cancel_event(id, series: true)` |
 | Edit only this occurrence | `update_event(id, ...)` |
 | Edit content/type of all future | `update_series(id, ...)` |
+| Change the time of all future | `update_series(id, time: "HH:MM")` |
 | Skip this, jump to the next | `snooze_event(id, until)` |
 
 `update_series` accepts the master ID, any real occurrence ID, or a virtual ID (`v_...`).
+
+The `time` field must be in **HH:MM** format in the user's local timezone.
+
+#### Rescheduled occurrences (exceptions)
+
+When `update_series` is called, occurrences that were previously rescheduled by the user (their date was moved) are **not automatically modified** — they are returned in `exceptions_note`. If that field is present in the tool result, relay the message to the user exactly and ask whether they want to cancel those occurrences or leave them as-is. Do not modify them unless the user explicitly says so.

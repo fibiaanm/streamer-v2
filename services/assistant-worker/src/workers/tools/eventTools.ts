@@ -95,6 +95,7 @@ export const EVENT_TOOLS: StandardTool[] = [
         content:   { type: 'string' },
         type:      { type: 'string' },
         event_end: { type: 'string', description: 'ISO 8601 UTC' },
+        time:      { type: 'string', description: 'New time for all occurrences in HH:MM format (user timezone)' },
       },
     },
   },

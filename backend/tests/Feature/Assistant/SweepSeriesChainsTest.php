@@ -75,6 +75,28 @@ it('does not dispatch for occurrences in the future', function () {
     Queue::assertNothingPushed();
 });
 
+it('dispatches when the only successor is cancelled', function () {
+    $user   = User::factory()->create();
+    $master = AssistantEvent::factory()->master('FREQ=DAILY;INTERVAL=2')->create(['user_id' => $user->id]);
+
+    $past = AssistantEvent::factory()->occurrence($master)->create([
+        'user_id'       => $master->user_id,
+        'event_at'      => now()->subDays(4),
+        'occurrence_at' => now()->subDays(4),
+    ]);
+
+    // Only successor is cancelled — chain is broken but should be rescued
+    AssistantEvent::factory()->occurrence($master)->cancelled()->create([
+        'user_id'       => $master->user_id,
+        'event_at'      => now()->subDays(2),
+        'occurrence_at' => now()->subDays(2),
+    ]);
+
+    (new SweepSeriesChains)->handle();
+
+    Queue::assertPushed(MaterializeNextOccurrence::class, fn ($job) => $job->occurrenceId === $past->id);
+});
+
 it('dispatches for each occurrence that needs a successor across multiple series', function () {
     $user = User::factory()->create();
 

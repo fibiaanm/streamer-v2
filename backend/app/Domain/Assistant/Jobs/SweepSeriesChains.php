@@ -21,6 +21,7 @@ class SweepSeriesChains implements ShouldQueue
                     ->from('assistant_events as child')
                     ->whereColumn('child.series_id', 'assistant_events.series_id')
                     ->whereColumn('child.occurrence_at', '>', 'assistant_events.occurrence_at')
+                    ->where('child.status', '!=', 'cancelled')
                     ->whereNull('child.deleted_at');
             })
             ->each(function (AssistantEvent $occurrence) {

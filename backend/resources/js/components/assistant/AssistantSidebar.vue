@@ -88,8 +88,8 @@ async function handleNewSession() {
 const shortcuts = [
   { label: 'Memorias',      icon: 'ui/bookmark' },
   { label: 'Recordatorios', icon: 'ui/repeat' },
-  { label: 'Listas',        icon: 'ui/check' },
+  // { label: 'Listas',        icon: 'ui/check' },
   { label: 'Gastos',        icon: 'ui/info' },
-  { label: 'Amigos',        icon: 'ui/users' },
+  // { label: 'Amigos',        icon: 'ui/users' },
 ]
 </script>

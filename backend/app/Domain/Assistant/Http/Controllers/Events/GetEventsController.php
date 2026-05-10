@@ -56,13 +56,21 @@ class GetEventsController extends Controller
                                  ->orWhere('series_ends_at', '>=', $from))
             ->get();
 
-        // Materialized occurrences in range
-        $materialized = AssistantEvent::where('user_id', $userId)
+        // Materialized occurrences in range — load by canonical slot OR by actual date if moved
+        $materializedRows = AssistantEvent::where('user_id', $userId)
             ->whereNotNull('series_id')
-            ->whereBetween('event_at', [$from, $to])
+            ->where(fn ($q) => $q
+                ->whereBetween('occurrence_at', [$from, $to])
+                ->orWhereBetween('event_at', [$from, $to])
+            )
             ->with('reminders')
-            ->get()
-            ->keyBy(fn ($e) => "{$e->series_id}_{$e->occurrence_at?->toDateString()}");
+            ->get();
+
+        // Two indexes: by canonical RRULE slot and by actual event date (for moved occurrences)
+        $byOccurrenceAt = $materializedRows->keyBy(fn ($e) => "{$e->series_id}_{$e->occurrence_at?->toDateString()}");
+        $byEventAt      = $materializedRows->keyBy(fn ($e) => "{$e->series_id}_{$e->event_at?->toDateString()}");
+
+        $matched = [];
 
         foreach ($masters as $master) {
             try {
@@ -73,21 +81,24 @@ class GetEventsController extends Controller
             }
 
             foreach ($occurrences as $dt) {
-                $date = Carbon::instance($dt)->toDateString();
-                $key  = "{$master->id}_{$date}";
+                $date   = Carbon::instance($dt)->toDateString();
+                $occKey = "{$master->id}_{$date}";
 
-                if (isset($materialized[$key])) {
-                    $real = $materialized[$key];
-                    if ($real->status === 'cancelled') {
-                        continue; // skip cancelled exceptions
-                    }
-                    if (! $status || $real->status === $status) {
-                        $events->push($real);
-                    }
+                if (isset($byOccurrenceAt[$occKey])) {
+                    // Normal: occurrence_at matches RRULE slot
+                    $real           = $byOccurrenceAt[$occKey];
+                    $matched[$occKey] = true;
+                    if ($real->status === 'cancelled') continue;
+                    if (! $status || $real->status === $status) $events->push($real);
+                } elseif (isset($byEventAt[$occKey])) {
+                    // Moved occurrence whose new event_at lands on this RRULE slot
+                    $real    = $byEventAt[$occKey];
+                    $realKey = "{$real->series_id}_{$real->occurrence_at?->toDateString()}";
+                    $matched[$realKey] = true;
+                    if ($real->status === 'cancelled') continue;
+                    if (! $status || $real->status === $status) $events->push($real);
                 } else {
-                    if ($status && $status !== 'active') {
-                        continue; // virtual occurrences are always active
-                    }
+                    if ($status && $status !== 'active') continue;
                     $events->push((object) [
                         'id'              => "v_{$master->id}_{$date}",
                         'series_id'       => $master->id,
@@ -100,6 +111,14 @@ class GetEventsController extends Controller
                     ]);
                 }
             }
+        }
+
+        // Moved occurrences whose occurrence_at is outside this range but event_at is inside
+        foreach ($byOccurrenceAt as $key => $occ) {
+            if (isset($matched[$key])) continue;
+            if ($occ->status === 'cancelled') continue;
+            if ($status && $occ->status !== $status) continue;
+            $events->push($occ);
         }
 
         $sorted = $events->sortBy(fn ($e) => is_object($e) && isset($e->_virtual)

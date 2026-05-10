@@ -21,7 +21,7 @@ class MaterializeNextOccurrence implements ShouldQueue
     {
         $occurrence = AssistantEvent::with('user')->find($this->occurrenceId);
 
-        if (! $occurrence || ! $occurrence->series_id) {
+        if (! $occurrence || ! $occurrence->series_id || ! $occurrence->user) {
             return;
         }
 
@@ -58,10 +58,23 @@ class MaterializeNextOccurrence implements ShouldQueue
 
     private function findNextFreeSlot(AssistantEvent $master, Carbon $after): ?Carbon
     {
-        $current = $after;
-        $skips   = 0;
+        $cancelledSlots = AssistantEvent::where('series_id', $master->id)
+            ->where('status', 'cancelled')
+            ->pluck('occurrence_at')
+            ->map(fn ($d) => Carbon::parse($d)->toDateTimeString())
+            ->flip()
+            ->all();
 
-        while ($skips < 10) {
+        $activeSlots = AssistantEvent::where('series_id', $master->id)
+            ->whereIn('status', ['active', 'completed'])
+            ->pluck('occurrence_at')
+            ->map(fn ($d) => Carbon::parse($d)->toDateTimeString())
+            ->flip()
+            ->all();
+
+        $current = $after;
+
+        for ($i = 0; $i < 500; $i++) {
             $nextAt = $this->nextOccurrenceAfter($master, $current);
 
             if (! $nextAt) {
@@ -72,21 +85,18 @@ class MaterializeNextOccurrence implements ShouldQueue
                 return null;
             }
 
-            $existing = AssistantEvent::where('series_id', $master->id)
-                ->where('occurrence_at', $nextAt->toDateTimeString())
-                ->first();
+            $key = $nextAt->toDateTimeString();
 
-            if (! $existing) {
-                return $nextAt;
+            if (isset($activeSlots[$key])) {
+                return null; // already materialized — idempotent stop
             }
 
-            if ($existing->status !== 'cancelled') {
-                return null; // already active or completed — idempotent stop
+            if (isset($cancelledSlots[$key]) || $nextAt->isPast()) {
+                $current = $nextAt;
+                continue;
             }
 
-            // cancelled slot — skip and look for the next one
-            $current = $nextAt;
-            $skips++;
+            return $nextAt;
         }
 
         return null;
